@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use diesel::ConnectionError;
 use rocket::response::{self, Responder};
 
 #[derive(Debug)]
@@ -34,11 +35,18 @@ pub enum StorageError {
     NotFound(String),
     AlreadyExists(String),
     DecodingError(String),
+    ConnectionError(ConnectionError),
     CustomError(String),
 }
 
 impl From<std::io::Error> for StorageError {
     fn from(err: std::io::Error) -> Self {
         StorageError::IoError(err)
+    }
+}
+
+impl From<ConnectionError> for StorageError {
+    fn from(err: ConnectionError) -> Self {
+        StorageError::ConnectionError(err)
     }
 }
