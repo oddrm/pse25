@@ -21,13 +21,11 @@ pub struct AppState {
 /// Launch web server, start db threads etc.
 #[rocket::main]
 async fn main() {
-    dotenv().expect("dotenv loading error");
-
+    // dotenv().expect("dotenv loading error");
     // logging
     //let log_subscriber = FmtSubscriber::new();
     //tracing::subscriber::set_global_default(log_subscriber).unwrap();
     // tracing::info!("Logging initialized.");
-
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     #[allow(unused_mut)]
     let mut storage_instance = StorageInstance::new(&db_url).unwrap();
