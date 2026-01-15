@@ -16,17 +16,12 @@
 
 
 <script setup lang="ts">
+import { Sorting } from "~/utils/entryColumns";
 
-const columns = [
-  "Name",
-  "Path",
-  "Size",
-  "Platform",
-  "Tags",
-];
+const columns = Object.keys(Sorting);
 
 const searchString = ref("");
-const sortBy = ref(entryColumn.Name);
+const sortBy = ref(Sorting.Name);
 const ascending = ref(true);
 
 const { data: entries, refresh: refreshEntries, error: entriesFetchError, status: entriesStatus } = await useAsyncData("entries", async () => fetchEntries(searchString.value, sortBy.value, ascending.value, 1, 50));

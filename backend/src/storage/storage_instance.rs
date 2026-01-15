@@ -10,7 +10,8 @@ use crate::{
         sequence::{Sequence, SequenceID},
     },
 };
-use tokio::sync::mpsc;
+use diesel::prelude::*;
+use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::oneshot;
 
 pub type EntryID = u64;
@@ -18,8 +19,12 @@ pub type Map<K, V> = std::collections::HashMap<K, V>;
 pub type TxID = u64;
 pub type Tag = String;
 
-#[derive(Clone)]
-pub struct StorageInstance {}
+#[derive()]
+pub struct StorageInstance {
+    db_connection: PgConnection,
+    event_sender: Sender<Event>,
+    event_receiver: Receiver<Event>,
+}
 
 pub enum Event {
     NewEntry(PathBuf),
@@ -29,18 +34,17 @@ pub enum Event {
     GetMetadata(PathBuf, oneshot::Sender<Option<Metadata>>),
     GetPath(EntryID, oneshot::Sender<Option<PathBuf>>),
     GetSequences(EntryID, oneshot::Sender<Map<SequenceID, Sequence>>),
-    GetIterClone(oneshot::Sender<Iter>),
 }
-// TODO think about importing yaml metadata files
-// TODO parallel read access, use multiversion concurrency control, as much as possible sled inbuilt functionality
-// TODO make reads and writes always transactional
-// TODO rename to records?
-// find name for non-file data
-// TODO differentiate between file and non-file read/write
-// TODO system scan for file integrity
 impl StorageInstance {
-    pub fn new(path: &PathBuf) -> Result<Self, StorageError> {
-        todo!()
+    pub fn new(url: &String) -> Result<Self, StorageError> {
+        let db_connection = PgConnection::establish(url)?;
+        // eventually decide on how much buffer is enough
+        let (event_sender, event_receiver) = mpsc::channel(200);
+        Ok(StorageInstance {
+            db_connection,
+            event_receiver,
+            event_sender,
+        })
     }
 
     pub fn path(&self) -> &PathBuf {
@@ -164,22 +168,7 @@ impl StorageInstance {
         todo!()
     }
 
-    pub fn get_event_transmitter(&self) -> mpsc::Sender<Event> {
-        todo!()
-    }
-
-    pub fn iter(&self) -> Iter {
-        todo!()
-    }
-}
-
-#[derive(Clone)]
-pub struct Iter {}
-
-impl Iterator for Iter {
-    type Item = EntryID;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+    pub fn get_event_transmitter(&self) -> Sender<Event> {
+        self.event_sender.clone()
     }
 }

@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+
+  backend:
+    build: backend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+    develop:
+      watch:
+        - action: rebuild
+          path: backend
+          ignore:
+            - backend/target
+  frontend:
+    build: frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    restart: always
+    develop:
+      watch:
+        - action: rebuild
+          path: frontend
+          ignore:
+            - frontend/node_modules
+            - frontend/dist
+    # TODO impove watch for frontend to support hot-reloading
