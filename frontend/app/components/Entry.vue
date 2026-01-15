@@ -11,6 +11,7 @@
 </template>
 
 <script setup lang="ts">
-import type { Entry } from "~/utils/entry";
+import type { Entry } from '~/utils/entry';
+
 const props = defineProps<Entry>();
 </script>
