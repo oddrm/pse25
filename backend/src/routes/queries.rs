@@ -8,6 +8,7 @@ use crate::{AppState, storage::sequence::SequenceID, storage::storage_instance::
 use rocket::serde::json::Json;
 use rocket::{State, delete, get, post, put, response::status};
 
+//Kapitel 5.1.2 im Entwurfsheft (falls noch andere das ewig suchen)
 #[get("/entries/<entry_id>/metadata")]
 pub async fn get_metadata(
     state: &State<AppState>,

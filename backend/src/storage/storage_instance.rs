@@ -11,6 +11,7 @@ use crate::{
     },
 };
 use diesel::prelude::*;
+use dotenvy::Iter;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::oneshot;
 
@@ -35,7 +36,9 @@ pub enum Event {
     GetPath(EntryID, oneshot::Sender<Option<PathBuf>>),
     GetSequences(EntryID, oneshot::Sender<Map<SequenceID, Sequence>>),
 }
+
 impl StorageInstance {
+    // does not use a path to the db anymore but instead a database url
     pub fn new(url: &String) -> Result<Self, StorageError> {
         let db_connection = PgConnection::establish(url)?;
         // eventually decide on how much buffer is enough
@@ -55,7 +58,7 @@ impl StorageInstance {
         todo!()
     }
 
-    pub fn get_db_path(&self, id: EntryID, txid: TxID) -> Result<Option<PathBuf>, StorageError> {
+    pub fn get_db_url(&self, id: EntryID) -> Result<Option<String>, StorageError> {
         todo!()
     }
 
@@ -116,6 +119,7 @@ impl StorageInstance {
     ) -> Result<SequenceID, StorageError> {
         todo!()
     }
+
     pub async fn update_sequence(
         &self,
         entry_id: EntryID,
@@ -170,5 +174,18 @@ impl StorageInstance {
 
     pub fn get_event_transmitter(&self) -> Sender<Event> {
         self.event_sender.clone()
+    }
+
+    pub fn submit_file(
+        &self,
+        old_path: &PathBuf,
+        new_path: &PathBuf,
+        txid: TxID,
+    ) -> Result<(), StorageError> {
+        todo!()
+    }
+
+    pub fn end_transaction(&self, txid: TxID) -> Result<(), StorageError> {
+        todo!()
     }
 }
