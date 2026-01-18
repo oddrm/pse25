@@ -38,6 +38,7 @@ pub enum Event {
 }
 
 impl StorageInstance {
+    // does not use a path to the db anymore but instead a database url
     pub fn new(url: &String) -> Result<Self, StorageError> {
         let db_connection = PgConnection::establish(url)?;
         // eventually decide on how much buffer is enough
@@ -49,11 +50,6 @@ impl StorageInstance {
         })
     }
 
-    // TODO: Ergänzung Entwurfsheft -> brauchen wir die noch oder eher die drüber
-    //pub fn new(path: &PathBuf) -> Result<Self, StorageError> {
-      //  todo!();
-    //}
-
     pub fn path(&self) -> &PathBuf {
         todo!()
     }
@@ -62,12 +58,10 @@ impl StorageInstance {
         todo!()
     }
 
-    // TODO: brauchen wir txid: TxID: Abweichung Entwurfsheft
-    pub fn get_db_path(&self, id: EntryID, txid: TxID) -> Result<Option<PathBuf>, StorageError> {
+    pub fn get_db_url(&self, id: EntryID) -> Result<Option<String>, StorageError> {
         todo!()
     }
 
-    // TODO: hier genauso: brauchen wir TxID? unten genauso, ich notiere das ab jetzt nicht mehr
     pub async fn get_metadata(
         &self,
         id: EntryID,
@@ -178,24 +172,20 @@ impl StorageInstance {
         todo!()
     }
 
-    // Entwurfsheft Änderung Präfix mpsc::
-    pub fn get_event_transmitter(&self) -> mpsc::Sender<Event> {
+    pub fn get_event_transmitter(&self) -> Sender<Event> {
         self.event_sender.clone()
     }
 
-    // TODO: iteriert Iter wirklich über PathBuf, es fehlte ein Argument im Code vom Pflichtenheft
-    // und dies schien mir am sinnvollsten
-    pub fn iter(&self) -> Iter<PathBuf> {
+    pub fn submit_file(
+        &self,
+        old_path: &PathBuf,
+        new_path: &PathBuf,
+        txid: TxID,
+    ) -> Result<(), StorageError> {
         todo!()
     }
 
-    pub fn submit_file(&self, oldPath: &PathBuf, newPath: &PathBuf, txid: TxID)
-                   -> Result<(), StorageError> {
-        todo!()
-    }
-
-    pub fn end_transaction(&self, txid: TxID)
-                           -> Result<(), StorageError> {
+    pub fn end_transaction(&self, txid: TxID) -> Result<(), StorageError> {
         todo!()
     }
 }

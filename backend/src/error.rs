@@ -35,7 +35,6 @@ pub enum StorageError {
     NotFound(String),
     AlreadyExists(String),
     DecodingError(String),
-    // gehe mal davon aus, dass ConnectionError neuer ist als Stand Entwurfsheft
     ConnectionError(ConnectionError),
     CustomError(String),
 }
@@ -46,7 +45,6 @@ impl From<std::io::Error> for StorageError {
     }
 }
 
-// nicht in Entwurfsheft
 impl From<ConnectionError> for StorageError {
     fn from(err: ConnectionError) -> Self {
         StorageError::ConnectionError(err)
