@@ -9,7 +9,7 @@ pub struct Metadata {}
 
 impl Metadata {
     // includes validation
-    pub fn from_yaml(yaml_str: &str) -> Result<Self, Error> {
+    pub fn from_yaml(yaml_str: &String) -> Result<Self, Error> {
         todo!()
     }
 
