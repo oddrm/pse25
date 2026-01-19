@@ -30,14 +30,23 @@
 
     <!-- RIGHT INFO CURTAIN -->
     <div
-      class="fixed top-0 right-0 h-full transition-all duration-300 bg-base-200"
+      class="fixed top-0 right-0 h-full transition-all duration-300 bg-base-200 pt-12"
       :class="infoOpen ? 'w-1/3' : 'w-6'"
     >
       <!-- OPEN -->
-      <div v-if="infoOpen">
-        <button @click="infoOpen = false"><Icon icon="f7:chevron-right-2" class="w-6 h-6" /></button> 
-        INFORMATION
+      <div v-if="infoOpen"
+        class="h-full relative cursor-pointer"
+      >
+        <div class="h-full flex flex-col items-start justify-center cursor-pointer px-1">
+          <button @click="infoOpen = false"><Icon icon="f7:chevron-right-2" class="w-6 h-6" /></button> 
+        </div>
+
+        <div class="absolute top-4 left-1/2 -translate-x-1/2">
+          INFORMATION
+        </div>
+
       </div>
+      
 
       <!-- CLOSED -->
       <div
