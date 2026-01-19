@@ -10,6 +10,7 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@nuxt/icon": "^2.2.0",
     "@nuxt/image": "2.0.0",
     "@tailwindcss/vite": "^4.1.17",
     "daisyui": "^5.5.5",
