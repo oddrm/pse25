@@ -14,12 +14,17 @@ services:
       - db
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+      - LOG_LEVEL=info
+      - LOG_TO_FILE=true
     develop:
       watch:
         - action: rebuild
           path: backend
           ignore:
             - backend/target
+    volumes:
+      - ./logs:/logs
+    restart: always
   frontend:
     build: frontend
     ports:

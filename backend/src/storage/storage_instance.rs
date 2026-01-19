@@ -13,6 +13,7 @@ use crate::{
 use diesel::prelude::*;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::oneshot;
+use tracing::{info, instrument};
 
 pub type EntryID = u64;
 pub type Map<K, V> = std::collections::HashMap<K, V>;
@@ -36,8 +37,10 @@ pub enum Event {
     GetSequences(EntryID, oneshot::Sender<Map<SequenceID, Sequence>>),
 }
 impl StorageInstance {
+    #[instrument]
     pub fn new(url: &String) -> Result<Self, StorageError> {
         let db_connection = PgConnection::establish(url)?;
+        info!("DB connection established.");
         // eventually decide on how much buffer is enough
         let (event_sender, event_receiver) = mpsc::channel(200);
         Ok(StorageInstance {
