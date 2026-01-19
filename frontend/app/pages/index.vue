@@ -7,39 +7,23 @@
       :class="infoOpen ? 'w-2/3' : 'w-full'"
     >
       <!-- Table -->
-      <div class="flex flex-col items-center">
-        <input placeholder="Search" class="input" />
-        <table class="table">
-          <thead>
-            <tr>
-              <th v-for="(column, index) in columns" :key="index">
-                {{ column }}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <Entry
-              v-for="entry in entries"
-              :key="entry.entryID"
-              v-bind="entry"
-            />
-          </tbody>
-        </table>
-      </div>
+      <Table />
     </div>
-
-    <!-- RIGHT INFO CURTAIN -->
+    <!-- Right info curtain -->
     <div
       class="fixed top-0 right-0 h-full transition-all duration-300 bg-base-200 pt-12"
       :class="infoOpen ? 'w-1/3' : 'w-6'"
     >
-      <!-- OPEN -->
+      <!-- Open -->
       <div v-if="infoOpen"
         class="h-full relative cursor-pointer"
       >
-        <div class="h-full flex flex-col items-start justify-center cursor-pointer px-1">
-          <button @click="infoOpen = false"><Icon icon="f7:chevron-right-2" class="w-6 h-6" /></button> 
-        </div>
+        <button 
+          @click="infoOpen = false"
+          class="absolute left-[-0.75rem] top-1/2 -translate-y-1/2"
+        >
+        <Icon icon="octicon:triangle-right" class="w-10 h-10 text-blue-600" /></button> 
+        
 
         <div class="absolute top-4 left-1/2 -translate-x-1/2">
           INFORMATION
@@ -48,13 +32,13 @@
       </div>
       
 
-      <!-- CLOSED -->
+      <!-- Closed -->
       <div
         v-else
-        class="h-full flex items-center justify-center cursor-pointer"
         @click="infoOpen = true"
+        class="absolute left-[-2.0rem] top-1/2 -translate-y-1/2 pt-12"
       >
-        <Icon icon="f7:chevron-left-2" class="w-6 h-6" />
+        <Icon icon="octicon:triangle-left" class="w-10 h-10 text-blue-600" />
       </div>
     </div>
 
@@ -64,15 +48,7 @@
 
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
-import { Sorting } from "~/utils/entryColumns";
+import Table from '~/components/table.vue';
 const infoOpen = ref(false);  
-
-const columns = Object.keys(Sorting);
-
-const searchString = ref("");
-const sortBy = ref(Sorting.Name);
-const ascending = ref(true);
-
-const { data: entries, refresh: refreshEntries, error: entriesFetchError, status: entriesStatus } = await useAsyncData("entries", async () => fetchEntries(searchString.value, sortBy.value, ascending.value, 1, 50));
 
 </script>

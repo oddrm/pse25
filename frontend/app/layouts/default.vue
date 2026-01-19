@@ -16,7 +16,7 @@
           class="tab"
           :class="{ 'tab-active': route.path === '/' }"
         >
-          Tables
+          Table
         </NuxtLink>
 
         <NuxtLink
