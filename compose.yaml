@@ -24,14 +24,14 @@ services:
             - backend/target
     volumes:
       - ./logs:/logs
-    restart: always
+    # restart: always
   frontend:
     build: frontend
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-    restart: always
+    # restart: always
     develop:
       watch:
         - action: rebuild

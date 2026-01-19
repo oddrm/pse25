@@ -8,7 +8,6 @@ use routes::queries::{
 };
 use tokio::sync::mpsc::Sender;
 use tracing::Subscriber;
-use tracing_appender::non_blocking;
 use tracing_subscriber::fmt::{
     Layer,
     writer::{BoxMakeWriter, MakeWriterExt},
@@ -26,7 +25,6 @@ pub struct AppState {
 async fn main() {
     // TODO findings: without the non-blocking appender, logs actually get written. They use some special characters which neither vscode nor zed can displayy, but my terminal can.
     let log_to_file = env::var("LOG_TO_FILE").is_ok_and(|v| v == "true");
-    println!("log to file {:?}", log_to_file);
     let log_level = match env::var("LOG_LEVEL")
         .unwrap_or("debug".to_string())
         .as_str()
@@ -37,16 +35,18 @@ async fn main() {
         "debug" => tracing::Level::DEBUG,
         _ => tracing::Level::INFO,
     };
+    let file_appender = tracing_appender::rolling::daily("/logs", "backend.log");
+    // non blocking so writing to file runs in a separate thread
+    // this has to be kept in the main function and not in an if clause because otherwise the guard gets dropped
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
     // this needs to be boxed because the subscribers have very specific types
-    // TODO maybe use .init() instead?
     let log_subscriber: Box<dyn Subscriber + Send + Sync + 'static> = if log_to_file {
         // if logging to file, log both to file and stdout
-        let file_appender = tracing_appender::rolling::daily("/logs", "backend.log");
-        // let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
         Box::new(
             tracing_subscriber::fmt()
                 .with_writer(
-                    BoxMakeWriter::new(file_appender).and(BoxMakeWriter::new(std::io::stdout)),
+                    BoxMakeWriter::new(non_blocking).and(BoxMakeWriter::new(std::io::stdout)),
                 )
                 .with_ansi(false)
                 .with_max_level(log_level)
