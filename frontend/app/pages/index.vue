@@ -20,9 +20,9 @@
       >
         <button 
           @click="infoOpen = false"
-          class="absolute left-[-0.75rem] top-1/2 -translate-y-1/2"
+          class="absolute left-[-0.25rem] top-1/2 -translate-y-1/2"
         >
-        <Icon icon="octicon:triangle-right" class="w-10 h-10 text-blue-600" /></button> 
+        <Icon icon="octicon:triangle-right" class="w-10 h-10 text-blue-800" /></button> 
         
 
         <div class="absolute top-4 left-1/2 -translate-x-1/2">
@@ -38,7 +38,7 @@
         @click="infoOpen = true"
         class="absolute left-[-2.0rem] top-1/2 -translate-y-1/2 pt-12"
       >
-        <Icon icon="octicon:triangle-left" class="w-10 h-10 text-blue-600" />
+        <Icon icon="octicon:triangle-left" class="w-10 h-10 text-blue-800" />
       </div>
     </div>
 
