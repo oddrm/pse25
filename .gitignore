@@ -25,3 +25,4 @@ logs
 !.env.template
 
 target
+test_data

@@ -1,7 +1,7 @@
 pub mod entry;
 pub mod metadata;
 pub mod sequence;
-pub mod storage_instance;
+pub mod storage_manager;
 
 /*
 TODO implement poll watcher

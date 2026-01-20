@@ -3,8 +3,8 @@
 use crate::error::Error;
 use crate::storage::entry::Entry;
 use crate::storage::sequence::Sequence;
-use crate::storage::storage_instance::Map;
-use crate::{AppState, storage::sequence::SequenceID, storage::storage_instance::EntryID};
+use crate::storage::storage_manager::Map;
+use crate::{AppState, storage::sequence::SequenceID, storage::storage_manager::EntryID};
 use rocket::serde::json::Json;
 use rocket::{State, delete, get, post, put, response::status};
 

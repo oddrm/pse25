@@ -36,6 +36,7 @@ pub enum StorageError {
     AlreadyExists(String),
     DecodingError(String),
     ConnectionError(ConnectionError),
+    EventProcessingError(String),
     CustomError(String),
 }
 
