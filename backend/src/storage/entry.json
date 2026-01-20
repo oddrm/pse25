@@ -1,0 +1,13 @@
+{
+    "name": "2025-11-30-testtrack-lidar-front.mcap",
+    "path": "mcap/2025/11/30/testtrack/session_03/2025-11-30-testtrack-lidar-front.mcap",
+    "platform": "vehicle_a_lidar_front",
+    "size": 2824,
+    "tags": [
+        "testtrack",
+        "night",
+        "rain",
+        "lidar",
+        "sensor-calibration"
+    ]
+}

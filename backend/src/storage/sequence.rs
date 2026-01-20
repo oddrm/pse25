@@ -1,27 +1,40 @@
-use rocket::serde::{Deserialize, Serialize};
+use diesel::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
-pub struct Sequence {}
+use crate::schema::sequences;
 
-impl Sequence {
-    pub fn new(description: String, start: Timestamp, end: Timestamp) -> Self {
-        todo!()
-    }
-
-    pub fn description(&self) -> &String {
-        todo!()
-    }
-
-    pub fn start(&self) -> Timestamp {
-        todo!()
-    }
-
-    pub fn end(&self) -> Timestamp {
-        todo!()
-    }
+#[derive(Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::sequences)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct Sequence {
+    pub sequence_id: i64,
+    pub title: String,
+    // brauchen wir den wirklich!?
+    pub timestamp: i64,
+    // i64 passt wohl besser zu PostgreSQL;
+    // Frontend kümmert sich um schöne Darstellung hh:mm:ss:msms; hier nicht relevant
+    pub start_time: i64,
+    pub end_time: i64,
+    pub description: String,
 }
 
-pub type SequenceID = u64;
-// in milliseconds since UNIX EPOCH
-pub type Timestamp = u64;
+// INSERT: ohne sequence_id, wenn die DB den PK erzeugt
+#[derive(Insertable, Deserialize)]
+#[diesel(table_name = crate::schema::sequences)]
+pub struct NewSequence {
+    pub title: String,
+    pub timestamp: i64,
+    pub start_time: i64,
+    pub end_time: i64,
+    pub description: String,
+}
+
+#[derive(AsChangeset, Deserialize)]
+#[diesel(table_name = crate::schema::sequences)]
+pub struct UpdateSequence {
+    pub title: Option<String>,
+    //pub timestamp: Option<i64>,
+    pub start_time: Option<i64>,
+    pub end_time: Option<i64>,
+    pub description: Option<String>,
+}
