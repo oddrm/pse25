@@ -4,14 +4,16 @@ use std::path::PathBuf;
 
 use tokio::sync::mpsc::Sender;
 
-use crate::{error::Error, plugin_manager::plugin::Plugin, storage::storage_instance::Event};
+use crate::{
+    error::Error, plugin_manager::plugin::Plugin, storage::storage_manager::StorageManager,
+};
 
 #[derive(Debug, Clone)]
 pub struct PluginManager {}
 
 // TODO use PluginError later, now too much refactoring needed
 impl PluginManager {
-    pub fn new(event_transmitter: Sender<Event>) -> Self {
+    pub fn new(event_transmitter: StorageManager) -> Self {
         todo!()
     }
 

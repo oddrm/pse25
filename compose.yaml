@@ -5,17 +5,23 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   backend:
     build: backend
     ports:
       - "8080:8080"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
-      - LOG_LEVEL=info
-      - LOG_TO_FILE=true
+      - LOG_LEVEL=debug
+      # - LOG_TO_FILE=true
     develop:
       watch:
         - action: rebuild
@@ -24,6 +30,7 @@ services:
             - backend/target
     volumes:
       - ./logs:/logs
+      - ./test_data:/data
     # restart: always
   frontend:
     build: frontend

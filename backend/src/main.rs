@@ -1,24 +1,20 @@
-use std::env;
+use std::{env, time::Duration};
 
-use crate::storage::storage_instance::{Event, StorageInstance};
+use crate::storage::storage_manager::StorageManager;
 use rocket::routes;
 use routes::queries::{
     add_sequence, add_tag, get_entries, get_metadata, get_sequences, remove_sequence, remove_tag,
     update_metadata, update_sequence,
 };
-use tokio::sync::mpsc::Sender;
 use tracing::Subscriber;
-use tracing_subscriber::fmt::{
-    Layer,
-    writer::{BoxMakeWriter, MakeWriterExt},
-};
+use tracing_subscriber::fmt::writer::{BoxMakeWriter, MakeWriterExt};
 
 pub mod error;
 pub mod plugin_manager;
 pub mod routes;
 pub mod storage;
 pub struct AppState {
-    pub event_transmitter: Sender<Event>,
+    pub storage_manager: StorageManager,
 }
 
 #[rocket::main]
@@ -58,7 +54,7 @@ async fn main() {
             tracing_subscriber::fmt()
                 .with_writer(BoxMakeWriter::new(std::io::stdout))
                 .pretty()
-                .with_ansi(false)
+                // .with_ansi(false)
                 .with_max_level(log_level)
                 .finish(),
         )
@@ -67,15 +63,10 @@ async fn main() {
     tracing::info!("Logging initialized.");
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     #[allow(unused_mut)]
-    let mut storage_instance = StorageInstance::new(&db_url).unwrap();
-
-    // storage_instance
-    // .start_scanning(&Duration::from_secs(2))
-    // .unwrap();
-
-    // storage_instance.process_events().await.unwrap();
-
-    let event_transmitter = storage_instance.get_event_transmitter();
+    let mut storage_manager = StorageManager::new(&db_url).unwrap();
+    storage_manager
+        .start_scanning(Duration::from_secs(1))
+        .unwrap();
 
     // web server
     rocket::build()
@@ -93,7 +84,7 @@ async fn main() {
                 remove_tag,
             ],
         )
-        .manage(AppState { event_transmitter })
+        .manage(AppState { storage_manager })
         .launch()
         .await
         .unwrap();
