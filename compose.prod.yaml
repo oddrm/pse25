@@ -7,9 +7,9 @@ services:
       POSTGRES_PASSWORD: postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
+      interval: 1s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   backend:
     build: backend
@@ -20,8 +20,8 @@ services:
         condition: service_healthy
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
-      - LOG_LEVEL=debug
-      # - LOG_TO_FILE=true
+      - LOG_LEVEL=info
+      - LOG_TO_FILE=true
     develop:
       watch:
         - action: rebuild
@@ -31,14 +31,14 @@ services:
     volumes:
       - ./logs:/logs
       - ./test_data:/data
-    # restart: always
+    restart: always
   frontend:
     build: frontend
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-    # restart: always
+    restart: always
     develop:
       watch:
         - action: rebuild
@@ -46,4 +46,3 @@ services:
           ignore:
             - frontend/node_modules
             - frontend/dist
-    # TODO impove watch for frontend to support hot-reloading
