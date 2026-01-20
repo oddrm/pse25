@@ -1,0 +1,80 @@
+services:
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: backend
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+      - LOG_LEVEL=debug
+      # - LOG_TO_FILE=true
+    develop:
+      watch:
+        - action: rebuild
+          path: backend
+          ignore:
+            - backend/target
+    volumes:
+      - ./logs:/logs
+      - ./test_data:/data
+  frontend:
+    build: frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    develop:
+      watch:
+        - action: rebuild
+          path: frontend
+          ignore:
+            - frontend/node_modules
+            - frontend/dist
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    ports:
+      - 5050:80
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    configs:
+      - source: pgadmin-servers
+        target: /pgadmin4/servers.json
+        mode: 0444
+    volumes:
+      - pgadmin:/var/lib/pgadmin/
+configs:
+  pgadmin-servers:
+    content: |
+      {
+        "Servers": {
+          "1": {
+            "Name": "DB",
+            "Group": "Servers",
+            "Host": "db",
+            "Port": 5432,
+            "MaintenanceDB": "postgres",
+            "Username": "postgres",
+            "Password": "postgres",
+            "SSLMode": "prefer",
+          }
+        }
+      }
+volumes:
+  pgadmin:
