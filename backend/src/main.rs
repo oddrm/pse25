@@ -1,7 +1,8 @@
 use std::{env, time::Duration};
 
 use crate::storage::storage_manager::StorageManager;
-use rocket::routes;
+use diesel::pg::PgConnection;
+use diesel::prelude::*;
 use routes::queries::{
     add_sequence, add_tag, get_entries, get_metadata, get_sequences, remove_sequence, remove_tag,
     update_metadata, update_sequence,
@@ -63,6 +64,7 @@ async fn main() {
     tracing::info!("Logging initialized.");
     let x = 2;
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
     #[allow(unused_mut)]
     let mut storage_manager = StorageManager::new(&db_url).unwrap();
     storage_manager
