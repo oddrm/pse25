@@ -1,15 +1,14 @@
 use std::{env, time::Duration};
 
 use crate::storage::storage_manager::StorageManager;
-use diesel::pg::PgConnection;
-use diesel::prelude::*;
 use routes::queries::{
     add_sequence, add_tag, get_entries, get_metadata, get_sequences, remove_sequence, remove_tag,
     update_metadata, update_sequence,
 };
 use tracing::Subscriber;
 use tracing_subscriber::fmt::writer::{BoxMakeWriter, MakeWriterExt};
-
+#[macro_use]
+extern crate rocket;
 pub mod error;
 pub mod plugin_manager;
 pub mod routes;
@@ -62,7 +61,6 @@ async fn main() {
     };
     tracing::subscriber::set_global_default(log_subscriber).unwrap();
     tracing::info!("Logging initialized.");
-    let x = 2;
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
     #[allow(unused_mut)]
