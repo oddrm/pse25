@@ -1,1 +1,0 @@
-sudo docker compose -f compose.dev.yaml up --no-attach db --no-attach pgadmin

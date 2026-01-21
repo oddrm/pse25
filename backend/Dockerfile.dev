@@ -1,42 +1,40 @@
 FROM docker.io/rust:1-slim-bookworm AS build
 
-## co package name: customize here or provide via --build-arg
 ARG pkg=backend
 
 WORKDIR /build
 
-# 1. Install build-time dependencies
+# Install build dependencies
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Copy dependency manifests first (better caching)
+# Copy dependency manifests first
 COPY Cargo.toml Cargo.lock ./
 
-# 3. Create dummy main.rs to build dependencies only
+# Build dependencies only (cached layer)
 RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs && \
-    cargo build --release && \
+    cargo build && \
     rm -rf src
 
-# 4. Now copy actual source code
+# Copy source code
 COPY . .
 
-# 5. Touch main.rs to ensure it rebuilds, then build for real
+# Build in debug mode (much faster for development)
 RUN --mount=type=cache,target=/build/target \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     set -eux; \
     touch src/main.rs; \
-    cargo build --release; \
-    objcopy --compress-debug-sections target/release/$pkg ./main
+    cargo build; \
+    objcopy --compress-debug-sections target/debug/$pkg ./main
 
 ################################################################################
 
 FROM docker.io/debian:bookworm-slim
 
-# 2. Install runtime dependencies (libpq5 is required to run the binary)
 RUN apt-get update && apt-get install -y \
     libpq5 \
     ca-certificates \
@@ -44,15 +42,11 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-## copy the main binary
 COPY --from=build /build/main ./
-
-## copy runtime assets which may or may not exist
 COPY --from=build /build/Rocket.tom[l] ./static
 COPY --from=build /build/stati[c] ./static
 COPY --from=build /build/template[s] ./templates
 
-## ensure the container listens globally on port 8080
 ENV ROCKET_ADDRESS=0.0.0.0
 ENV ROCKET_PORT=8080
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres

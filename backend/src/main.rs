@@ -12,6 +12,7 @@ use tracing_subscriber::fmt::writer::{BoxMakeWriter, MakeWriterExt};
 pub mod error;
 pub mod plugin_manager;
 pub mod routes;
+pub mod schema;
 pub mod storage;
 pub struct AppState {
     pub storage_manager: StorageManager,
@@ -54,13 +55,13 @@ async fn main() {
             tracing_subscriber::fmt()
                 .with_writer(BoxMakeWriter::new(std::io::stdout))
                 .pretty()
-                // .with_ansi(false)
                 .with_max_level(log_level)
                 .finish(),
         )
     };
     tracing::subscriber::set_global_default(log_subscriber).unwrap();
     tracing::info!("Logging initialized.");
+    let x = 2;
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     #[allow(unused_mut)]
     let mut storage_manager = StorageManager::new(&db_url).unwrap();

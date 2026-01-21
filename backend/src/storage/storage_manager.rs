@@ -7,6 +7,8 @@ use std::{
     time::Duration,
 };
 
+use crate::schema::files;
+use crate::storage::models::*;
 use crate::{
     error::{Error, StorageError},
     storage::entry::Entry,
@@ -24,11 +26,13 @@ use notify::{
     INotifyWatcher, RecursiveMode, Watcher,
     event::{CreateKind, EventAttributes},
 };
+use rocket::futures::{FutureExt, StreamExt};
 use tokio::sync::oneshot;
 use tokio::sync::{
     mpsc::{self, Receiver, Sender},
     watch,
 };
+use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, error, info, instrument};
 use tracing_subscriber::field::debug;
 
@@ -37,7 +41,8 @@ pub type Map<K, V> = std::collections::HashMap<K, V>;
 pub type TxID = u64;
 pub type Tag = String;
 
-#[derive()]
+// this can be cloned and still refer to the same db
+#[derive(Clone)]
 pub struct StorageManager {
     db_connection_pool: Pool,
     watch_dir: PathBuf,
@@ -103,7 +108,7 @@ impl StorageManager {
 
     pub async fn get_entry_by_path(
         &self,
-        path: &str,
+        path: &String,
         txid: TxID,
     ) -> Result<Option<Entry>, StorageError> {
         todo!()
@@ -157,22 +162,58 @@ impl StorageManager {
         todo!()
     }
 
+    #[instrument]
     pub async fn process_event(&self, event: &notify::Event) -> Result<(), StorageError> {
-        todo!()
+        let conn = self.db_connection_pool.get().await?;
+        match &event.kind {
+            notify::event::EventKind::Create(_) => {
+                let now = chrono::Utc::now().timestamp();
+                let naive_datetime = chrono::DateTime::from_timestamp(now, 0)
+                    .unwrap()
+                    .naive_utc();
+
+                let path = event.paths[0].to_string_lossy().to_string();
+                let x = conn
+                    .interact(move |conn| {
+                        diesel::insert_into(files::table)
+                            .values(File {
+                                created: naive_datetime,
+                                last_checked: naive_datetime,
+                                last_modified: naive_datetime,
+                                path,
+                                size: 0,
+                            })
+                            .returning(File::as_returning())
+                            .get_result(conn)
+                    })
+                    .await
+                    .map_err(|e| StorageError::CustomError(e.to_string()))?
+                    .map_err(|e| StorageError::CustomError(e.to_string()))?;
+            }
+            _ => {}
+        };
+        Ok(())
     }
 
     // this is a static method so no method uses mutable access to storage_manager and it can then be shared
     // around the web server so an unnecessary event queue can be skipped
     // while this won't receive create events of directories, if a directory is moved, the remove event still shows up
     // these have to be ignored and can't be distinguished from file events
-    // in general there are no rename/move events, jsut create/deletes. They have to be inferred through some other way
+    // in general there are no rename/move events, just create/deletes. They have to be inferred through some other way
     #[instrument]
-    async fn process_events(mut fs_event_rx: Receiver<notify::Event>) {
+    async fn process_events(self, fs_event_rx: Receiver<notify::Event>) {
         debug!("Starting to process file events.");
-        while let Some(event) = fs_event_rx.recv().await {
-            debug!("Received file event: {:?}", event);
-            // TODO
-        }
+        // up to 10 simultaneous process event tasks
+        ReceiverStream::new(fs_event_rx)
+            .for_each_concurrent(10, |event| {
+                let self_clone = self.clone();
+                async move {
+                    self_clone.process_event(&event).await.unwrap_or_else(|e| {
+                        error!("Error processing file event {:?}: {:?}", event, e);
+                    });
+                }
+            })
+            .await;
     }
 
     // this both scans the directory on startup and starts the continuous scanning process
@@ -199,7 +240,7 @@ impl StorageManager {
 
         let initial_scan_callback = move |event: Result<PathBuf, notify::Error>| {
             if !event.as_ref().unwrap().is_dir() {
-                debug!("initial scan event: {:?}", event);
+                // debug!("initial scan event: {:?}", event);
                 return;
             }
         };
@@ -211,6 +252,7 @@ impl StorageManager {
         )?;
 
         let watch_dir = self.watch_dir().clone();
+        let self_clone = self.clone();
         tokio::task::spawn(async move {
             debug!("Starting filesystem scan watcher.");
             watcher
@@ -219,7 +261,7 @@ impl StorageManager {
                     error!("Error on starting filesystem scan {:?}", e);
                 });
             debug!("Filesystem scan started.");
-            StorageManager::process_events(fs_event_rx).await;
+            StorageManager::process_events(self_clone, fs_event_rx).await;
         });
         Ok(())
     }
