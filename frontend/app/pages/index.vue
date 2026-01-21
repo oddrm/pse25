@@ -7,7 +7,7 @@
       :class="infoOpen ? 'w-2/3' : 'w-full'"
     >
       <!-- Table -->
-      <Table />
+      <Table @select="openInfo" />
     </div>
     <!-- Right info curtain -->
     <div
@@ -23,7 +23,7 @@
           class="absolute left-[-0.25rem] top-1/2 -translate-y-1/2 z-50"
         >
         <Icon icon="octicon:triangle-right" class="w-10 h-10 text-blue-800" /></button> 
-          <EntryInfo />
+          <EntryInfo :entryID="selectedEntryID" />
       </div>
       
 
@@ -45,6 +45,12 @@
 import { Icon } from '@iconify/vue'
 import Table from '~/components/table.vue'
 import EntryInfo from '~/components/entryInfo.vue'
-const infoOpen = ref(false);  
+const infoOpen = ref(false)
+const selectedEntryID = ref<number | null>(null)
+
+const openInfo = (id: number) => {
+  selectedEntryID.value = id
+  infoOpen.value = true
+}
 
 </script>
