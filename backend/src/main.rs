@@ -12,6 +12,7 @@ use tracing_subscriber::fmt::writer::{BoxMakeWriter, MakeWriterExt};
 pub mod error;
 pub mod plugin_manager;
 pub mod routes;
+pub mod schema;
 pub mod storage;
 pub struct AppState {
     pub storage_manager: StorageManager,
