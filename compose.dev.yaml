@@ -25,7 +25,9 @@ services:
     restart: no
 
   backend:
-    build: backend
+    build:
+      context: backend
+      dockerfile: Dockerfile.dev
     ports:
       - "8080:8080"
     depends_on:
@@ -43,6 +45,11 @@ services:
           path: backend
           ignore:
             - backend/target
+            - backend/Cargo.lock
+            - backend/**/*.swp
+            - backend/**/*.tmp
+            - backend/**/*~
+            - backend/.cargo
     volumes:
       - ./logs:/logs
       - ./test_data:/data

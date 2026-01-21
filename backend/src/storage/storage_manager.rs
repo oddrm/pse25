@@ -7,6 +7,8 @@ use std::{
     time::Duration,
 };
 
+use crate::schema::files;
+use crate::storage::models::*;
 use crate::{
     error::{Error, StorageError},
     storage::entry::Entry,
@@ -106,7 +108,7 @@ impl StorageManager {
 
     pub async fn get_entry_by_path(
         &self,
-        path: &str,
+        path: &String,
         txid: TxID,
     ) -> Result<Option<Entry>, StorageError> {
         todo!()
@@ -162,7 +164,34 @@ impl StorageManager {
 
     #[instrument]
     pub async fn process_event(&self, event: &notify::Event) -> Result<(), StorageError> {
-        debug!("Processing file event: {:?}", event);
+        let conn = self.db_connection_pool.get().await?;
+        match &event.kind {
+            notify::event::EventKind::Create(_) => {
+                let now = chrono::Utc::now().timestamp();
+                let naive_datetime = chrono::DateTime::from_timestamp(now, 0)
+                    .unwrap()
+                    .naive_utc();
+
+                let path = event.paths[0].to_string_lossy().to_string();
+                let x = conn
+                    .interact(move |conn| {
+                        diesel::insert_into(files::table)
+                            .values(File {
+                                created: naive_datetime,
+                                last_checked: naive_datetime,
+                                last_modified: naive_datetime,
+                                path,
+                                size: 0,
+                            })
+                            .returning(File::as_returning())
+                            .get_result(conn)
+                    })
+                    .await
+                    .map_err(|e| StorageError::CustomError(e.to_string()))?
+                    .map_err(|e| StorageError::CustomError(e.to_string()))?;
+            }
+            _ => {}
+        };
         Ok(())
     }
 
