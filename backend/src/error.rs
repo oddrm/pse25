@@ -9,6 +9,7 @@ pub enum Error {
     ParsingError(String),
     PollingError(notify::Error),
     CustomError(String),
+    IoError(std::io::Error),
 }
 
 impl From<StorageError> for Error {
@@ -48,5 +49,11 @@ impl From<std::io::Error> for StorageError {
 impl From<ConnectionError> for StorageError {
     fn from(err: ConnectionError) -> Self {
         StorageError::ConnectionError(err)
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::IoError(err)
     }
 }
