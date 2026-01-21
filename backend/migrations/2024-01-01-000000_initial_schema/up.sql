@@ -12,7 +12,7 @@ CREATE TABLE entries (
     compression_format VARCHAR,
     compression_mode VARCHAR, 
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK (updated_at >= created_at)
 );
 
@@ -33,9 +33,10 @@ CREATE TABLE topics (
 
 CREATE TABLE tags (
     id BIGSERIAL PRIMARY KEY,
-    entry_id BIGSERIAL PRIMARY KEY REFERENCES entries(id)
-    name VARCHAR NOT NULL UNIQUE,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    entry_id BIGINT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    name VARCHAR NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (entry_id, name)
 );
 
 
@@ -56,21 +57,44 @@ CREATE TABLE metadata (
     entry_id BIGINT NOT NULL UNIQUE REFERENCES entries(id) ON DELETE CASCADE,
     metadata_json JSONB,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK (updated_at >= created_at)
 );
 
 
 
 
+--ChatGPT Vorschlag
 
 -- Create indexes for better query performance
 CREATE INDEX idx_entries_path ON entries(path);
 CREATE INDEX idx_entries_name ON entries(name);
 CREATE INDEX idx_tags_entry_id ON tags(entry_id);
-CREATE INDEX idx_tags_tag_id ON tags(tag_id);
 -- Wichtig: Index auf topic_name für effiziente Suche nach Topics
 CREATE INDEX idx_topics_topic_name ON topics(topic_name);
 CREATE INDEX idx_topics_entry_id ON topics(entry_id);
 CREATE INDEX idx_sequences_entry_id ON sequences(entry_id);
 CREATE INDEX idx_metadata_entry_id ON metadata(entry_id);
+
+
+
+--ChatGPT Vorschlag
+
+-- Create function to update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Create triggers to automatically update updated_at
+CREATE TRIGGER update_entries_updated_at BEFORE UPDATE ON entries
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_sequences_updated_at BEFORE UPDATE ON sequences
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_metadata_updated_at BEFORE UPDATE ON metadata
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

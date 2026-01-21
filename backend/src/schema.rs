@@ -21,6 +21,7 @@ diesel::table! {
         entry_id -> BigInt,
         topic_name -> Varchar,
         message_count -> BigInt,
+        type_ -> Nullable<Varchar>,
         type_description_hash -> Nullable<Varchar>,
         serialization_format -> Nullable<Varchar>,
         created_at -> Timestamptz,
@@ -30,7 +31,7 @@ diesel::table! {
 diesel::table! {
     tags (id) {
         id -> BigInt,
-        entry_id -> BigInt
+        entry_id -> BigInt,
         name -> Varchar,
         created_at -> Timestamptz,
     }
