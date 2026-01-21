@@ -14,6 +14,7 @@
               v-for="entry in entries"
               :key="entry.entryID"
               v-bind="entry"
+              @select="$emit('select', $event)"
             />
           </tbody>
         </table>
