@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use deadpool_diesel::postgres::PoolError;
 use diesel::ConnectionError;
 use rocket::response::{self, Responder};
 
@@ -37,6 +38,8 @@ pub enum StorageError {
     AlreadyExists(String),
     DecodingError(String),
     ConnectionError(ConnectionError),
+    PoolError(PoolError),
+    EventProcessingError(String),
     CustomError(String),
 }
 
@@ -52,8 +55,14 @@ impl From<ConnectionError> for StorageError {
     }
 }
 
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
-        Error::IoError(err)
+impl From<PoolError> for StorageError {
+    fn from(err: PoolError) -> Self {
+        StorageError::PoolError(err)
+    }
+}
+
+impl From<PoolError> for StorageError {
+    fn from(err: PoolError) -> Self {
+        StorageError::PoolError(err)
     }
 }

@@ -5,21 +5,46 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+  migrations:
+    build:
+      context: backend
+      dockerfile: Dockerfile.migrations
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+    restart: no
 
   backend:
     build: backend
     ports:
       - "8080:8080"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+      - LOG_LEVEL=info
+      - LOG_TO_FILE=true
     develop:
       watch:
         - action: rebuild
           path: backend
           ignore:
             - backend/target
+    volumes:
+      - ./logs:/logs
+      - ./test_data:/data
+    restart: always
   frontend:
     build: frontend
     ports:
@@ -34,4 +59,3 @@ services:
           ignore:
             - frontend/node_modules
             - frontend/dist
-    # TODO impove watch for frontend to support hot-reloading

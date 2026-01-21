@@ -1,14 +1,16 @@
 #![allow(unused)]
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 
 use tokio::sync::mpsc::Sender;
 
-use crate::{error::Error, plugin_manager::plugin::Plugin, storage::storage_instance::Event};
 use crate::plugin_manager::manager::InstanceState::Running;
 use crate::plugin_manager::plugin::Trigger;
+use crate::{
+    error::Error, plugin_manager::plugin::Plugin, storage::storage_manager::StorageManager,
+};
 
 // Debug: {:?} in println!; textuelle Darstellung Typ bei Debuggen
 // Clone: Kopie erstellen; Copy: Typ bei Zuweisen/ Übergeben kopiert nicht bewegt
@@ -24,7 +26,7 @@ pub enum InstanceState {
 #[derive(Debug, Clone)]
 pub struct PluginManager {
     //Sender Messages Typ Event; Kanal Events an andere Threads
-    event_tx: Sender<Event>,
+    storage_manager: StorageManager,
     //Liste registrierte Plugins
     registered: Vec<Plugin>,
     //HashMap Instanz auf Index in registriert mit Zustand Instanz
@@ -33,9 +35,9 @@ pub struct PluginManager {
 
 // TODO use PluginError later, now too much refactoring needed
 impl PluginManager {
-    pub fn new(event_transmitter: Sender<Event>) -> Self {
+    pub fn new(storage_manager: StorageManager) -> Self {
         Self {
-            event_tx: event_transmitter,
+            storage_manager: event_transmitter,
             registered: Vec::new(),
             running: HashMap::new(),
         }
@@ -55,7 +57,7 @@ impl PluginManager {
 
     pub fn register_plugin(&mut self, path: PathBuf) -> Result<(), Error> {
         let name = path
-            .file_stem()//Dateinamen ohne Endung
+            .file_stem() //Dateinamen ohne Endung
             .and_then(|s| s.to_str()) // in &str umwandeln
             .unwrap_or("unknown") // worstcasename: unknown
             .to_string();
@@ -89,12 +91,9 @@ impl PluginManager {
         let plugin_index = self
             .registered
             .iter() // suche gleichen Namen
-            .position(|p| p.name() == plugin.name())//Closure
+            .position(|p| p.name() == plugin.name()) //Closure
             .ok_or_else(|| {
-                Error::CustomError(format!(
-                    "Plugin '{}' is not registered",
-                    plugin.name()
-                ))
+                Error::CustomError(format!("Plugin '{}' is not registered", plugin.name()))
             })?;
         //TODO: in Phyton Process starten
         //Liste hinzufügen
@@ -123,10 +122,9 @@ impl PluginManager {
         let entry = self
             .running
             .get_mut(&instance_id) // Suche Key InstanceId
-            .ok_or_else(|| Error::CustomError(format!(
-                "Instance {} is not running",
-                instance_id
-            )))?;
+            .ok_or_else(|| {
+                Error::CustomError(format!("Instance {} is not running", instance_id))
+            })?;
 
         // entry: &mut (usize, InstanceState) => (plugin_index, state)
         // entry.1 ist state
@@ -145,13 +143,9 @@ impl PluginManager {
     //Gegenstück Pause
     pub fn resume_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
         // Eintrag zur Instanz holen
-        let entry = self
-            .running
-            .get_mut(&instance_id)
-            .ok_or_else(|| Error::CustomError(format!(
-                "Instance {} is not running",
-                instance_id
-            )))?;
+        let entry = self.running.get_mut(&instance_id).ok_or_else(|| {
+            Error::CustomError(format!("Instance {} is not running", instance_id))
+        })?;
 
         // entry: &mut (usize, InstanceState)
         if entry.1 == InstanceState::Running {
