@@ -60,9 +60,3 @@ impl From<PoolError> for StorageError {
         StorageError::PoolError(err)
     }
 }
-
-impl From<PoolError> for StorageError {
-    fn from(err: PoolError) -> Self {
-        StorageError::PoolError(err)
-    }
-}
