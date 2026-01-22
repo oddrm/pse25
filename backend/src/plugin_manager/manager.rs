@@ -33,11 +33,11 @@ pub struct PluginManager {
     running: HashMap<InstanceID, (usize, InstanceState)>,
 }
 
-// TODO use PluginError later, now too much refactoring needed
+// TODO: use PluginError later, now too much refactoring needed
 impl PluginManager {
     pub fn new(storage_manager: StorageManager) -> Self {
         Self {
-            storage_manager: event_transmitter,
+            storage_manager: storage_manager,
             registered: Vec::new(),
             running: HashMap::new(),
         }
