@@ -32,7 +32,7 @@ watch(
       return
     }
 
-    const entries = fetchEntries('', null as any, true, 1, 50)
+    const entries = fetchEntries('', Sorting.Name, true, 1, 50)
     entry.value = entries.find(e => e.entryID === id) || null
   },
   { immediate: true }
