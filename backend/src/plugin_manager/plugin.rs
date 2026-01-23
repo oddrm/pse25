@@ -3,7 +3,11 @@ pub struct Plugin {
     name: String,
     description: String,
     trigger: Trigger,
-    path: std::path::PathBuf, // optional, aber meist praktisch
+    path: std::path::PathBuf,
+
+    enabled: bool,
+    valid: bool,
+    validation_warnings: Vec<String>,
 }
 
 impl Plugin {
@@ -14,6 +18,10 @@ impl Plugin {
             description,
             trigger,
             path,
+
+            enabled: true,
+            valid: true,
+            validation_warnings: Vec::new(),
         }
     }
 
@@ -31,6 +39,30 @@ impl Plugin {
 
     pub fn path(&self) -> &std::path::PathBuf {
         &self.path
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    pub fn valid(&self) -> bool {
+        self.valid
+    }
+
+    pub fn set_valid(&mut self, valid: bool) {
+        self.valid = valid;
+    }
+
+    pub fn validation_warnings(&self) -> &Vec<String> {
+        &self.validation_warnings
+    }
+
+    pub fn set_validation_warnings(&mut self, warnings: Vec<String>) {
+        self.validation_warnings = warnings;
     }
 }
 
