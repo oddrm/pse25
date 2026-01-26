@@ -1,0 +1,58 @@
+services:
+  db:
+    image: postgres:latest
+    restart: always
+    ports:
+      - "5433:5432"  # Different port to avoid conflicts with dev database
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+  migrations:
+    build:
+      context: backend
+      dockerfile: Dockerfile.migrations
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: no
+
+  backend:
+    build:
+      context: backend
+      dockerfile: Dockerfile.test
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+      - RUST_BACKTRACE=1
+    volumes:
+      - ./backend:/app
+      - ./backend/target:/app/target
+      # - ./test_data:/data
+
+  # frontend:
+  #   build:
+  #     context: frontend
+  #     dockerfile: Dockerfile
+  #   environment:
+  #     - NODE_ENV=test
+  #   command: npm test
+  #   volumes:
+  #     - ./frontend:/app
+  #     - /app/node_modules
+
+volumes:
+  cargo-cache:
+  target-cache:

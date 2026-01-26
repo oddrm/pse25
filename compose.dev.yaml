@@ -39,18 +39,9 @@ services:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
       - LOG_LEVEL=debug
       # - LOG_TO_FILE=true
-    develop:
-      watch:
-        - action: rebuild
-          path: backend
-          ignore:
-            - backend/target
-            - backend/Cargo.lock
-            - backend/**/*.swp
-            - backend/**/*.tmp
-            - backend/**/*~
-            - backend/.cargo
     volumes:
+      - ./backend:/app
+      - ./backend/target:/app/target
       - ./logs:/logs
       - ./test_data:/data
   frontend:

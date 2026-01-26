@@ -1,0 +1,17 @@
+FROM docker.io/rust:1-slim-bookworm
+
+WORKDIR /app
+
+# Install build and runtime dependencies
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set environment variables for testing
+ENV RUST_BACKTRACE=1
+ENV DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+ENV RUSTFLAGS="-A warnings"
+
+# Run tests (source will be mounted)
+CMD ["cargo", "test", "--no-fail-fast", "--", "--nocapture"]
