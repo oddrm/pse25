@@ -11,7 +11,7 @@ pub type TagID = i64;
 pub type TopicID = i64;
 pub type Timestamp = i64;
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::files)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct File {
@@ -22,7 +22,7 @@ pub struct File {
     pub last_checked: chrono::NaiveDateTime,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::entries)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Entry {
@@ -41,7 +41,7 @@ pub struct Entry {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::sequences)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Sequence {
@@ -54,7 +54,7 @@ pub struct Sequence {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::metadata)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Metadata {
@@ -65,7 +65,7 @@ pub struct Metadata {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::tags)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Tag {
@@ -75,7 +75,7 @@ pub struct Tag {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::topics)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct TopicDb {

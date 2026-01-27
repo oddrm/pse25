@@ -22,7 +22,7 @@ deadpool-diesel = { version = "0.6.1", features = [
 diesel-async = { version = "0.7.4", features = ["postgres"] }
 deadpool = "0.12.3"
 tokio-stream = "0.1.18"
-chrono = "0.4.43"
+chrono = { version = "0.4.43", features = ["serde"] }
 
 [dev-dependencies]
 diesel_cli = { version = "2.3.5", features = ["postgres"] }
