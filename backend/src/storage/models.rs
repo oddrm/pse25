@@ -78,7 +78,7 @@ pub struct Tag {
 #[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::topics)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct TopicDb {
+pub struct Topic {
     pub id: TopicID,
     pub entry_id: i64,
     pub topic_name: String,
