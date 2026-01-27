@@ -239,6 +239,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-link",
 ]
@@ -483,6 +484,7 @@ dependencies = [
  "mysqlclient-sys",
  "percent-encoding",
  "pq-sys",
+ "serde_json",
  "sqlite-wasm-rs",
  "time",
  "url",
