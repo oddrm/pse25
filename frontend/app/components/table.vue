@@ -1,30 +1,25 @@
 <template>
-    <div class="flex flex-col items-center">
-        <input placeholder="Search" class="input" />
-        <table class="table">
-          <thead>
-            <tr>
-              <th v-for="(column, index) in columns" :key="index">
-                {{ column }}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <Entry
-              v-for="entry in entries"
-              :key="entry.entryID"
-              v-bind="entry"
-              @select="$emit('select', $event)"
-            />
-          </tbody>
-        </table>
-    </div>
-</template>  
+  <div class="flex flex-col items-center">
+    <input placeholder="Search" class="input" />
+    <table class="table">
+      <thead>
+        <tr>
+          <th v-for="(column, index) in columns" :key="index">
+            {{ column }}
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <Entry v-for="entry in entries" :key="entry.entryID" v-bind="entry" @select="$emit('select', $event)" />
+      </tbody>
+    </table>
+  </div>
+</template>
 
 <script setup lang="ts">
-import { Sorting } from "~/utils/entryColumns"; 
+import { Sorting, columns as ENTRY_COLUMNS } from "~/utils/entryColumns";
 
-const columns = Object.keys(Sorting);
+const columns = ENTRY_COLUMNS;
 
 const searchString = ref("");
 const sortBy = ref(Sorting.Name);

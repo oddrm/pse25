@@ -1,0 +1,90 @@
+services:
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+  migrations:
+    build:
+      context: backend
+      dockerfile: Dockerfile.migrations
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+    restart: no
+
+  backend:
+    build: backend
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+      - LOG_LEVEL=info
+      - LOG_TO_FILE=true
+    develop:
+      watch:
+        - action: rebuild
+          path: backend
+          ignore:
+            - backend/target
+    volumes:
+      - ./logs:/logs
+      - ./test_data:/data
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - API_BASE_URL=http://backend:8080
+    expose:
+      - "3000"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
+      interval: 1s
+      timeout: 10s
+      retries: 30
+
+  playwright:
+    build:
+      context: frontend
+      dockerfile: Dockerfile.playwright
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    environment:
+      - BASE_URL=http://frontend:3000
+      - CI=2
+    working_dir: /app
+    volumes:
+      - /app/node_modules
+      - ./frontend/playwright-report:/app/playwright-report
+
+volumes:
+  cargo-cache:
+  target-cache:

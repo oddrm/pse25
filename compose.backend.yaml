@@ -3,7 +3,7 @@ services:
     image: postgres:latest
     restart: always
     ports:
-      - "5433:5432"  # Different port to avoid conflicts with dev database
+      - "5433:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -40,18 +40,6 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/target:/app/target
-      # - ./test_data:/data
-
-  # frontend:
-  #   build:
-  #     context: frontend
-  #     dockerfile: Dockerfile
-  #   environment:
-  #     - NODE_ENV=test
-  #   command: npm test
-  #   volumes:
-  #     - ./frontend:/app
-  #     - /app/node_modules
 
 volumes:
   cargo-cache:

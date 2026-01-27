@@ -20,6 +20,9 @@ FROM node:20-slim AS runner
 
 WORKDIR /app
 
+# Install curl so the container healthcheck (curl) works during runtime
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
 # Nitro output includes everything needed to run the server
 COPY --from=builder /src/.output ./.output
 

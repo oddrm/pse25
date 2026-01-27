@@ -60,11 +60,18 @@ async fn main() {
         .start_scanning(Duration::from_secs(1))
         .unwrap();
 
+    // simple health endpoint so Docker healthchecks succeed
+    #[get("/health")]
+    fn health() -> &'static str {
+        "OK"
+    }
+
     // web server
     rocket::build()
         .mount(
             "/",
             routes![
+                health,
                 get_entries,
                 get_sequences,
                 get_metadata,

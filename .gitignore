@@ -26,3 +26,6 @@ logs
 
 target
 test_data
+test-results
+playwright-report
+devlogs
