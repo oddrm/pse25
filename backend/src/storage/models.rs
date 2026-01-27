@@ -1,9 +1,8 @@
 #![allow(unused)]
-use diesel::prelude::*;
-use rocket::serde::{Deserialize, Serialize};
 use crate::error::Error;
 use chrono::{DateTime, Utc};
-
+use diesel::prelude::*;
+use rocket::serde::{Deserialize, Serialize};
 
 pub type EntryID = i64;
 pub type SequenceID = i64;
@@ -11,8 +10,6 @@ pub type MetadataID = i64;
 pub type TagID = i64;
 pub type TopicID = i64;
 pub type Timestamp = i64;
-
-
 
 #[derive(Queryable, Selectable, Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::files)]
@@ -25,11 +22,10 @@ pub struct File {
     pub last_checked: chrono::NaiveDateTime,
 }
 
-
 #[derive(Queryable, Selectable, Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::entries)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct EntryDb {
+pub struct Entry {
     pub id: EntryID,
     pub name: String,
     pub path: String,
@@ -45,11 +41,10 @@ pub struct EntryDb {
     pub updated_at: DateTime<Utc>,
 }
 
-
 #[derive(Queryable, Selectable, Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::sequences)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct SequenceDb {
+pub struct Sequence {
     pub id: SequenceID,
     pub entry_id: i64,
     pub description: String,
@@ -59,11 +54,10 @@ pub struct SequenceDb {
     pub updated_at: DateTime<Utc>,
 }
 
-
 #[derive(Queryable, Selectable, Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::metadata)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct MetadataDb {
+pub struct Metadata {
     pub id: MetadataID,
     pub entry_id: EntryID,
     pub metadata_json: Option<serde_json::Value>,
@@ -71,18 +65,15 @@ pub struct MetadataDb {
     pub updated_at: DateTime<Utc>,
 }
 
-
 #[derive(Queryable, Selectable, Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::tags)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct TagDb {
+pub struct Tag {
     pub id: TagID,
     pub entry_id: i64,
     pub name: String,
     pub created_at: DateTime<Utc>,
 }
-
-
 
 #[derive(Queryable, Selectable, Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::topics)]
