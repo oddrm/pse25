@@ -1,10 +1,9 @@
 #![allow(unused_variables)]
 
+use crate::AppState;
 use crate::error::Error;
-use crate::storage::entry::Entry;
-use crate::storage::sequence::Sequence;
+use crate::storage::models::{Entry, EntryID, Sequence, SequenceID};
 use crate::storage::storage_manager::Map;
-use crate::{AppState, storage::sequence::SequenceID, storage::storage_manager::EntryID};
 use rocket::serde::json::Json;
 use rocket::{State, delete, get, post, put, response::status};
 
@@ -13,7 +12,7 @@ use rocket::{State, delete, get, post, put, response::status};
 pub async fn get_metadata(
     state: &State<AppState>,
     entry_id: EntryID,
-) -> Result<Json<crate::storage::metadata::Metadata>, Error> {
+) -> Result<Json<crate::storage::models::Metadata>, Error> {
     todo!()
 }
 

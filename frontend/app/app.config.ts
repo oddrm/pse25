@@ -1,3 +1,3 @@
 export default defineAppConfig({
-    dbPort: 8000
+    dbPort: 5432
 })

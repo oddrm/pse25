@@ -1,17 +1,18 @@
 use std::{env, time::Duration};
 
 use crate::storage::storage_manager::StorageManager;
-use rocket::routes;
 use routes::queries::{
     add_sequence, add_tag, get_entries, get_metadata, get_sequences, remove_sequence, remove_tag,
     update_metadata, update_sequence,
 };
 use tracing::Subscriber;
 use tracing_subscriber::fmt::writer::{BoxMakeWriter, MakeWriterExt};
-
+#[macro_use]
+extern crate rocket;
 pub mod error;
 pub mod plugin_manager;
 pub mod routes;
+pub mod schema;
 pub mod storage;
 pub struct AppState {
     pub storage_manager: StorageManager,
@@ -54,7 +55,6 @@ async fn main() {
             tracing_subscriber::fmt()
                 .with_writer(BoxMakeWriter::new(std::io::stdout))
                 .pretty()
-                // .with_ansi(false)
                 .with_max_level(log_level)
                 .finish(),
         )
@@ -62,6 +62,7 @@ async fn main() {
     tracing::subscriber::set_global_default(log_subscriber).unwrap();
     tracing::info!("Logging initialized.");
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
     #[allow(unused_mut)]
     let mut storage_manager = StorageManager::new(&db_url).unwrap();
     storage_manager

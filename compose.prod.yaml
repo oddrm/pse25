@@ -11,6 +11,17 @@ services:
       timeout: 5s
       retries: 10
 
+  migrations:
+    build:
+      context: backend
+      dockerfile: Dockerfile.migrations
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+    restart: no
+
   backend:
     build: backend
     ports:
@@ -18,6 +29,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
       - LOG_LEVEL=info
