@@ -365,14 +365,8 @@ dependencies = [
  "diesel_derives",
  "downcast-rs",
  "itoa",
- "libsqlite3-sys",
- "mysqlclient-sys",
- "percent-encoding",
  "pq-sys",
  "serde_json",
- "sqlite-wasm-rs",
- "time",
- "url",
 ]
 
 [[package]]

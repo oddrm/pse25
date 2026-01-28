@@ -21,6 +21,7 @@
     "@tailwindcss/vite": "^4.1.17",
     "daisyui": "^5.5.5",
     "nuxt": "^4.2.1",
+    "pinia": "^3.0.4",
     "tailwindcss": "^4.1.17",
     "vue": "^3.5.25",
     "vue-router": "^4.6.3"
@@ -32,6 +33,7 @@
     "@playwright/test": "^1.49.1",
     "@types/node": "^25.0.10",
     "@vue/test-utils": "^2.4.6",
+    "@types/node": "^25.0.10",
     "eslint": "^9.39.1",
     "eslint-plugin-vue": "^10.6.2",
     "globals": "^16.5.0",
