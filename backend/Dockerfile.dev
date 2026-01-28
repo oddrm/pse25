@@ -1,54 +1,34 @@
-FROM docker.io/rust:1-slim-bookworm AS build
-
-ARG pkg=backend
-
-WORKDIR /build
-
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    libpq-dev \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy dependency manifests first
-COPY Cargo.toml Cargo.lock ./
-
-# Build dependencies only (cached layer)
-RUN mkdir -p src && \
-    echo "fn main() {}" > src/main.rs && \
-    cargo build && \
-    rm -rf src
-
-# Copy source code
-COPY . .
-
-# Build in debug mode (much faster for development)
-RUN --mount=type=cache,target=/build/target \
-    --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    set -eux; \
-    touch src/main.rs; \
-    cargo build; \
-    objcopy --compress-debug-sections target/debug/$pkg ./main
-
-################################################################################
-
-FROM docker.io/debian:bookworm-slim
-
-RUN apt-get update && apt-get install -y \
-    libpq5 \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
+FROM rust:latest as builder
 WORKDIR /app
 
-COPY --from=build /build/main ./
-COPY --from=build /build/Rocket.tom[l] ./static
-COPY --from=build /build/stati[c] ./static
-COPY --from=build /build/template[s] ./templates
+# Install build deps
+RUN apt-get update && apt-get install -y pkg-config libssl-dev ca-certificates --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/*
 
-ENV ROCKET_ADDRESS=0.0.0.0
-ENV ROCKET_PORT=8080
-ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
+# Install cargo-watch for fast in-container rebuilds
+RUN cargo install cargo-watch
 
-CMD ./main
+# Copy manifest to cache dependencies layer
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && echo 'fn main() { println!("dummy"); }' > src/main.rs && cargo build --release || true
+
+FROM rust:latest
+WORKDIR /app
+
+# Runtime build deps (same as builder to allow building native deps)
+RUN apt-get update && apt-get install -y pkg-config libssl-dev ca-certificates --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/*
+
+# Copy cached target from builder and cargo-installed binaries (cargo-watch)
+COPY --from=builder /app/target ./target
+COPY --from=builder /usr/local/cargo/bin /usr/local/cargo/bin
+ENV PATH="/usr/local/cargo/bin:${PATH}"
+
+# Copy source into image (compose.dev will usually mount the source for live edits)
+COPY . .
+
+# Use the same target dir so cached artifacts are reused
+ENV CARGO_TARGET_DIR=/app/target
+
+# Default: watch sources and run for fast rebuilds when files change
+CMD ["cargo", "watch", "-x", "run"]

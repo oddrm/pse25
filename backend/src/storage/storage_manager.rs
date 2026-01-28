@@ -7,11 +7,9 @@ use std::{
     time::Duration,
 };
 
+use crate::error::{Error, StorageError};
 use crate::schema::files;
 use crate::storage::models::*;
-use crate::{
-    error::{Error, StorageError},
-};
 use deadpool::Runtime;
 use deadpool_diesel::postgres::{Manager, Pool};
 use diesel::prelude::*;
@@ -158,6 +156,7 @@ impl StorageManager {
 
     #[instrument]
     pub async fn process_event(&self, event: &notify::Event) -> Result<(), StorageError> {
+        debug!("Processing file event: {:?}", event);
         let conn = self.db_connection_pool.get().await?;
         match &event.kind {
             notify::event::EventKind::Create(_) => {

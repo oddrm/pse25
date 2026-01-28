@@ -178,6 +178,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-link",
 ]
@@ -365,6 +366,7 @@ dependencies = [
  "downcast-rs",
  "itoa",
  "pq-sys",
+ "serde_json",
 ]
 
 [[package]]

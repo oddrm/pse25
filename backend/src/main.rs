@@ -1,6 +1,7 @@
 use std::{env, time::Duration};
 
 use backend::AppState;
+use backend::routes::health_check::health;
 use backend::routes::queries::{
     add_sequence, add_tag, get_entries, get_metadata, get_sequences, remove_sequence, remove_tag,
     update_metadata, update_sequence,
@@ -59,12 +60,6 @@ async fn main() {
     storage_manager
         .start_scanning(Duration::from_secs(1))
         .unwrap();
-
-    // simple health endpoint so Docker healthchecks succeed
-    #[get("/health")]
-    fn health() -> &'static str {
-        "OK"
-    }
 
     // web server
     rocket::build()

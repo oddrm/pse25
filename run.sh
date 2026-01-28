@@ -3,21 +3,23 @@ set -euo pipefail
 
 usage() {
   cat <<EOF
-Usage: $0 <backend|frontend|e2e|all> [--] [args...]
+Usage: $0 <dev|backend|frontend|e2e|prod> [--] [args...]
 
 Commands:
+  dev          Start the full stack in development watch mode
   backend      Run backend tests
   frontend     Run frontend unit & component tests
   e2e          Run end-to-end tests against full stack
-  all          Run backend, frontend, then e2e
+  prod         Run the production compose stack
 
-Currently only implemented for linux, probably works for mac as well
+Currently only tested for linux, probably works for mac as well
 
 Examples:
+  $0 dev
   $0 backend
   $0 frontend
   $0 e2e
-  $0 all
+  $0 prod
 EOF
 }
 
@@ -63,22 +65,14 @@ case "$CMD" in
     exit $EXIT_CODE
     ;;
 
-  all)
-    set -e
-    echo "========================================="
-    echo "Running all tests..."
-    echo "========================================="
+  dev)
+    echo "Starting full development stack..."
+    "$SUDO" docker compose -f compose.dev.yaml up --build --remove-orphans --no-attach db --no-attach pgadmin
+    ;;
 
-    echo "1/3: Backend tests"
-    "$0" backend
-    echo "2/3: Frontend unit & component tests"
-    "$0" frontend
-    echo "3/3: E2E tests"
-    "$0" e2e
-
-    echo "========================================="
-    echo "All tests passed! ✓"
-    echo "========================================="
+  prod)
+    echo "Starting production compose stack..."
+    "$SUDO" docker compose -f compose.prod.yaml up --build
     ;;
 
   *)

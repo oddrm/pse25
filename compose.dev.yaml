@@ -39,9 +39,10 @@ services:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
       - LOG_LEVEL=debug
       # - LOG_TO_FILE=true
+    working_dir: /app
     volumes:
-      - ./backend:/app
-      - ./backend/target:/app/target
+      - ./backend:/app:cached
+      - backend-target:/app/target
       - ./logs:/logs
       - ./test_data:/data
   frontend:
@@ -91,3 +92,4 @@ configs:
       }
 volumes:
   pgadmin:
+  backend-target:

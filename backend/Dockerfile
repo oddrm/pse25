@@ -1,4 +1,4 @@
-FROM docker.io/rust:1-slim-bookworm AS build
+FROM docker.io/rust:latest AS build
 
 ## co package name: customize here or provide via --build-arg
 ARG pkg=backend
