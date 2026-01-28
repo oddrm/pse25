@@ -1,26 +1,19 @@
 use std::{env, time::Duration};
 
-use crate::storage::storage_manager::StorageManager;
-use routes::queries::{
+use backend::AppState;
+use backend::routes::health_check::health;
+use backend::routes::queries::{
     add_sequence, add_tag, get_entries, get_metadata, get_sequences, remove_sequence, remove_tag,
     update_metadata, update_sequence,
 };
+use backend::storage::storage_manager::StorageManager;
 use tracing::Subscriber;
 use tracing_subscriber::fmt::writer::{BoxMakeWriter, MakeWriterExt};
 #[macro_use]
 extern crate rocket;
-pub mod error;
-pub mod plugin_manager;
-pub mod routes;
-pub mod schema;
-pub mod storage;
-pub struct AppState {
-    pub storage_manager: StorageManager,
-}
 
 #[rocket::main]
 async fn main() {
-    // TODO findings: without the non-blocking appender, logs actually get written. They use some special characters which neither vscode nor zed can displayy, but my terminal can.
     let log_to_file = env::var("LOG_TO_FILE").is_ok_and(|v| v == "true");
     let log_level = match env::var("LOG_LEVEL")
         .unwrap_or("debug".to_string())
@@ -36,7 +29,6 @@ async fn main() {
     // non blocking so writing to file runs in a separate thread
     // this has to be kept in the main function and not in an if clause because otherwise the guard gets dropped
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
     // this needs to be boxed because the subscribers have very specific types
     let log_subscriber: Box<dyn Subscriber + Send + Sync + 'static> = if log_to_file {
         // if logging to file, log both to file and stdout
@@ -74,6 +66,7 @@ async fn main() {
         .mount(
             "/",
             routes![
+                health,
                 get_entries,
                 get_sequences,
                 get_metadata,

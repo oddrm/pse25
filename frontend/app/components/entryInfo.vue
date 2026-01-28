@@ -15,6 +15,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { Sorting } from '~/utils/entryColumns'
 import type { Entry, entryID } from '~/utils/entry'
 import { fetchEntries } from '~/utils/dbQueries'
 

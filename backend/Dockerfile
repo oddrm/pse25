@@ -1,4 +1,4 @@
-FROM docker.io/rust:1-slim-bookworm AS build
+FROM docker.io/rust:latest AS build
 
 ## co package name: customize here or provide via --build-arg
 ARG pkg=backend
@@ -14,11 +14,10 @@ RUN apt-get update && apt-get install -y \
 # 2. Copy dependency manifests first (better caching)
 COPY Cargo.toml Cargo.lock ./
 
-# 3. Create dummy main.rs to build dependencies only
-RUN mkdir -p src && \
-    echo "fn main() {}" > src/main.rs && \
-    cargo build --release && \
-    rm -rf src
+# 3. Fetch dependencies to populate the cargo cache without compiling the crate
+# This avoids creating a dummy src file and prevents cargo from trying to
+# compile a missing library target during the dependency-only step.
+RUN cargo fetch
 
 # 4. Now copy actual source code
 COPY . .
@@ -29,7 +28,9 @@ RUN --mount=type=cache,target=/build/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     set -eux; \
     touch src/main.rs; \
-    cargo build --release; \
+    # Build only the requested binary to prevent cargo from attempting to
+    # build a missing library target.
+    cargo build --release --bin ${pkg} || cargo build --release; \
     objcopy --compress-debug-sections target/release/$pkg ./main
 
 ################################################################################
@@ -51,6 +52,11 @@ COPY --from=build /build/main ./
 COPY --from=build /build/Rocket.tom[l] ./static
 COPY --from=build /build/stati[c] ./static
 COPY --from=build /build/template[s] ./templates
+
+# Install curl so the container healthcheck (curl) works during runtime
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir /data
 
 ## ensure the container listens globally on port 8080
 ENV ROCKET_ADDRESS=0.0.0.0
