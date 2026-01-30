@@ -4,10 +4,10 @@ use std::path::Path;
 use crate::error::Error;
 
 pub fn load_plugin_instance(plugin_file: &Path) -> Result<Py<PyAny>, Error> {
-    Python::with_gil(|py| {
-        let parent = plugin_file.parent().ok_or_else(|| {
-            Error::CustomError("Plugin path has no parent directory".to_string())
-        })?;
+    Python::attach(|py| {
+        let parent = plugin_file
+            .parent()
+            .ok_or_else(|| Error::CustomError("Plugin path has no parent directory".to_string()))?;
 
         let module_name = plugin_file
             .file_stem()
@@ -26,10 +26,9 @@ pub fn load_plugin_instance(plugin_file: &Path) -> Result<Py<PyAny>, Error> {
             .call_method1("insert", (0, parent.to_string_lossy().as_ref()))
             .map_err(|e| Error::CustomError(format!("Python sys.path insert failed: {e}")))?;
 
-        let module = py
-            .import(module_name)
-            .map_err(|e| Error::CustomError(format!(
-                "Python import '{module_name}' failed: {e}")))?;
+        let module = py.import(module_name).map_err(|e| {
+            Error::CustomError(format!("Python import '{module_name}' failed: {e}"))
+        })?;
 
         let cls = module
             .getattr("PluginImpl")
@@ -39,70 +38,65 @@ pub fn load_plugin_instance(plugin_file: &Path) -> Result<Py<PyAny>, Error> {
             .call1((plugin_file.to_string_lossy().as_ref(),))
             .map_err(|e| Error::CustomError(format!("Python PluginImpl() failed: {e}")))?;
 
-        Ok(instance.into_py(py))
+        Ok(instance.unbind())
     })
 }
 
 pub fn call_run(plugin_instance: &Py<PyAny>, data: &str) -> Result<String, Error> {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let obj = plugin_instance.bind(py);
         let out = obj
             .call_method1("run", (data,))
             .map_err(|e| Error::CustomError(format!("Python run() failed: {e}")))?;
 
         out.extract::<String>()
-            .map_err(|e| Error::CustomError(format!(
-                "Python run() return type mismatch: {e}")))
+            .map_err(|e| Error::CustomError(format!("Python run() return type mismatch: {e}")))
     })
 }
 
 pub fn call_stop(plugin_instance: &Py<PyAny>) -> Result<String, Error> {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let obj = plugin_instance.bind(py);
         let out = obj
             .call_method0("stop")
             .map_err(|e| Error::CustomError(format!("Python stop() failed: {e}")))?;
 
         out.extract::<String>()
-            .map_err(|e| Error::CustomError(format!(
-                "Python stop() return type mismatch: {e}")))
+            .map_err(|e| Error::CustomError(format!("Python stop() return type mismatch: {e}")))
     })
 }
 
 pub fn call_pause(plugin_instance: &Py<PyAny>) -> Result<String, Error> {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let obj = plugin_instance.bind(py);
         let out = obj
             .call_method0("pause")
-            .map_err(|e| Error::CustomError(format!(
-                "Python pause() failed: {e}")))?;
+            .map_err(|e| Error::CustomError(format!("Python pause() failed: {e}")))?;
 
         out.extract::<String>()
-            .map_err(|e| Error::CustomError(format!(
-                "Python pause() return type mismatch: {e}")))
+            .map_err(|e| Error::CustomError(format!("Python pause() return type mismatch: {e}")))
     })
 }
 
 pub fn call_resume(plugin_instance: &Py<PyAny>) -> Result<String, Error> {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let obj = plugin_instance.bind(py);
         let out = obj
             .call_method0("resume")
-            .map_err(|e| Error::CustomError(format!(
-                "Python resume() failed: {e}")))?;
+            .map_err(|e| Error::CustomError(format!("Python resume() failed: {e}")))?;
 
         out.extract::<String>()
-            .map_err(|e| Error::CustomError(format!(
-                "Python resume() return type mismatch: {e}")))
+            .map_err(|e| Error::CustomError(format!("Python resume() return type mismatch: {e}")))
     })
 }
 
-pub fn read_module_constants(plugin_file: &Path) -> Result<(Option<String>, Option<String>,
-                                                            Option<String>), Error> {
-    Python::with_gil(|py| {
-        let parent = plugin_file.parent().ok_or_else(|| {
-            Error::CustomError("Plugin path has no parent directory".to_string())
-        })?;
+pub fn read_module_constants(
+    plugin_file: &Path,
+) -> Result<(Option<String>, Option<String>, Option<String>), Error> {
+    Python::attach(|py| {
+        let parent = plugin_file
+            .parent()
+            .ok_or_else(|| Error::CustomError("Plugin path has no parent directory".to_string()))?;
 
         let module_name = plugin_file
             .file_stem()
@@ -119,13 +113,11 @@ pub fn read_module_constants(plugin_file: &Path) -> Result<(Option<String>, Opti
 
         sys_path
             .call_method1("insert", (0, parent.to_string_lossy().as_ref()))
-            .map_err(|e| Error::CustomError(format!(
-                "Python sys.path insert failed: {e}")))?;
+            .map_err(|e| Error::CustomError(format!("Python sys.path insert failed: {e}")))?;
 
-        let module = py
-            .import(module_name)
-            .map_err(|e| Error::CustomError(format!(
-                "Python import '{module_name}' failed: {e}")))?;
+        let module = py.import(module_name).map_err(|e| {
+            Error::CustomError(format!("Python import '{module_name}' failed: {e}"))
+        })?;
 
         let name = module
             .getattr("PLUGIN_NAME")
@@ -147,12 +139,12 @@ pub fn read_module_constants(plugin_file: &Path) -> Result<(Option<String>, Opti
 }
 
 pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let mut warnings: Vec<String> = Vec::new();
 
-        let parent = plugin_file.parent().ok_or_else(|| {
-            Error::CustomError("Plugin path has no parent directory".to_string())
-        })?;
+        let parent = plugin_file
+            .parent()
+            .ok_or_else(|| Error::CustomError("Plugin path has no parent directory".to_string()))?;
 
         let module_name = plugin_file
             .file_stem()
@@ -169,13 +161,11 @@ pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> 
 
         sys_path
             .call_method1("insert", (0, parent.to_string_lossy().as_ref()))
-            .map_err(|e| Error::CustomError(format!(
-                "Python sys.path insert failed: {e}")))?;
+            .map_err(|e| Error::CustomError(format!("Python sys.path insert failed: {e}")))?;
 
-        let module = py
-            .import(module_name)
-            .map_err(|e| Error::CustomError(format!(
-                "Python import '{module_name}' failed: {e}")))?;
+        let module = py.import(module_name).map_err(|e| {
+            Error::CustomError(format!("Python import '{module_name}' failed: {e}"))
+        })?;
 
         // Hard requirements (sonst nicht startbar)
         let plugin_impl = module.getattr("PluginImpl").map_err(|e| {

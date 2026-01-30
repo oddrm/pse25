@@ -1,12 +1,12 @@
 #![allow(unused)]
 
+use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use pyo3::prelude::*;
-use tokio::task::JoinHandle;
-use tokio::time::{timeout, Duration};
 use tokio::sync::mpsc::Sender;
+use tokio::task::JoinHandle;
+use tokio::time::{Duration, timeout};
 use tracing::warn;
 
 use crate::plugin_manager::manager::InstanceState::Running;
@@ -56,8 +56,8 @@ impl PluginManager {
 
     pub fn register_plugins(&mut self, directory: PathBuf) -> Result<(), Error> {
         // über Verzeichnis
-        for entry in fs::read_dir(&directory).map_err(Error::from)? {
-            let entry = entry.map_err(Error::from)?;
+        for entry in fs::read_dir(&directory).map_err(|e| Error::CustomError(e.to_string()))? {
+            let entry = entry.map_err(|e| Error::CustomError(e.to_string()))?;
             //bekommt passenden PathBuf
             let path = entry.path();
 
@@ -83,8 +83,7 @@ impl PluginManager {
         let fallback_description = format!("Plugin loaded from {:?}", path);
 
         let (py_name, py_description, py_trigger) =
-            python_bridge::read_module_constants(path.as_path())
-                .unwrap_or((None, None, None));
+            python_bridge::read_module_constants(path.as_path()).unwrap_or((None, None, None));
 
         let name = py_name.unwrap_or(fallback_name);
         let description = py_description.unwrap_or(fallback_description);
@@ -122,8 +121,9 @@ impl PluginManager {
             .registered
             .iter()
             .position(|p| p.name().as_str() == plugin_name)
-            .ok_or_else(|| Error::CustomError(
-                format!("Plugin '{}' is not registered", plugin_name)))?;
+            .ok_or_else(|| {
+                Error::CustomError(format!("Plugin '{}' is not registered", plugin_name))
+            })?;
 
         let reg_plugin = &self.registered[plugin_index];
 
@@ -142,12 +142,10 @@ impl PluginManager {
         }
 
         // Python-Instanz erzeugen und speichern
-        let py_instance = python_bridge::load_plugin_instance(
-            reg_plugin.path().as_path())?;
+        let py_instance = python_bridge::load_plugin_instance(reg_plugin.path().as_path())?;
 
         // run() im Hintergrund ausführen
-        let py_instance_for_task = Python::with_gil(
-            |py| py_instance.clone_ref(py));
+        let py_instance_for_task = Python::with_gil(|py| py_instance.clone_ref(py));
         let run_task = tokio::task::spawn_blocking(move || {
             let _ = python_bridge::call_run(&py_instance_for_task, "start");
         });
@@ -282,7 +280,6 @@ impl PluginManager {
         plugin.set_enabled(false);
         Ok(())
     }
-
 }
 
 type InstanceID = u64;
