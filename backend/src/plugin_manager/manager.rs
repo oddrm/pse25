@@ -72,7 +72,7 @@ impl PluginManager {
         for w in &warnings {
             warn!("{w}");
         }
-
+        //TODO: plugin aktivstatus aktivieren
         // 2) Constants lesen (best-effort, fallback wenn nicht vorhanden)
         let fallback_name = path
             .file_stem()
@@ -154,7 +154,7 @@ impl PluginManager {
             instance_id,
             RunningInstance {
                 plugin_index,
-                state: InstanceState::Running,
+                state: Running,
                 py_instance,
                 run_task,
             },
@@ -229,14 +229,14 @@ impl PluginManager {
             Error::CustomError(format!("Instance {} is not running", instance_id))
         })?;
 
-        if entry.state == InstanceState::Running {
+        if entry.state == Running {
             return Ok(());
         }
 
         // Python fortsetzen
         let _resume_result = python_bridge::call_resume(&entry.py_instance)?;
 
-        entry.state = InstanceState::Running;
+        entry.state = Running;
 
         Ok(())
     }
@@ -245,7 +245,7 @@ impl PluginManager {
         self.running
             .iter()
             .filter_map(|(instance_id, entry)| {
-                if entry.state == InstanceState::Running {
+                if entry.state == Running {
                     let plugin = &self.registered[entry.plugin_index];
                     Some((plugin, *instance_id))
                 } else {

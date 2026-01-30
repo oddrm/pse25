@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import threading
-import time
 
 
 class BasePlugin:
@@ -11,10 +10,10 @@ class BasePlugin:
     Gemeinsame Basis für alle Plugins:
     - kooperatives Stoppen per Event
     - Pause/Resume per Event
-    - run() als Worker-Loop, der step() aufruft
+    - run() wird vom Plugin selbst implementiert (kein step()-Loop mehr)
     """
 
-    TICK_SECONDS = 0.1  # wie oft der Loop "tickt", wenn nichts zu tun ist
+    TICK_SECONDS = 0.1  # wie oft wir beim Warten "ticken", damit Stop schnell reagiert
 
     def __init__(self, path: str):
         self.path = Path(path)
@@ -23,28 +22,21 @@ class BasePlugin:
 
     def run(self, data: str) -> str:
         """
-        Default: Langlaufender Worker.
-        Ruft step(data) in einer Schleife auf, bis stop() gesetzt wird.
+        Muss vom Plugin überschrieben werden.
+        Implementierung sollte stop()/pause()/resume() respektieren.
         """
-        while not self._stop_event.is_set():
-            if self._pause_event.is_set():
-                # gibt GIL frei und reagiert trotzdem schnell auf stop()
-                self._stop_event.wait(self.TICK_SECONDS)
-                continue
+        raise NotImplementedError("Plugin must implement run(data)")
 
-            # Ein "Arbeitsschritt"
-            self.step(data)
+    # Helper: im run()-Code nutzbar
+    def should_stop(self) -> bool:
+        return self._stop_event.is_set()
 
-            # Wichtig: yield, damit stop()/pause() schnell greifen
-            time.sleep(self.TICK_SECONDS)
-
-        return "stopped"
-
-    def step(self, data: str) -> None:
+    def wait_while_paused(self) -> None:
         """
-        Muss von Plugins überschrieben werden (ein kleiner Arbeitsschritt).
+        Blockt kooperativ während Pause aktiv ist, reagiert aber schnell auf stop().
         """
-        raise NotImplementedError("Plugin must implement step(data)")
+        while self._pause_event.is_set() and not self._stop_event.is_set():
+            self._stop_event.wait(self.TICK_SECONDS)
 
     def pause(self) -> str:
         self._pause_event.set()
