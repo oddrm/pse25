@@ -91,7 +91,7 @@ impl PluginManager {
 
         let trigger = match py_trigger.as_deref() {
             Some("manual") | None => Trigger::Manual,
-            _ => Trigger::Manual, // TODO: später weitere Trigger mappen
+            _ => Trigger::Manual, // TODO: später weitere Trigger mappen; ist der bei Python
         };
 
         let mut plugin = Plugin::new(name, description, trigger, path);

@@ -10,3 +10,13 @@ class PluginImpl(BasePlugin):
     def step(self, data: str) -> None:
         # plugin Implementierung
         pass
+    
+    def run(self, data: str) -> str:
+        # Logs öffnen, Ressourcen initialisieren, Status setzen, ...
+        try:
+            return super().run(data)  # Standard-Worker-Loop (step() in Schleife)
+        finally:
+            # Dateien schließen, temporäre Ressourcen freigeben, ...
+            pass
+
+       
