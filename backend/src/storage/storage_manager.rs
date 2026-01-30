@@ -23,7 +23,7 @@ use diesel::prelude::*;
 use diesel_async::AsyncPgConnection;
 use dotenvy::Iter;
 use notify::{
-    INotifyWatcher, RecursiveMode, Watcher,
+    RecursiveMode, Watcher,
     event::{CreateKind, EventAttributes},
 };
 use rocket::futures::{FutureExt, StreamExt};
@@ -195,11 +195,12 @@ impl StorageManager {
         Ok(())
     }
 
-    // this is a static method so no method uses mutable access to storage_manager and it can then be shared
-    // around the web server so an unnecessary event queue can be skipped
-    // while this won't receive create events of directories, if a directory is moved, the remove event still shows up
-    // these have to be ignored and can't be distinguished from file events
-    // in general there are no rename/move events, just create/deletes. They have to be inferred through some other way
+    // this is a static method so no method uses mutable access to storage_manager and it can then
+    // be shared around the web server so an unnecessary event queue can be skipped
+    // while this won't receive create events of directories, if a directory is moved, the remove
+    // event still shows up these have to be ignored and can't be distinguished from file events
+    // in general there are no rename/move events, just create/ deletes.
+    // They have to be inferred through some other way
     #[instrument]
     async fn process_events(self, fs_event_rx: Receiver<notify::Event>) {
         debug!("Starting to process file events.");
@@ -217,9 +218,9 @@ impl StorageManager {
     }
 
     // this both scans the directory on startup and starts the continuous scanning process
-    // the notify debouncers can't be used because the the mini-debouncer deletes information about the eventKind
-    // and the full-debouncer compacts events on whole directories as one event, which is not desired as each file
-    // change has to be processed individually.
+    // the notify debouncers can't be used because the the mini-debouncer deletes information
+    // about the eventKind and the full-debouncer compacts events on whole directories as one event,
+    // which is not desired as each file change has to be processed individually.
     #[instrument]
     pub fn start_scanning(&self, interval: Duration) -> Result<(), Error> {
         debug!("starting filesystem scan method");
