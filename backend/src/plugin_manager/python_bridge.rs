@@ -44,7 +44,8 @@ pub fn load_plugin_instance(plugin_file: &Path) -> Result<Py<PyAny>, Error> {
 
 pub fn call_run(plugin_instance: &Py<PyAny>, data: &str) -> Result<String, Error> {
     Python::attach(|py| {
-        let obj = plugin_instance.bind(py);
+        let obj = plugin_instance.bind(py); //TODO: verschiedene Prozesse für jede Aktion,
+        // plugin_instance: neuer Python Prozess erstellen und dann erst ausführen; Referenz MutterPython-Prozess -> Parallelität
         let out = obj
             .call_method1("run", (data,))
             .map_err(|e| Error::CustomError(format!("Python run() failed: {e}")))?;
@@ -139,12 +140,12 @@ pub fn read_module_constants(
 }
 
 pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> {
-    Python::attach(|py| {
+    Python::with_gil(|py| {
         let mut warnings: Vec<String> = Vec::new();
 
-        let parent = plugin_file
-            .parent()
-            .ok_or_else(|| Error::CustomError("Plugin path has no parent directory".to_string()))?;
+        let parent = plugin_file.parent().ok_or_else(|| {
+            Error::CustomError("Plugin path has no parent directory".to_string())
+        })?;
 
         let module_name = plugin_file
             .file_stem()
@@ -161,11 +162,13 @@ pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> 
 
         sys_path
             .call_method1("insert", (0, parent.to_string_lossy().as_ref()))
-            .map_err(|e| Error::CustomError(format!("Python sys.path insert failed: {e}")))?;
+            .map_err(|e| Error::CustomError(format!(
+                "Python sys.path insert failed: {e}")))?;
 
-        let module = py.import(module_name).map_err(|e| {
-            Error::CustomError(format!("Python import '{module_name}' failed: {e}"))
-        })?;
+        let module = py
+            .import(module_name)
+            .map_err(|e| Error::CustomError(format!(
+                "Python import '{module_name}' failed: {e}")))?;
 
         // Hard requirements (sonst nicht startbar)
         let plugin_impl = module.getattr("PluginImpl").map_err(|e| {
@@ -177,6 +180,18 @@ pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> 
                 "PluginImpl exists but is not callable (expected class or factory function)"
                     .to_string(),
             ));
+        }
+
+        // Neu: run() muss vorhanden und callable sein (wir nutzen kein step() mehr)
+        let run_attr = plugin_impl.getattr("run").map_err(|e| {
+            Error::CustomError(format!(
+                "Plugin '{module_name}': PluginImpl has no run() method: {e}"
+            ))
+        })?;
+        if !run_attr.is_callable() {
+            return Err(Error::CustomError(format!(
+                "Plugin '{module_name}': PluginImpl.run exists but is not callable"
+            )));
         }
 
         // Soft requirements (nur Warnungen)

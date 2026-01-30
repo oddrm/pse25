@@ -4,19 +4,19 @@ PLUGIN_DESCRIPTION = "My first plugin written in Python"
 PLUGIN_TRIGGER = "manual"
 
 from plugin_base import BasePlugin
+import time
 
 
 class PluginImpl(BasePlugin):
-    def step(self, data: str) -> None:
-        # plugin Implementierung
-        pass
-    
     def run(self, data: str) -> str:
-        # Logs öffnen, Ressourcen initialisieren, Status setzen, ...
-        try:
-            return super().run(data)  # Standard-Worker-Loop (step() in Schleife)
-        finally:
-            # Dateien schließen, temporäre Ressourcen freigeben, ...
-            pass
+        # Langläufer bis stop() kommt
+        while not self.should_stop():
+            self.wait_while_paused()
+            if self.should_stop():
+                break
 
-       
+            # Plugin
+            
+            time.sleep(self.TICK_SECONDS)
+
+        return "stopped"
