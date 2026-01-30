@@ -2,5 +2,5 @@
 import { reactive } from 'vue';
 
 export const logsStore = reactive({
-  logs: []
+  logs: [] as { id: number; type: string | undefined; message: string; time: string; }[]
 });

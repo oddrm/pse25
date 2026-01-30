@@ -7,16 +7,9 @@ use std::{
     time::Duration,
 };
 
+use crate::error::{Error, StorageError};
 use crate::schema::files;
 use crate::storage::models::*;
-use crate::{
-    error::{Error, StorageError},
-    storage::entry::Entry,
-    storage::{
-        metadata::Metadata,
-        sequence::{Sequence, SequenceID},
-    },
-};
 use deadpool::Runtime;
 use deadpool_diesel::postgres::{Manager, Pool};
 use diesel::prelude::*;
@@ -36,7 +29,6 @@ use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, error, info, instrument};
 use tracing_subscriber::field::debug;
 
-pub type EntryID = u64;
 pub type Map<K, V> = std::collections::HashMap<K, V>;
 pub type TxID = u64;
 pub type Tag = String;
@@ -164,6 +156,7 @@ impl StorageManager {
 
     #[instrument]
     pub async fn process_event(&self, event: &notify::Event) -> Result<(), StorageError> {
+        debug!("Processing file event: {:?}", event);
         let conn = self.db_connection_pool.get().await?;
         match &event.kind {
             notify::event::EventKind::Create(_) => {

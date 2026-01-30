@@ -7,7 +7,13 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "test:ui": "vitest --ui",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug"
   },
   "dependencies": {
     "@nuxt/icon": "^2.2.0",
@@ -15,6 +21,7 @@
     "@tailwindcss/vite": "^4.1.17",
     "daisyui": "^5.5.5",
     "nuxt": "^4.2.1",
+    "pinia": "^3.0.4",
     "tailwindcss": "^4.1.17",
     "vue": "^3.5.25",
     "vue-router": "^4.6.3"
@@ -22,10 +29,17 @@
   "devDependencies": {
     "@eslint/css": "^0.14.1",
     "@eslint/js": "^9.39.1",
+    "@nuxt/test-utils": "^3.14.4",
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^25.0.10",
+    "@vue/test-utils": "^2.4.6",
+    "@types/node": "^25.0.10",
     "eslint": "^9.39.1",
     "eslint-plugin-vue": "^10.6.2",
     "globals": "^16.5.0",
+    "happy-dom": "^15.11.7",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.48.1"
+    "typescript-eslint": "^8.48.1",
+    "vitest": "^3.2.4"
   }
 }
