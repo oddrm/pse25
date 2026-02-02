@@ -33,9 +33,6 @@ shift || true
 
 # Use sudo for docker if needed (empty when running as root or sudo not available)
 SUDO=""
-if [[ $(id -u) -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
-  SUDO=sudo
-fi
 
 
 case "$CMD" in
@@ -59,7 +56,7 @@ case "$CMD" in
 
     # Use docker compose to (re)build images and run the e2e stack.
     # This ensures images are rebuilt when Dockerfiles or contexts change.
-    "$SUDO" docker compose -f compose.e2e.yaml up --build --exit-code-from playwright --remove-orphans playwright
+    docker compose -f compose.e2e.yaml up --build --exit-code-from playwright --remove-orphans playwright
     EXIT_CODE=$?
     "$SUDO" docker compose -f compose.e2e.yaml down
     exit $EXIT_CODE

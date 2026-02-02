@@ -33,7 +33,6 @@
     "@playwright/test": "^1.49.1",
     "@types/node": "^25.0.10",
     "@vue/test-utils": "^2.4.6",
-    "@types/node": "^25.0.10",
     "eslint": "^9.39.1",
     "eslint-plugin-vue": "^10.6.2",
     "globals": "^16.5.0",
