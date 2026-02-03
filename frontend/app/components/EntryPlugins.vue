@@ -73,31 +73,40 @@ const toggleDropdown = async () => {
   })
 }
 
+const isPluginRunningForThisEntry = (pluginName: string) => {
+  return pluginsStore.runningPlugins.some(
+    (r) => r.pluginName === pluginName && r.entryName === props.entry.name
+  )
+}
+
 // Plugin auf einzelnen Entry ausführen
 const runPluginOnEntry = async (plugin: PluginItem) => {
   if (plugin.isRunning) return
-  plugin.isRunning = true
-  open.value = false
+  open.value = false 
 
-  pluginsStore.startPlugin(plugin, props.entry.name)
-  
-  // Simulierte Verarbeitung (ersetze durch echte Logik)
-  await new Promise(resolve => setTimeout(resolve, 1000))
-  plugin.isRunning = false
-
+  // NUR den Store aufrufen. Der Store kümmert sich um:
+  // 1. isRunning = true
+  // 2. Den Intervall-Fortschritt
+  // 3. Den Eintrag in runningPlugins
+  // 4. Das saubere Beenden nach X Sekunden
+  await pluginsStore.startPlugin(plugin.id, props.entry.name)
 }
 </script>
 
 <template>
   <div class="relative inline-block">
     <button
-      ref="buttonRef"
-      type="button"
-      class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 transition-colors text-sm font-medium"
-      @click="toggleDropdown"
-    >
-      Plugins
-    </button>
+  ref="buttonRef"
+  type="button"
+  class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700 transition-all duration-200 text-sm font-medium"
+  @click="toggleDropdown"
+>
+  Plugins
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+  </svg>
+</button>
+
   </div>
 
   <Teleport to="body">
@@ -112,11 +121,11 @@ const runPluginOnEntry = async (plugin: PluginItem) => {
           v-for="plugin in pluginsStore.plugins"
           :key="plugin.id"
           class="w-full text-left px-4 py-2 hover:bg-gray-50 disabled:opacity-50 border-b last:border-b-0 border-gray-200 flex flex-col"
-          :disabled="plugin.isRunning"
+          :disabled="isPluginRunningForThisEntry(plugin.name)"
           @click="runPluginOnEntry(plugin)"
         >
           <span class="font-normal text-gray-800">{{ plugin.name }}</span>
-          <span v-if="plugin.isRunning" class="text-[10px] text-blue-500 uppercase font-bold mt-1">Verarbeite...</span>
+          <span v-if="isPluginRunningForThisEntry(plugin.name)" class="text-[10px] text-blue-500 uppercase font-bold mt-1">Verarbeite...</span>
         </button>
       </div>
       <div v-else class="p-3 text-xs text-gray-500 text-center">
