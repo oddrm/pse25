@@ -1,10 +1,8 @@
 diesel::table! {
     files (path) {
         path -> Varchar,
-        last_modified -> Timestamp,
-        created -> Timestamp,
-        size -> Int8,
-        last_checked -> Timestamp,
+        is_mcap -> Bool,
+        is_custom_metadata -> Bool,
     }
 }
 diesel::table! {

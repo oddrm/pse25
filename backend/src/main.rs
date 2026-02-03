@@ -47,7 +47,7 @@ async fn main() {
         Box::new(
             tracing_subscriber::fmt()
                 .with_writer(BoxMakeWriter::new(std::io::stdout))
-                // .pretty()
+                .pretty()
                 .compact()
                 .with_max_level(log_level)
                 .finish(),

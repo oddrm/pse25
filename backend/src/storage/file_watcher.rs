@@ -1,9 +1,8 @@
-use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::{path::Path, time::Duration};
 
 use crate::schema::files;
-use crate::storage::{self, models::*};
+use crate::storage::models::*;
 use crate::{
     error::{Error, StorageError},
     storage::storage_manager::StorageManager,
@@ -11,35 +10,68 @@ use crate::{
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl, SelectableHelper};
 use notify::{RecursiveMode, Watcher};
 use rocket::futures::StreamExt;
+use rocket::futures::stream::FuturesUnordered;
+use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::{self, Receiver};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, error, instrument, warn};
-use tracing_subscriber::field::debug;
 use walkdir::WalkDir;
+
+const CUSTOM_METADATA_IDENTIFIER: &str = r"definitions:
+  info:
+    data_spec_version: '0.2'
+    dataset_license: MIT license
+    meta_data_spec_version: '0.2'";
+
+async fn file_is_mcap(path: &Path) -> bool {
+    path.extension()
+        .map_or(false, |ext| ext.to_string_lossy().to_lowercase() == "mcap")
+}
+
+#[instrument]
+async fn file_is_custom_metadata(path: &Path) -> Result<bool, StorageError> {
+    let correct_extension = match path.extension() {
+        Some(ext) => {
+            let ext_lc = ext.to_string_lossy().to_lowercase();
+            ext_lc == "yaml" || ext_lc == "yml"
+        }
+        None => false,
+    };
+    if correct_extension {
+        let mut file = tokio::fs::File::open(path)
+            .await
+            .map_err(|e| StorageError::IoError(e.into()))?;
+        let mut buffer = [0; 256];
+        let n = file
+            .read(&mut buffer)
+            .await
+            .map_err(|e| StorageError::IoError(e.into()))?;
+        let content = String::from_utf8_lossy(&buffer[..n]);
+        if content.contains(CUSTOM_METADATA_IDENTIFIER) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
 
 #[instrument]
 async fn process_event(
     storage_manager: &StorageManager,
     event: &notify::Event,
 ) -> Result<(), StorageError> {
-    debug!("Processing file event: {:?}", event);
     let conn = storage_manager.db_connection_pool().get().await?;
-    let now = chrono::Utc::now().timestamp();
-    let naive_datetime = chrono::DateTime::from_timestamp(now, 0)
-        .unwrap()
-        .naive_utc();
 
     let path = event.paths[0].to_string_lossy().to_string();
     match &event.kind {
         notify::event::EventKind::Create(_) => {
+            let is_mcap = file_is_mcap(&event.paths[0]).await;
+            let is_custom_metadata = file_is_custom_metadata(&event.paths[0]).await?;
             conn.interact(move |conn| {
                 diesel::insert_into(files::table)
                     .values(File {
-                        created: naive_datetime,
-                        last_checked: naive_datetime,
-                        last_modified: naive_datetime,
                         path,
-                        size: 0,
+                        is_mcap,
+                        is_custom_metadata,
                     })
                     .execute(conn)
             })
@@ -71,7 +103,7 @@ async fn process_event(
     Ok(())
 }
 
-#[instrument]
+#[instrument(skip(fs_event_rx))]
 async fn process_events(storage_manager: StorageManager, fs_event_rx: Receiver<notify::Event>) {
     debug!("Starting to process file events.");
     // up to 10 simultaneous process event tasks
@@ -154,18 +186,37 @@ pub async fn scan_once(storage_manager: &StorageManager) -> Result<(), StorageEr
             }
         })
         .collect::<Result<HashSet<String>, StorageError>>()?;
-    let to_add: Vec<_> = dir_contents.difference(&db_contents).cloned().collect();
-    let to_remove: Vec<_> = db_contents.difference(&dir_contents).cloned().collect();
-    conn.interact(move |conn| {
-        for path in to_add {
-            diesel::insert_into(files::table)
-                .values(File {
-                    created: chrono::Utc::now().naive_utc(),
-                    last_checked: chrono::Utc::now().naive_utc(),
-                    last_modified: chrono::Utc::now().naive_utc(),
-                    path: path.clone(),
-                    size: 0,
+
+    let to_add: Vec<File> = dir_contents
+        .difference(&db_contents)
+        .map(|p_string| {
+            let path = Path::new(p_string);
+            let is_mcap = file_is_mcap(path);
+            let is_custom_metadata = file_is_custom_metadata(path);
+            async move {
+                Ok(File {
+                    path: p_string.clone(),
+                    is_mcap: is_mcap.await,
+                    is_custom_metadata: is_custom_metadata.await?,
                 })
+            }
+        })
+        .collect::<FuturesUnordered<_>>()
+        .collect::<Vec<Result<File, StorageError>>>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<File>, StorageError>>()?;
+
+    let to_remove: Vec<_> = db_contents.difference(&dir_contents).cloned().collect();
+
+    debug!(
+        "Files to add: {:?}, files to remove: {:?}",
+        to_add, to_remove
+    );
+    conn.interact(move |conn| {
+        for file in to_add {
+            diesel::insert_into(files::table)
+                .values(file)
                 .execute(conn)?;
         }
         for path in to_remove {

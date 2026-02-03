@@ -1,9 +1,7 @@
 mod common;
 
 use backend::schema::files;
-use chrono::Utc;
 use diesel::prelude::*;
-use tracing::debug;
 
 #[test]
 fn test_database_connection() {
@@ -17,10 +15,8 @@ fn test_database_connection() {
     // Insert a test file record
     let test_file = backend::storage::models::File {
         path: "/test/path/file.txt".to_string(),
-        last_modified: Utc::now().naive_utc(),
-        created: Utc::now().naive_utc(),
-        size: 1024,
-        last_checked: Utc::now().naive_utc(),
+        is_custom_metadata: false,
+        is_mcap: false,
     };
 
     diesel::insert_into(files::table)
@@ -36,7 +32,6 @@ fn test_database_connection() {
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].path, "/test/path/file.txt");
-    assert_eq!(result[0].size, 1024);
 
     // Clean up after test
     common::cleanup_test_data(&mut conn);
