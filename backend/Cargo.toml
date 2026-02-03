@@ -15,7 +15,7 @@ path = "src/main.rs"
 pyo3 = { version = "0.27", features = ["auto-initialize"] }
 notify = "8.2.0"
 rocket = { version = "0.5.1", features = ["json"] }
-tokio = "1.48.0"
+tokio = { version = "1.49.0", features = ["process", "io-util", "time", "sync", "rt"] }
 tracing = { version = "0.1.43", features = [] }
 tracing-subscriber = "0.3.22"
 serde = { version = "1.0", features = ["derive"] }
