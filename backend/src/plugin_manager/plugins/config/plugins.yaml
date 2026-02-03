@@ -1,0 +1,10 @@
+plugins:
+  - name: plugin_a
+    enabled: true
+  - name: plugin_b
+    enabled: false
+
+#  // In Server-Init (z.B. main.rs oder setup-Code)
+#  let mut plugin_manager = PluginManager::new(storage_manager);
+#  plugin_manager.register_plugins(plugins_dir)?;
+#  plugin_manager.load_config_and_apply("config/plugins.yaml")?;

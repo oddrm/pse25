@@ -40,7 +40,16 @@ struct RunnerMsg {
     #[serde(default)]
     event: Option<String>,
 }
+#[derive(Debug, Deserialize)]
+pub struct PluginConfig {
+    pub name: String,
+    pub enabled: bool,
+}
 
+#[derive(Debug, Deserialize)]
+pub struct PluginsConfig {
+    pub plugins: Vec<PluginConfig>,
+}
 #[derive(Debug)]
 struct RunningInstance {
     plugin_index: usize,
@@ -67,6 +76,23 @@ impl PluginManager {
         }
     }
 
+    pub fn load_config_and_apply(&mut self, config_path: &str) -> Result<(), Error> {
+        let content = fs::read_to_string(config_path)
+            .map_err(|e| Error::CustomError(format!("Failed to read config: {e}")))?;
+
+        let config: PluginsConfig = serde_yaml::from_str(&content)
+            .map_err(|e| Error::CustomError(format!("Failed to parse config: {e}")))?;
+
+        for plugin_cfg in config.plugins {
+            if let Ok(plugin) = self.registered.iter_mut()
+                .find(|p| p.name().as_str() == plugin_cfg.name)
+                .ok_or_else(|| Error::CustomError(format!("Plugin '{}' not found", plugin_cfg.name))) {
+                plugin.set_enabled(plugin_cfg.enabled);
+            }
+        }
+
+        Ok(())
+    }
     async fn spawn_runner(
         &self,
         plugin_path: &PathBuf,
