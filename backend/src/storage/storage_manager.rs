@@ -26,7 +26,7 @@ use tokio::sync::{
     watch,
 };
 use tokio_stream::wrappers::ReceiverStream;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 use tracing_subscriber::field::debug;
 
 pub type Map<K, V> = std::collections::HashMap<K, V>;
@@ -59,6 +59,10 @@ impl StorageManager {
 
     pub fn watch_dir(&self) -> &PathBuf {
         &self.watch_dir
+    }
+
+    pub fn db_connection_pool(&self) -> &Pool {
+        &self.db_connection_pool
     }
 
     pub fn close(self) -> Result<(), StorageError> {
@@ -152,112 +156,6 @@ impl StorageManager {
 
     pub fn get_transaction_id(&self) -> TxID {
         todo!()
-    }
-
-    #[instrument]
-    pub async fn process_event(&self, event: &notify::Event) -> Result<(), StorageError> {
-        debug!("Processing file event: {:?}", event);
-        let conn = self.db_connection_pool.get().await?;
-        match &event.kind {
-            notify::event::EventKind::Create(_) => {
-                let now = chrono::Utc::now().timestamp();
-                let naive_datetime = chrono::DateTime::from_timestamp(now, 0)
-                    .unwrap()
-                    .naive_utc();
-
-                let path = event.paths[0].to_string_lossy().to_string();
-                let x = conn
-                    .interact(move |conn| {
-                        diesel::insert_into(files::table)
-                            .values(File {
-                                created: naive_datetime,
-                                last_checked: naive_datetime,
-                                last_modified: naive_datetime,
-                                path,
-                                size: 0,
-                            })
-                            .returning(File::as_returning())
-                            .get_result(conn)
-                    })
-                    .await
-                    .map_err(|e| StorageError::CustomError(e.to_string()))?
-                    .map_err(|e| StorageError::CustomError(e.to_string()))?;
-            }
-            _ => {}
-        };
-        Ok(())
-    }
-
-    // this is a static method so no method uses mutable access to storage_manager and it can then
-    // be shared around the web server so an unnecessary event queue can be skipped
-    // while this won't receive create events of directories, if a directory is moved, the remove
-    // event still shows up these have to be ignored and can't be distinguished from file events
-    // in general there are no rename/move events, just create/ deletes.
-    // They have to be inferred through some other way
-    #[instrument]
-    async fn process_events(self, fs_event_rx: Receiver<notify::Event>) {
-        debug!("Starting to process file events.");
-        // up to 10 simultaneous process event tasks
-        ReceiverStream::new(fs_event_rx)
-            .for_each_concurrent(10, |event| {
-                let self_clone = self.clone();
-                async move {
-                    self_clone.process_event(&event).await.unwrap_or_else(|e| {
-                        error!("Error processing file event {:?}: {:?}", event, e);
-                    });
-                }
-            })
-            .await;
-    }
-
-    // this both scans the directory on startup and starts the continuous scanning process
-    // the notify debouncers can't be used because the the mini-debouncer deletes information
-    // about the eventKind and the full-debouncer compacts events on whole directories as one event,
-    // which is not desired as each file change has to be processed individually.
-    #[instrument]
-    pub fn start_scanning(&self, interval: Duration) -> Result<(), Error> {
-        debug!("starting filesystem scan method");
-        let (fs_event_tx, fs_event_rx) = mpsc::channel(200);
-
-        let fs_event_callback = move |event: Result<notify::Event, notify::Error>| match event {
-            Err(e) => {
-                error!("notify error during initial scan: {:?}", e);
-                return;
-            }
-            Ok(event) => {
-                if event.paths.iter().any(|p| p.is_dir()) {
-                    return;
-                }
-                let _ = fs_event_tx.blocking_send(event);
-            }
-        };
-
-        let initial_scan_callback = move |event: Result<PathBuf, notify::Error>| {
-            if !event.as_ref().unwrap().is_dir() {
-                // debug!("initial scan event: {:?}", event);
-                return;
-            }
-        };
-
-        let mut watcher = notify::PollWatcher::with_initial_scan(
-            fs_event_callback,
-            notify::Config::default().with_poll_interval(interval),
-            initial_scan_callback,
-        )?;
-
-        let watch_dir = self.watch_dir().clone();
-        let self_clone = self.clone();
-        tokio::task::spawn(async move {
-            debug!("Starting filesystem scan watcher.");
-            watcher
-                .watch(&watch_dir, RecursiveMode::Recursive)
-                .unwrap_or_else(|e| {
-                    error!("Error on starting filesystem scan {:?}", e);
-                });
-            debug!("Filesystem scan started.");
-            StorageManager::process_events(self_clone, fs_event_rx).await;
-        });
-        Ok(())
     }
 
     pub fn submit_file(
