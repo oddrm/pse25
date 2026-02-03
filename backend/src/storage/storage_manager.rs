@@ -33,7 +33,7 @@ pub type Map<K, V> = std::collections::HashMap<K, V>;
 pub type TxID = u64;
 pub type Tag = String;
 
-// this can be cloned and still refer to the same db
+// this can be cloned cheaply and still refer to the same db
 #[derive(Clone)]
 pub struct StorageManager {
     db_connection_pool: Pool,

@@ -5,54 +5,16 @@ use crate::schema::files;
 use crate::storage::models::*;
 use crate::{
     error::{Error, StorageError},
-    storage::storage_manager::StorageManager,
+    storage::{parsing, storage_manager::StorageManager},
 };
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl, SelectableHelper};
 use notify::{RecursiveMode, Watcher};
 use rocket::futures::StreamExt;
 use rocket::futures::stream::FuturesUnordered;
-use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::{self, Receiver};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, error, instrument, warn};
 use walkdir::WalkDir;
-
-const CUSTOM_METADATA_IDENTIFIER: &str = r"definitions:
-  info:
-    data_spec_version: '0.2'
-    dataset_license: MIT license
-    meta_data_spec_version: '0.2'";
-
-async fn file_is_mcap(path: &Path) -> bool {
-    path.extension()
-        .map_or(false, |ext| ext.to_string_lossy().to_lowercase() == "mcap")
-}
-
-#[instrument]
-async fn file_is_custom_metadata(path: &Path) -> Result<bool, StorageError> {
-    let correct_extension = match path.extension() {
-        Some(ext) => {
-            let ext_lc = ext.to_string_lossy().to_lowercase();
-            ext_lc == "yaml" || ext_lc == "yml"
-        }
-        None => false,
-    };
-    if correct_extension {
-        let mut file = tokio::fs::File::open(path)
-            .await
-            .map_err(|e| StorageError::IoError(e.into()))?;
-        let mut buffer = [0; 256];
-        let n = file
-            .read(&mut buffer)
-            .await
-            .map_err(|e| StorageError::IoError(e.into()))?;
-        let content = String::from_utf8_lossy(&buffer[..n]);
-        if content.contains(CUSTOM_METADATA_IDENTIFIER) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
 
 #[instrument]
 async fn process_event(
@@ -64,8 +26,8 @@ async fn process_event(
     let path = event.paths[0].to_string_lossy().to_string();
     match &event.kind {
         notify::event::EventKind::Create(_) => {
-            let is_mcap = file_is_mcap(&event.paths[0]).await;
-            let is_custom_metadata = file_is_custom_metadata(&event.paths[0]).await?;
+            let is_mcap = parsing::file_is_mcap(&event.paths[0]).await;
+            let is_custom_metadata = parsing::file_is_custom_metadata(&event.paths[0]).await?;
             conn.interact(move |conn| {
                 diesel::insert_into(files::table)
                     .values(File {
@@ -75,14 +37,23 @@ async fn process_event(
                     })
                     .execute(conn)
             })
-            .await
-            .map_err(|e| StorageError::CustomError(e.to_string()))?
-            .map_err(|e| StorageError::CustomError(e.to_string()))?;
+            .await??;
             // TODO trigger file scan
         }
         notify::event::EventKind::Access(_) => {}
         notify::event::EventKind::Modify(_) => {
-            // TODO trigger file scan
+            let is_mcap = parsing::file_is_mcap(&event.paths[0]).await;
+            let is_custom_metadata = parsing::file_is_custom_metadata(&event.paths[0]).await?;
+            conn.interact(move |conn| {
+                diesel::update(files::table.filter(files::path.eq(path)))
+                    .set((
+                        files::is_mcap.eq(is_mcap),
+                        files::is_custom_metadata.eq(is_custom_metadata),
+                    ))
+                    .execute(conn)
+            })
+            .await??;
+            // TODO trigger file re-scan
         }
 
         notify::event::EventKind::Remove(_) => {
@@ -191,8 +162,8 @@ pub async fn scan_once(storage_manager: &StorageManager) -> Result<(), StorageEr
         .difference(&db_contents)
         .map(|p_string| {
             let path = Path::new(p_string);
-            let is_mcap = file_is_mcap(path);
-            let is_custom_metadata = file_is_custom_metadata(path);
+            let is_mcap = parsing::file_is_mcap(path);
+            let is_custom_metadata = parsing::file_is_custom_metadata(path);
             async move {
                 Ok(File {
                     path: p_string.clone(),
