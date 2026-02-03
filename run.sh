@@ -58,18 +58,18 @@ case "$CMD" in
     # This ensures images are rebuilt when Dockerfiles or contexts change.
     docker compose -f compose.e2e.yaml up --build --exit-code-from playwright --remove-orphans playwright
     EXIT_CODE=$?
-    "$SUDO" docker compose -f compose.e2e.yaml down
+    docker compose -f compose.e2e.yaml down
     exit $EXIT_CODE
     ;;
 
   dev)
     echo "Starting full development stack..."
-    "$SUDO" docker compose -f compose.dev.yaml up --build --remove-orphans --no-attach db --no-attach pgadmin
+    docker compose -f compose.dev.yaml up --build --remove-orphans --no-attach db --no-attach pgadmin
     ;;
 
   prod)
     echo "Starting production compose stack..."
-    "$SUDO" docker compose -f compose.prod.yaml up --build
+    docker compose -f compose.prod.yaml up --build
     ;;
 
   *)
