@@ -19,6 +19,7 @@
     "@nuxt/icon": "^2.2.0",
     "@nuxt/image": "2.0.0",
     "@tailwindcss/vite": "^4.1.17",
+    "@vueuse/core": "^14.2.0",
     "daisyui": "^5.5.5",
     "nuxt": "^4.2.1",
     "pinia": "^3.0.4",

@@ -44,7 +44,20 @@ const runPlugin = async (plugin: PluginItem) => {
 
 <template>
   <div class="p-6">
-    <h1 class="text-xl font-bold mb-4">🔌 Plugins</h1>
+    <h1 class="text-xl font-bold mb-4">Plugins</h1>
+
+    <!-- Fortschrittsbalken -->
+    <div v-if="pluginsStore.runningPlugin" class="mb-4">
+      <div class="text-sm mb-1">
+        {{ pluginsStore.runningPlugin.pluginName }} läuft für {{ pluginsStore.runningPlugin.entryName }}
+      </div>
+      <div class="w-full bg-gray-200 h-3 rounded overflow-hidden">
+        <div
+          class="bg-blue-500 h-3 transition-all duration-100"
+          :style="{ width: pluginsStore.runningPlugin.progress + '%' }"
+        ></div>
+      </div>
+    </div>
 
     <!-- Tabelle -->
     <table class="w-full border-collapse border border-gray-300">
