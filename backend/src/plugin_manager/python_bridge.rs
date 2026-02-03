@@ -3,93 +3,16 @@ use std::path::Path;
 
 use crate::error::Error;
 
-pub fn load_plugin_instance(plugin_file: &Path) -> Result<Py<PyAny>, Error> {
-    Python::attach(|py| {
-        let parent = plugin_file
-            .parent()
-            .ok_or_else(|| Error::CustomError("Plugin path has no parent directory".to_string()))?;
+// NOTE:
+// Runtime-Steuerung (run/stop/pause/resume) läuft ab jetzt über den separaten Python Runner Prozess
+// (plugin_runner.py) mit JSON-Commands + ACKs. Diese Bridge ist nur noch für
+// validate_plugin_module() und read_module_constants() gedacht.
 
-        let module_name = plugin_file
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .ok_or_else(|| Error::CustomError("Invalid plugin filename".to_string()))?;
-
-        let sys = py
-            .import("sys")
-            .map_err(|e| Error::CustomError(format!("Python import sys failed: {e}")))?;
-
-        let sys_path = sys
-            .getattr("path")
-            .map_err(|e| Error::CustomError(format!("Python sys.path access failed: {e}")))?;
-
-        sys_path
-            .call_method1("insert", (0, parent.to_string_lossy().as_ref()))
-            .map_err(|e| Error::CustomError(format!("Python sys.path insert failed: {e}")))?;
-
-        let module = py.import(module_name).map_err(|e| {
-            Error::CustomError(format!("Python import '{module_name}' failed: {e}"))
-        })?;
-
-        let cls = module
-            .getattr("PluginImpl")
-            .map_err(|e| Error::CustomError(format!("Python PluginImpl not found: {e}")))?;
-
-        let instance = cls
-            .call1((plugin_file.to_string_lossy().as_ref(),))
-            .map_err(|e| Error::CustomError(format!("Python PluginImpl() failed: {e}")))?;
-
-        Ok(instance.unbind())
-    })
-}
-
-pub fn call_run(plugin_instance: &Py<PyAny>, data: &str) -> Result<String, Error> {
-    Python::attach(|py| {
-        let obj = plugin_instance.bind(py); //TODO: verschiedene Prozesse für jede Aktion,
-        // plugin_instance: neuer Python Prozess erstellen und dann erst ausführen; Referenz MutterPython-Prozess -> Parallelität
-        let out = obj
-            .call_method1("run", (data,))
-            .map_err(|e| Error::CustomError(format!("Python run() failed: {e}")))?;
-
-        out.extract::<String>()
-            .map_err(|e| Error::CustomError(format!("Python run() return type mismatch: {e}")))
-    })
-}
-
-pub fn call_stop(plugin_instance: &Py<PyAny>) -> Result<String, Error> {
-    Python::attach(|py| {
-        let obj = plugin_instance.bind(py);
-        let out = obj
-            .call_method0("stop")
-            .map_err(|e| Error::CustomError(format!("Python stop() failed: {e}")))?;
-
-        out.extract::<String>()
-            .map_err(|e| Error::CustomError(format!("Python stop() return type mismatch: {e}")))
-    })
-}
-
-pub fn call_pause(plugin_instance: &Py<PyAny>) -> Result<String, Error> {
-    Python::attach(|py| {
-        let obj = plugin_instance.bind(py);
-        let out = obj
-            .call_method0("pause")
-            .map_err(|e| Error::CustomError(format!("Python pause() failed: {e}")))?;
-
-        out.extract::<String>()
-            .map_err(|e| Error::CustomError(format!("Python pause() return type mismatch: {e}")))
-    })
-}
-
-pub fn call_resume(plugin_instance: &Py<PyAny>) -> Result<String, Error> {
-    Python::attach(|py| {
-        let obj = plugin_instance.bind(py);
-        let out = obj
-            .call_method0("resume")
-            .map_err(|e| Error::CustomError(format!("Python resume() failed: {e}")))?;
-
-        out.extract::<String>()
-            .map_err(|e| Error::CustomError(format!("Python resume() return type mismatch: {e}")))
-    })
-}
+// pub fn load_plugin_instance(...) { ... }  // optional: entfernen, wenn nicht mehr genutzt
+// pub fn call_run(...) { ... }              // entfernen
+// pub fn call_stop(...) { ... }             // entfernen
+// pub fn call_pause(...) { ... }            // entfernen
+// pub fn call_resume(...) { ... }           // entfernen
 
 pub fn read_module_constants(
     plugin_file: &Path,
@@ -140,7 +63,7 @@ pub fn read_module_constants(
 }
 
 pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let mut warnings: Vec<String> = Vec::new();
 
         let parent = plugin_file.parent().ok_or_else(|| {
@@ -188,6 +111,7 @@ pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> 
                 "Plugin '{module_name}': PluginImpl has no run() method: {e}"
             ))
         })?;
+        
         if !run_attr.is_callable() {
             return Err(Error::CustomError(format!(
                 "Plugin '{module_name}': PluginImpl.run exists but is not callable"
