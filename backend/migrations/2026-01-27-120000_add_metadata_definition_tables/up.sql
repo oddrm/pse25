@@ -1,4 +1,3 @@
--- Metadata definition tables for dataset specification (definitions.info, scenario, sequence, setup, sensor, labeling).
 
 CREATE TABLE metadata_info (
     id BIGSERIAL PRIMARY KEY,
@@ -13,8 +12,10 @@ CREATE TABLE metadata_info (
     time_machine DOUBLE PRECISION,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
 CREATE INDEX idx_metadata_info_metadata_id ON metadata_info(metadata_id);
 
+ 
 CREATE TABLE metadata_labeling (
     labeling_key VARCHAR NOT NULL,
     metadata_id BIGINT NOT NULL REFERENCES metadata(id) ON DELETE CASCADE,
@@ -23,19 +24,24 @@ CREATE TABLE metadata_labeling (
     policy_version VARCHAR,
     provider VARCHAR,
     sensors_json JSONB,
-    PRIMARY KEY (metadata_id, labeling_key)
+    UNIQUE (metadata_id, labeling_key)
 );
+
 CREATE INDEX idx_metadata_labeling_metadata_id ON metadata_labeling(metadata_id);
+
+
 
 CREATE TABLE metadata_scenario (
     id BIGSERIAL PRIMARY KEY,
     metadata_id BIGINT NOT NULL UNIQUE REFERENCES metadata(id) ON DELETE CASCADE,
     environment_dynamics VARCHAR,
-    environment_tags JSONB,
-    name VARCHAR
+    environment_tags JSONB, --ist das JSON????
+    name VARCHAR,
 );
+
 CREATE INDEX idx_metadata_scenario_metadata_id ON metadata_scenario(metadata_id);
 CREATE INDEX idx_metadata_scenario_name ON metadata_scenario(name);
+
 
 CREATE TABLE metadata_dataset_sequence (
     id BIGSERIAL PRIMARY KEY,
@@ -49,8 +55,10 @@ CREATE TABLE metadata_dataset_sequence (
     weather JSONB,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
 CREATE INDEX idx_metadata_dataset_sequence_metadata_id ON metadata_dataset_sequence(metadata_id);
 CREATE INDEX idx_metadata_dataset_sequence_name ON metadata_dataset_sequence(name);
+
 
 CREATE TABLE metadata_setup (
     id BIGSERIAL PRIMARY KEY,
@@ -59,10 +67,11 @@ CREATE TABLE metadata_setup (
     platform_description_link VARCHAR,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
 CREATE INDEX idx_metadata_setup_metadata_id ON metadata_setup(metadata_id);
 
+
 CREATE TABLE metadata_sensor (
-    id BIGSERIAL PRIMARY KEY,
     metadata_id BIGINT NOT NULL REFERENCES metadata(id) ON DELETE CASCADE,
     sensor_key VARCHAR NOT NULL,
     acquisition_rate DOUBLE PRECISION,
@@ -84,7 +93,7 @@ CREATE TABLE metadata_sensor (
     model VARCHAR,
     mtu INT,
     optical_center_frame VARCHAR,
-    ros_topics JSONB,
+    ros_topics JSONB --is it true????
     sw_trigger_rate DOUBLE PRECISION,
     time_stamp_accuracy VARCHAR,
     time_sync_method VARCHAR,
@@ -96,15 +105,10 @@ CREATE TABLE metadata_sensor (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (metadata_id, sensor_key)
 );
+
 CREATE INDEX idx_metadata_sensor_metadata_id ON metadata_sensor(metadata_id);
 CREATE INDEX idx_metadata_sensor_type ON metadata_sensor(type);
 CREATE INDEX idx_metadata_sensor_frame_id ON metadata_sensor(frame_id);
 
-CREATE TABLE metadata_sensor_ros_topic (
-    id BIGSERIAL PRIMARY KEY,
-    metadata_sensor_id BIGINT NOT NULL REFERENCES metadata_sensor(id) ON DELETE CASCADE,
-    topic VARCHAR NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (metadata_sensor_id, topic)
-);
-CREATE INDEX idx_metadata_sensor_ros_topic_sensor_id ON metadata_sensor_ros_topic(metadata_sensor_id);
+
+
