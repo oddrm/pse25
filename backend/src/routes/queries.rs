@@ -37,7 +37,7 @@ pub async fn update_metadata(
     let txid: TxID = 0;
 
     let mut m = metadata.into_inner();
-    // ensure the path entry_id and body entry_id are consistent
+
     m.entry_id = entry_id;
 
     sm.update_metadata(entry_id, &m, txid).await?;
@@ -135,7 +135,6 @@ pub async fn update_sequence(
     let sm = &state.storage_manager;
     let txid: TxID = 0;
 
-    // Ensure the sequence IDs match the path parameters
     let mut seq = sequence.into_inner();
     seq.id = sequence_id;
     seq.entry_id = entry_id;
