@@ -64,7 +64,7 @@ CREATE TABLE metadata (
 
 
 
---ChatGPT Vorschlag
+
 
 -- Create indexes for better query performance
 CREATE INDEX idx_entries_path ON entries(path);
