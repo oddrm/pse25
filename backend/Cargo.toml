@@ -11,6 +11,9 @@ path = "src/lib.rs"
 name = "backend"
 path = "src/main.rs"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+pq-sys = { version = "0.7.5", features = ["bundled"] }
+
 [dependencies]
 notify = "8.2.0"
 rocket = { version = "0.5.1", features = ["json"] }

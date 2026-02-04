@@ -24,30 +24,12 @@
 
 
 <script setup lang="ts">
-import { logsStore } from '~/utils/logStore';
-import { onMounted } from 'vue'
-const logs = logsStore.logs;
+import { useLogsStore } from '../../stores/logsStore'
 
-// Dynamisch neue Test-Logs hinzufügen
-onMounted(() => {
-  setInterval(() => {
-    const types = ['info', 'warn', 'error'];
-    const type = types[Math.floor(Math.random() * 3)];
-
-    let message = 'Neue Test-Log Nachricht';
-    if (type === 'warn') message = 'Achtung! Etwas stimmt nicht.';
-    if (type === 'error') message = 'Fehler aufgetreten!';
-
-    logsStore.logs.unshift({
-      id: logsStore.logs.length + 1,
-      type: type,
-      message: message,
-      time: new Date().toLocaleTimeString()
-    });
-  }, 7000);
-});
-
+const logsStore = useLogsStore()
+const logs = logsStore.logs
 </script>
+
 
 <style scoped>
 /* Warn-Log angepasst für besseren Kontrast */
