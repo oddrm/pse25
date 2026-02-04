@@ -83,6 +83,7 @@ type InstanceID = u64;
 // ---------- helpers (module-internal) ----------
 fn parse_trigger(py_trigger: Option<&str>) -> Trigger {
     match py_trigger {
+        // Trigger extrahieren
         Some(TRIGGER_MANUAL) | None => Trigger::Manual,
         Some(TRIGGER_ON_ENTRY_CREATE) => Trigger::OnEntryCreate,
         Some(TRIGGER_ON_ENTRY_UPDATE) => Trigger::OnEntryUpdate,
@@ -96,6 +97,21 @@ fn parse_trigger(py_trigger: Option<&str>) -> Trigger {
         _ => Trigger::Manual,
     }
 }
+// Rückgabe ob pausiert
+fn is_paused(inst: &RunningInstance) -> bool { inst.state == InstanceState::Paused }
+
+// Rückgabe ob laufend
+fn is_running(inst: &RunningInstance) -> bool { inst.state == Running }
+
+// baut json aus instanz/request_id und cmd
+fn build_cmd_request(instance_id: InstanceID, request_id: &str, cmd: &str) -> serde_json::Value {
+    let mut req = serde_json::Map::new();
+    req.insert(JSON_KEY_INSTANCE_ID.to_string(), serde_json::Value::from(instance_id));
+    req.insert(JSON_KEY_REQUEST_ID.to_string(), serde_json::Value::from(request_id));
+    req.insert(JSON_KEY_CMD.to_string(), serde_json::Value::from(cmd));
+    serde_json::Value::Object(req)
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstanceState {
@@ -133,12 +149,12 @@ pub struct PluginsConfig {
 
 #[derive(Debug)]
 struct RunningInstance {
-    plugin_index: usize,
-    state: InstanceState,
-    child: Child,
-    child_stdin: ChildStdin,
-    stdout_rx: mpsc::Receiver<RunnerMsg>,
-    next_request_seq: u64,
+    plugin_index: usize, // welches Plugin auf Liste
+    state: InstanceState, // Running/Paused
+    child: Child, // Handle auf gestarteten Python Prozess
+    child_stdin: ChildStdin, // Schreibkanal zum Python Prozess
+    stdout_rx: mpsc::Receiver<RunnerMsg>, // Empfangschannel vom Python Prozess
+    next_request_seq: u64, // Zähler für eindeutige Request-IDs
 }
 
 #[derive(Debug)]
@@ -149,6 +165,7 @@ pub struct PluginManager {
 }
 
 impl PluginManager {
+    // async Wrapper der Befehle an Python Prozess
     async fn cmd_start(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
         Self::send_cmd_ack(inst, id, CMD_START, TIMEOUT_START_ACK).await
     }
@@ -162,7 +179,8 @@ impl PluginManager {
     async fn cmd_resume(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
         Self::send_cmd_ack(inst, id, CMD_RESUME, TIMEOUT_RESUME_ACK).await
     }
-    
+
+    // alles notwendige neu erzeugt
     pub fn new(storage_manager: StorageManager) -> Self {
         Self {
             storage_manager,
@@ -171,6 +189,7 @@ impl PluginManager {
         }
     }
 
+    // returned laufende Instanz oder Error
     fn get_running_instance_mut(
         &mut self,
         instance_id: InstanceID,
@@ -183,15 +202,19 @@ impl PluginManager {
         })
     }
 
+    // TODO eventuell if-Anweisung überarbeiten
     pub fn load_config_and_apply(&mut self, config_path: &str) -> Result<(), Error> {
+        // YAML-Datei lesen
         let content = fs::read_to_string(config_path).map_err(|e| {
             Error::CustomError(format!("{ERR_FAILED_READ_CONFIG_PREFIX}{e}"))
         })?;
 
+        // Parsen zu PluginsConfig
         let config: PluginsConfig = serde_yaml::from_str(&content).map_err(|e| {
             Error::CustomError(format!("{ERR_FAILED_PARSE_CONFIG_PREFIX}{e}"))
         })?;
 
+        // suche entsprechende Plugins und setze enabled-Flag
         for plugin_cfg in config.plugins {
             if let Ok(plugin) = self
                 .registered
@@ -209,6 +232,7 @@ impl PluginManager {
         Ok(())
     }
 
+    // Start Python Runner
     async fn spawn_runner(
         &self,
         plugin_path: &PathBuf,
@@ -216,6 +240,7 @@ impl PluginManager {
     ) -> Result<(Child, ChildStdin, mpsc::Receiver<RunnerMsg>), Error> {
         let runner_path = PathBuf::from(RUNNER_PATH);
 
+        // Geburt für Python-Prozess
         let mut child = Command::new(PYTHON_EXECUTABLE)
             .arg(PYTHON_UNBUFFERED_FLAG)
             .arg(runner_path)
@@ -223,24 +248,28 @@ impl PluginManager {
             .arg(plugin_path)
             .arg(ARG_INSTANCE_ID)
             .arg(instance_id.to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            // notwendig für Rust:
+            .stdin(Stdio::piped()) // an Rust
+            .stdout(Stdio::piped()) // von Python
+            .stderr(Stdio::piped()) // von Python Fehler
             .spawn()
             .map_err(|e| Error::CustomError(
                 format!("{ERR_FAILED_SPAWN_PY_PREFIX}{e}")))?;
 
+        // Um Commands an Runner schicken zu kömmem
         let child_stdin = child
             .stdin
             .take()
             .ok_or_else(|| Error::CustomError(ERR_FAILED_OPEN_STDIN.to_string()))?;
 
+        // wie oben
         let stdout = child
             .stdout
             .take()
             .ok_or_else(|| Error::CustomError(ERR_FAILED_OPEN_STDOUT.to_string()))?;
 
-        // stderr drainen, damit der Prozess nie wegen voller Pipe blockiert
+        // stderr drainen, damit der Prozess nie wegen voller Pipe blockiert (Deadlock)
+        // -> alles als Error loggen
         if let Some(stderr) = child.stderr.take() {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
@@ -250,11 +279,13 @@ impl PluginManager {
             });
         }
 
+        // Channel anlegen, um Runner-Events zu empfangen -> Hintergrundtask liest stdout/ parst
         let (tx, rx) = mpsc::channel::<RunnerMsg>(128);
         tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 match serde_json::from_str::<RunnerMsg>(&line) {
+                    // Weiterleiten -> async integrierbar
                     Ok(msg) => {
                         if tx.send(msg).await.is_err() {
                             break;
@@ -271,10 +302,12 @@ impl PluginManager {
     }
 
     pub fn register_plugins(&mut self, directory: PathBuf) -> Result<(), Error> {
+        // iterieren
         for entry in fs::read_dir(&directory)
             .map_err(|e| Error::CustomError(e.to_string()))? {
             let entry = entry.map_err(|e| Error::CustomError(e.to_string()))?;
             let path = entry.path();
+            // jeweils registrieren
             self.register_plugin(path)?;
         }
         Ok(())
@@ -286,6 +319,7 @@ impl PluginManager {
             warn!("{w}");
         }
 
+        // Dateiname ohne Endung
         let fallback_name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -294,6 +328,7 @@ impl PluginManager {
 
         let fallback_description = format!("Plugin loaded from {:?}", path);
 
+        // Auslesen aus Python-Modul
         let (py_name, py_description, py_trigger) =
             python_bridge::read_module_constants(path.as_path()).unwrap_or((None, None, None));
 
@@ -317,6 +352,7 @@ impl PluginManager {
         _temp_directory: PathBuf,
         instance_id: InstanceID,
     ) -> Result<(), Error> {
+        // noch nicht am laufen
         if self.running.contains_key(&instance_id) {
             return Err(Error::CustomError(format!(
                 "{ERR_INSTANCE_ALREADY_RUNNING_PREFIX}{} is already running",
@@ -324,6 +360,7 @@ impl PluginManager {
             )));
         }
 
+        // anhand des Namens suchen
         let plugin_index = self.registered.iter()
             .position(|p| p.name().as_str() == plugin_name).ok_or_else(|| {
             Error::CustomError(
@@ -332,19 +369,23 @@ impl PluginManager {
 
         let reg_plugin = &self.registered[plugin_index];
 
+        // muss valid sein
         if !reg_plugin.valid() {
             return Err(Error::CustomError(format!(
                 "Plugin '{}' is invalid and cannot be started",
                 reg_plugin.name()
             )));
         }
+        // muss aktiviert sein
         if !reg_plugin.enabled() {
             return Err(Error::CustomError(format!("Plugin '{}' is disabled", reg_plugin.name())));
         }
 
+        // Python-Prozess starten
         let (child, child_stdin, stdout_rx) 
             = self.spawn_runner(reg_plugin.path(), instance_id).await?;
 
+        // Instanz erstellen
         let mut inst = RunningInstance {
             plugin_index,
             state: Running,
@@ -354,12 +395,15 @@ impl PluginManager {
             next_request_seq: 1,
         };
 
+        // Sendet start an Python-Runner
         let _ = Self::send_cmd_ack(&mut inst, instance_id, CMD_START, TIMEOUT_START_ACK).await?;
+        // Eintrag in running speichern
         self.running.insert(instance_id, inst);
         Ok(())
     }
 
     pub async fn stop_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
+        // Entfernt Instanz aus running
         let mut entry = self.running.remove(&instance_id).ok_or_else(|| {
             Error::CustomError(
                 format!("{ERR_INSTANCE_NOT_RUNNING_PREFIX}{} is not running", instance_id))
@@ -370,20 +414,25 @@ impl PluginManager {
             Self::send_cmd_ack(&mut entry, instance_id, CMD_STOP, TIMEOUT_SOFT_STOP_ACK).await;
 
         if soft.is_ok() {
-            if timeout(TIMEOUT_WAIT_EXIT_AFTER_SOFT_STOP, entry.child.wait()).await.is_ok() {
+            // wirklich okay
+            if timeout(TIMEOUT_WAIT_EXIT_AFTER_SOFT_STOP,
+                       entry.child.wait()).await.is_ok() {
                 return Ok(());
             }
+            // sonst Warnung
             warn!(LOG_SOFT_STOP_FORCE_KILL);
         } else {
             warn!(error = ?soft.err(), "{LOG_SOFT_STOP_FAILED_FORCE_KILL}");
         }
 
+        // kill
         entry
             .child
             .kill()
             .await
             .map_err(|e| Error::CustomError(format!("{ERR_FAILED_KILL_PY_PREFIX}{e}")))?;
 
+        // kurz warten
         let _ = timeout(TIMEOUT_WAIT_EXIT_AFTER_KILL, entry.child.wait()).await;
         Ok(())
     }
@@ -391,10 +440,12 @@ impl PluginManager {
     pub async fn pause_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
         let entry = self.get_running_instance_mut(instance_id)?;
 
+        // schon pausiert
         if entry.state == InstanceState::Paused {
             return Ok(());
         }
 
+        // sendet pause, wartet ack
         let _ = Self::send_cmd_ack(entry, instance_id, CMD_PAUSE, TIMEOUT_PAUSE_ACK).await?;
         entry.state = InstanceState::Paused;
         Ok(())
@@ -402,6 +453,7 @@ impl PluginManager {
 
     pub async fn resume_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
         let entry = self.get_running_instance_mut(instance_id)?;
+        // schon running?
         if entry.state == Running {
             return Ok(());
         }
@@ -411,15 +463,18 @@ impl PluginManager {
         Ok(())
     }
 
+    // Herz der Kommunikation
     async fn send_cmd_ack(
         inst: &mut RunningInstance,
         instance_id: InstanceID,
         cmd: &str,
         wait: Duration,
     ) -> Result<RunnerMsg, Error> {
+        // RequestID bauen
         let request_id = format!("{}-{}", instance_id, inst.next_request_seq);
         inst.next_request_seq += 1;
 
+        // json request bauen
         let mut req = serde_json::Map::new();
         req.insert(
             JSON_KEY_INSTANCE_ID.to_string(),
@@ -427,41 +482,47 @@ impl PluginManager {
         );
         req.insert(
             JSON_KEY_REQUEST_ID.to_string(),
-            serde_json::Value::from(request_id.clone()),
+            serde_json::Value::from(request_id.clone()), // clone weil String
         );
         req.insert(JSON_KEY_CMD.to_string(), serde_json::Value::from(cmd));
 
         let req = serde_json::Value::Object(req);
 
+        // Weiterleiten an Python-Prozess
         let line = req.to_string() + "\n";
         inst.child_stdin
             .write_all(line.as_bytes())
             .await
             .map_err(|e| Error::CustomError(format!("{ERR_FAILED_SEND_CMD_PREFIX}{e}")))?;
         inst.child_stdin
-            .flush()
+            .flush() // sonst bleibt es in Buffer
             .await
             .map_err(|e| Error::CustomError(format!("{ERR_FAILED_FLUSH_CMD_PREFIX}{e}")))?;
 
         let fut = async {
             loop {
+                // asynchrones Warten auf Nachricht von Python
                 let msg = inst
                     .stdout_rx
                     .recv()
                     .await
                     .ok_or_else(|| Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))?;
 
+                // Instanz nicht betroffen
                 if msg.instance_id != instance_id {
                     continue;
                 }
 
+                // Request muss übereinstimmen, sonst nicht gesuchte Antwort
                 if msg.request_id.as_deref()
                     == Some(req[JSON_KEY_REQUEST_ID].as_str().unwrap())
                 {
+                    // Erfolg -> Rückgabe
                     if msg.ok.unwrap_or(false) {
                         return Ok(msg);
                     }
 
+                    // Baue Fehlermeldung
                     let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
                     let trace = msg.trace.unwrap_or_default();
 
@@ -474,18 +535,21 @@ impl PluginManager {
                     )));
                 }
 
+                // falls Events -> loggen und weiter warten
                 if let Some(ev) = &msg.event {
                     debug!(LOG_RUNNER_EVENT, instance_id, ev);
                 }
             }
         };
 
+        // hängt nicht ewig -> timeout
         timeout(wait, fut)
             .await
             .map_err(|_| Error::CustomError(
                 format!("Runner cmd '{cmd}' timed out after {:?}", wait)))?
     }
 
+    // Ausgabe running Instanzen als Liste von (&Plugin, InstanceID)
     pub fn get_running_instances(&self) -> Vec<(&Plugin, InstanceID)> {
         self.running
             .iter()
@@ -500,10 +564,12 @@ impl PluginManager {
             .collect()
     }
 
+    // Ausgabe aller registrierten Plugins als Liste von &Plugin
     pub fn get_registered_plugins(&self) -> Vec<&Plugin> {
         self.registered.iter().collect()
     }
 
+    // finden und enable
     pub fn enable_plugin(&mut self, name: &str) -> Result<(), Error> {
         let plugin = self
             .registered
@@ -515,6 +581,7 @@ impl PluginManager {
         Ok(())
     }
 
+    // finden und disable
     pub fn disable_plugin(&mut self, name: &str) -> Result<(), Error> {
         let plugin = self
             .registered
@@ -525,17 +592,4 @@ impl PluginManager {
         plugin.set_enabled(false);
         Ok(())
     }
-}
-
-fn is_paused(inst: &RunningInstance) -> bool { inst.state == InstanceState::Paused }
-
-fn is_running(inst: &RunningInstance) -> bool { inst.state == Running }
-
-
-fn build_cmd_request(instance_id: InstanceID, request_id: &str, cmd: &str) -> serde_json::Value {
-    let mut req = serde_json::Map::new();
-    req.insert(JSON_KEY_INSTANCE_ID.to_string(), serde_json::Value::from(instance_id));
-    req.insert(JSON_KEY_REQUEST_ID.to_string(), serde_json::Value::from(request_id));
-    req.insert(JSON_KEY_CMD.to_string(), serde_json::Value::from(cmd));
-    serde_json::Value::Object(req)
 }

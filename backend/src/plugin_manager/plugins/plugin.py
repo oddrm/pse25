@@ -1,4 +1,4 @@
-# plugin.py
+# Was macht das Plugin?
 PLUGIN_NAME = "example_plugin"
 PLUGIN_DESCRIPTION = "My first plugin written in Python"
 PLUGIN_TRIGGER = "manual"

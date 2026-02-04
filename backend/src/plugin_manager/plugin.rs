@@ -5,7 +5,9 @@ pub struct Plugin {
     trigger: Trigger,
     path: std::path::PathBuf,
 
+    // möchte ich es nutzen?
     enabled: bool,
+    // ist es funktionsfähig?
     valid: bool,
     validation_warnings: Vec<String>,
 }

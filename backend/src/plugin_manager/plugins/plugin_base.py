@@ -24,6 +24,7 @@ class BasePlugin:
 
     def __init__(self, path: str):
         self.path = Path(path)
+        # Threading event funktioniert wie eine Ampel
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
 
@@ -34,7 +35,6 @@ class BasePlugin:
         """
         raise NotImplementedError(ERR_NOT_IMPLEMENTED)
 
-    # Helper: im run()-Code nutzbar
     def should_stop(self) -> bool:
         return self._stop_event.is_set()
 

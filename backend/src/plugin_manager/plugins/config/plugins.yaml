@@ -1,3 +1,5 @@
+
+# Welche Plugins und welche Schalter?
 plugins:
   - name: plugin_a
     enabled: true

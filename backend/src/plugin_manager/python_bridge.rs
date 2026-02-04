@@ -59,28 +59,34 @@ fn prepare_module_import<'py>(
     py: Python<'py>,
     plugin_file: &Path,
 ) -> Result<(Bound<'py, PyModule>, String), Error> {
+    // Verzeichnis wo Plugin liegt
     let parent = plugin_file
         .parent()
         .ok_or_else(|| Error::CustomError(ERR_PLUGIN_NO_PARENT_DIR.to_string()))?;
 
+    // Dateiname ohne Endung
     let module_name = plugin_file
-        .file_stem()
+        .file_stem() // ohne Dateiendung
         .and_then(|s| s.to_str())
         .ok_or_else(|| Error::CustomError(ERR_INVALID_PLUGIN_FILENAME.to_string()))?
         .to_string();
 
+    // Modul sys
     let sys = py
         .import(PY_MOD_SYS)
         .map_err(|e| Error::CustomError(format!("{PY_IMPORT_SYS_FAILED_PREFIX}{e}")))?;
 
+    // Liste in Python mit Suchpfaden für Imports
     let sys_path = sys
         .getattr(PY_SYS_PATH_ATTR)
         .map_err(|e| Error::CustomError(format!("{PY_SYS_PATH_ACCESS_FAILED_PREFIX}{e}")))?;
 
+    // Plugin-Ordner für Python sichtbar -> richtiger Code/ keine Namenskollisionen
     sys_path
         .call_method1(PY_SYS_PATH_INSERT, (0, parent.to_string_lossy().as_ref()))
         .map_err(|e| Error::CustomError(format!("{PY_SYS_PATH_INSERT_FAILED_PREFIX}{e}")))?;
 
+    // Import des Plugins in Python-Form
     let module = py.import(&module_name).map_err(|e| {
         Error::CustomError(format!(
             "{PY_IMPORT_MODULE_FAILED_PREFIX}{module_name}{PY_IMPORT_MODULE_FAILED_SUFFIX}{e}"
@@ -89,14 +95,16 @@ fn prepare_module_import<'py>(
 
     Ok((module, module_name))
 }
-// --- /helpers ---
 
 pub fn read_module_constants(
     plugin_file: &Path,
 ) -> Result<(Option<String>, Option<String>, Option<String>), Error> {
+    // im Wesentlichen Aktion in Python (Closure)
     Python::attach(|py| {
+        // Vorbereitung Plugin-Import in Rust
         let (module, _module_name) = prepare_module_import(py, plugin_file)?;
 
+        // bei allen: wenn nicht funktioniert -> None
         let name = module
             .getattr(PY_ATTR_PLUGIN_NAME)
             .ok()
@@ -117,22 +125,28 @@ pub fn read_module_constants(
 }
 
 pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> {
+    // wieder in Python (Closure)
     Python::attach(|py| {
+        // Liste der Warnings
         let mut warnings: Vec<String> = Vec::new();
 
         let (module, module_name) = prepare_module_import(py, plugin_file)?;
 
         // Hard requirements (sonst nicht startbar)
+        // -> Implementierung von PluginImpl und run()
         let plugin_impl = module.getattr(PY_ATTR_PLUGIN_IMPL).map_err(|e| {
             Error::CustomError(format!(
-                "{ERR_PLUGIN_HAS_NO_PLUGIN_IMPL_PREFIX}{module_name}{ERR_PLUGIN_HAS_NO_PLUGIN_IMPL_MID}{e}"
+                "{ERR_PLUGIN_HAS_NO_PLUGIN_IMPL_PREFIX}\
+                {module_name}{ERR_PLUGIN_HAS_NO_PLUGIN_IMPL_MID}{e}"
             ))
         })?;
 
+        // Richtiges Format -> Klasse oder Factory-Funktion
         if !plugin_impl.is_callable() {
             return Err(Error::CustomError(ERR_PLUGIN_IMPL_NOT_CALLABLE.to_string()));
         }
 
+        // Zugriff auf run() Methode
         let run_attr = plugin_impl.getattr(PY_ATTR_RUN).map_err(|e| {
             Error::CustomError(format!(
                 "{ERR_PLUGIN_IMPL_HAS_NO_RUN_PREFIX}{module_name}{ERR_PLUGIN_IMPL_HAS_NO_RUN_MID}{e}"
@@ -145,7 +159,7 @@ pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> 
             )));
         }
 
-        // Soft requirements (nur Warnungen)
+        // Soft requirements (nur Warnungen) -> Existenz von Konstanten
         if module.getattr(PY_ATTR_PLUGIN_NAME).is_err() {
             warnings.push(format!(
                 "{WARN_MISSING_PLUGIN_NAME_PREFIX}{module_name}{WARN_MISSING_PLUGIN_NAME_SUFFIX}"
