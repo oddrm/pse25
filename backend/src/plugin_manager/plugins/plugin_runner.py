@@ -1,4 +1,3 @@
-# python/plugin_runner.py
 from __future__ import annotations
 
 import argparse
@@ -7,15 +6,68 @@ import json
 import sys
 import threading
 import traceback
-from typing import TypedDict, NotRequired, Any
 from pathlib import Path
+from typing import Any, Final, Literal, NotRequired, TypedDict
 
+MAIN__ = "__main__"
+
+EVENT: Final[Literal["event"]] = "event"
+PLUGIN_IMPL: Final[Literal["pluginImpl"]] = "pluginImpl"
+
+DATA: Final[Literal["--data"]] = "--data"
+ID: Final[Literal["--instance-id"]] = "--instance-id"
+PATH: Final[Literal["--plugin-path"]] = "--plugin-path"
+
+TRACE: Final[Literal["trace"]] = "trace"
+ERROR: Final[Literal["error"]] = "error"
+RESULT: Final[Literal["result"]] = "result"
+OK: Final[Literal["ok"]] = "ok"
+
+REQUEST_ID: Final[Literal["request_id"]] = "request_id"
+INSTANCE_ID: Final[Literal["instance_id"]] = "instance_id"
+
+CMD = "cmd"
+CMD_START = "start"
+CMD_PAUSE = "pause"
+CMD_RESUME = "resume"
+CMD_STOP = "stop"
+CMD_STATUS = "status"
+
+EVENT_INIT_ERROR = "init_error"
+EVENT_EXITED = "exited"
+
+UNKNOWN_ERROR = "unknown_error"
+ERR_WRONG_INSTANCE_ID = "wrong_instance_id"
+ERR_UNKNOWN_CMD_PREFIX = "unknown_cmd:"
+
+RESULT_STARTED = "started"
+
+STATUS_RUNNING = "running"
+STATUS_STOPPED = "stopped"
+
+def build_status(worker_thread: threading.Thread | None, run_done: threading.Event) -> dict:
+    return {
+        STATUS_RUNNING: worker_thread is not None and worker_thread.is_alive(),
+        STATUS_STOPPED: run_done.is_set(),
+    }
+
+
+def emit_exited(instance_id: int, run_result: "RunResult") -> None:
+    write_msg(
+        {
+            INSTANCE_ID: instance_id,
+            EVENT: EVENT_EXITED,
+            OK: run_result[OK],
+            RESULT: run_result.get(RESULT),
+            ERROR: run_result.get(ERROR),
+            TRACE: run_result.get(TRACE),
+        }
+    )
 
 def load_plugin(plugin_path: str):
     plugin_file = Path(plugin_path).resolve()
     plugin_dir = str(plugin_file.parent)
 
-    # Wichtig: damit "from plugin_base import BasePlugin" funktioniert
     if plugin_dir not in sys.path:
         sys.path.insert(0, plugin_dir)
 
@@ -32,18 +84,25 @@ def write_msg(obj: dict) -> None:
     sys.stdout.flush()
 
 
-def write_ack(instance_id: int, request_id: str | None, ok: bool, result=None, error: str | None = None, trace: str | None = None) -> None:
+def write_ack(
+    instance_id: int,
+    request_id: str | None,
+    ok: bool,
+    result=None,
+    error: str | None = None,
+    trace: str | None = None,
+) -> None:
     msg = {
-        "instance_id": instance_id,
-        "request_id": request_id,
-        "ok": ok,
+        INSTANCE_ID: instance_id,
+        REQUEST_ID: request_id,
+        OK: ok,
     }
     if ok:
-        msg["result"] = result
+        msg[RESULT] = result
     else:
-        msg["error"] = error or "unknown_error"
+        msg[ERROR] = error or UNKNOWN_ERROR
         if trace:
-            msg["trace"] = trace
+            msg[TRACE] = trace
     write_msg(msg)
 
 
@@ -56,70 +115,78 @@ class RunResult(TypedDict):
     trace: NotRequired[str]
     event: NotRequired[str]
 
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--plugin-path", required=True)
-    ap.add_argument("--instance-id", required=True, type=int)
-    ap.add_argument("--data", default="")
+    ap.add_argument(PATH, required=True)
+    ap.add_argument(ID, required=True, type=int)
+    ap.add_argument(DATA, default="")
     args = ap.parse_args()
 
     instance_id = args.instance_id
 
     try:
         module = load_plugin(args.plugin_path)
-        plugin_impl = getattr(module, "pluginImpl")
+        plugin_impl = getattr(module, PLUGIN_IMPL)
         plugin = plugin_impl(args.plugin_path)
     except Exception as e:
-        write_msg({
-            "instance_id": instance_id,
-            "event": "init_error",
-            "ok": False,
-            "error": str(e),
-            "trace": traceback.format_exc(),
-        })
+        write_msg(
+            {
+                INSTANCE_ID: instance_id,
+                EVENT: EVENT_INIT_ERROR,
+                OK: False,
+                ERROR: str(e),
+                TRACE: traceback.format_exc(),
+            }
+        )
         return 1
 
     run_done = threading.Event()
-    # python
-    # Zähler für lokale Request-IDs initialisieren
+    
     seq = 0
 
-    # erste Run-Request-ID erzeugen und Zähler inkrementieren
     request_id = f"{instance_id}-{seq}"
     seq += 1
 
-    # ab hier darfst du RunResult verwenden
     run_result: RunResult = {
-        "instance_id": instance_id,
-        "request_id": request_id,
-        "ok": True,
-    }# ab hier darfst du RunResult verwenden
-    run_result: RunResult = {
-        "instance_id": instance_id,
-        "request_id": request_id,
-        "ok": True,
+        INSTANCE_ID: instance_id,
+        REQUEST_ID: request_id,
+        OK: True,
     }
 
     def run_worker():
         try:
             res = plugin.run(args.data)
-            run_result["result"] = res
+            run_result[RESULT] = res
         except Exception as exception:
-            run_result["ok"] = False
-            run_result["error"] = str(exception)
-            run_result["trace"] = traceback.format_exc()
+            run_result[OK] = False
+            run_result[ERROR] = str(exception)
+            run_result[TRACE] = traceback.format_exc()
         finally:
             run_done.set()
-            write_msg({
-                "instance_id": instance_id,
-                "event": "exited",
-                "ok": run_result["ok"],
-                "result": run_result.get("result"),
-                "error": run_result.get("error"),
-                "trace": run_result.get("trace"),
-            })
+            emit_exited(instance_id, run_result)
 
     worker_thread: threading.Thread | None = None
+
+    def ensure_worker_started() -> None:
+        nonlocal worker_thread
+        if worker_thread is None or not worker_thread.is_alive():
+            worker_thread = threading.Thread(target=run_worker, daemon=True)
+            worker_thread.start()
+
+    def handle_cmd(cmd: str):
+        if cmd == CMD_START:
+            ensure_worker_started()
+            return RESULT_STARTED
+        if cmd == CMD_PAUSE:
+            return plugin.pause()
+        if cmd == CMD_RESUME:
+            return plugin.resume()
+        if cmd == CMD_STOP:
+            return plugin.stop()
+        if cmd == CMD_STATUS:
+            return build_status(worker_thread, run_done)
+        raise ValueError(f"{ERR_UNKNOWN_CMD_PREFIX}{cmd}")
 
     for line in sys.stdin:
         line = line.strip()
@@ -129,40 +196,17 @@ def main() -> int:
         request_id = None
         try:
             msg = json.loads(line)
-            cmd = msg.get("cmd")
-            request_id = msg.get("request_id")
+            cmd = msg.get(CMD)
+            request_id = msg.get(REQUEST_ID)
 
-            if msg.get("instance_id") != instance_id:
-                write_ack(instance_id, request_id, False, error="wrong_instance_id")
+            if msg.get(INSTANCE_ID) != instance_id:
+                write_ack(instance_id, request_id, False, error=ERR_WRONG_INSTANCE_ID)
                 continue
 
-            if cmd == "start":
-                if worker_thread is None or not worker_thread.is_alive():
-                    worker_thread = threading.Thread(target=run_worker, daemon=True)
-                    worker_thread.start()
-                write_ack(instance_id, request_id, True, result="started")
-
-            elif cmd == "pause":
-                write_ack(instance_id, request_id, True, result=plugin.pause())
-
-            elif cmd == "resume":
-                write_ack(instance_id, request_id, True, result=plugin.resume())
-
-            elif cmd == "stop":
-                # Soft stop: setzt nur Event; run() endet kooperativ
-                write_ack(instance_id, request_id, True, result=plugin.stop())
-
-            elif cmd == "status":
-                write_ack(instance_id, request_id, True, result={
-                    "running": worker_thread is not None and worker_thread.is_alive(),
-                    "stopped": run_done.is_set(),
-                })
-
-            else:
-                write_ack(instance_id, request_id, False, error=f"unknown_cmd:{cmd}")
+            result = handle_cmd(cmd)
+            write_ack(instance_id, request_id, True, result=result)
 
         except Exception as e:
-            # WICHTIG: immer mit request_id antworten (sonst wartet Rust bis Timeout)
             write_ack(
                 instance_id,
                 request_id,
@@ -177,5 +221,5 @@ def main() -> int:
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == MAIN__:
     raise SystemExit(main())

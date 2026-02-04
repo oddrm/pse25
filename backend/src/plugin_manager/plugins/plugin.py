@@ -2,8 +2,9 @@
 PLUGIN_NAME = "example_plugin"
 PLUGIN_DESCRIPTION = "My first plugin written in Python"
 PLUGIN_TRIGGER = "manual"
+STOPPED = "stopped"
 
-from plugin_base import BasePlugin
+from plugin_base import BasePlugin, TICK_SECONDS
 import time
 
 
@@ -17,6 +18,6 @@ class PluginImpl(BasePlugin):
 
             # Plugin
             
-            time.sleep(self.TICK_SECONDS)
+            time.sleep(TICK_SECONDS)
 
-        return "stopped"
+        return STOPPED

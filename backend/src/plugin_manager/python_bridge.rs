@@ -3,58 +3,112 @@ use std::path::Path;
 
 use crate::error::Error;
 
+// -------------------- constants --------------------
+const ERR_PLUGIN_NO_PARENT_DIR: &str = "Plugin path has no parent directory";
+const ERR_INVALID_PLUGIN_FILENAME: &str = "Invalid plugin filename";
+
+const PY_MOD_SYS: &str = "sys";
+const PY_SYS_PATH_ATTR: &str = "path";
+const PY_SYS_PATH_INSERT: &str = "insert";
+
+const PY_IMPORT_SYS_FAILED_PREFIX: &str = "Python import sys failed: ";
+const PY_SYS_PATH_ACCESS_FAILED_PREFIX: &str = "Python sys.path access failed: ";
+const PY_SYS_PATH_INSERT_FAILED_PREFIX: &str = "Python sys.path insert failed: ";
+const PY_IMPORT_MODULE_FAILED_PREFIX: &str = "Python import '";
+const PY_IMPORT_MODULE_FAILED_SUFFIX: &str = "' failed: ";
+
+const PY_ATTR_PLUGIN_NAME: &str = "PLUGIN_NAME";
+const PY_ATTR_PLUGIN_DESCRIPTION: &str = "PLUGIN_DESCRIPTION";
+const PY_ATTR_PLUGIN_TRIGGER: &str = "PLUGIN_TRIGGER";
+
+const PY_ATTR_PLUGIN_IMPL: &str = "PluginImpl";
+const PY_ATTR_RUN: &str = "run";
+
+const ERR_PLUGIN_IMPL_NOT_CALLABLE: &str =
+    "PluginImpl exists but is not callable (expected class or factory function)";
+
+const ERR_PLUGIN_HAS_NO_PLUGIN_IMPL_PREFIX: &str = "Plugin '";
+const ERR_PLUGIN_HAS_NO_PLUGIN_IMPL_MID: &str = "' has no PluginImpl: ";
+
+const ERR_PLUGIN_IMPL_HAS_NO_RUN_PREFIX: &str = "Plugin '";
+const ERR_PLUGIN_IMPL_HAS_NO_RUN_MID: &str = "': PluginImpl has no run() method: ";
+
+const ERR_PLUGIN_RUN_NOT_CALLABLE_PREFIX: &str = "Plugin '";
+const ERR_PLUGIN_RUN_NOT_CALLABLE_SUFFIX: &str =
+    "': PluginImpl.run exists but is not callable";
+
+const WARN_MISSING_PLUGIN_NAME_PREFIX: &str = "Plugin '";
+const WARN_MISSING_PLUGIN_NAME_SUFFIX: &str =
+    "': missing PLUGIN_NAME constant (will use filename fallback)";
+
+const WARN_MISSING_PLUGIN_DESCRIPTION_PREFIX: &str = "Plugin '";
+const WARN_MISSING_PLUGIN_DESCRIPTION_SUFFIX: &str =
+    "': missing PLUGIN_DESCRIPTION constant (will use fallback description)";
+
+const WARN_MISSING_PLUGIN_TRIGGER_PREFIX: &str = "Plugin '";
+const WARN_MISSING_PLUGIN_TRIGGER_SUFFIX: &str =
+    "': missing PLUGIN_TRIGGER constant (will default to 'manual')";
+
 // NOTE:
 // Runtime-Steuerung (run/stop/pause/resume) läuft ab jetzt über den separaten Python Runner Prozess
 // (plugin_runner.py) mit JSON-Commands + ACKs. Diese Bridge ist nur noch für
 // validate_plugin_module() und read_module_constants() gedacht.
 
-// pub fn load_plugin_instance(...) { ... }  // optional: entfernen, wenn nicht mehr genutzt
-// pub fn call_run(...) { ... }              // entfernen
-// pub fn call_stop(...) { ... }             // entfernen
-// pub fn call_pause(...) { ... }            // entfernen
-// pub fn call_resume(...) { ... }           // entfernen
+// --- helpers ---
+fn prepare_module_import<'py>(
+    py: Python<'py>,
+    plugin_file: &Path,
+) -> Result<(Bound<'py, PyModule>, String), Error> {
+    let parent = plugin_file
+        .parent()
+        .ok_or_else(|| Error::CustomError(ERR_PLUGIN_NO_PARENT_DIR.to_string()))?;
+
+    let module_name = plugin_file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| Error::CustomError(ERR_INVALID_PLUGIN_FILENAME.to_string()))?
+        .to_string();
+
+    let sys = py
+        .import(PY_MOD_SYS)
+        .map_err(|e| Error::CustomError(format!("{PY_IMPORT_SYS_FAILED_PREFIX}{e}")))?;
+
+    let sys_path = sys
+        .getattr(PY_SYS_PATH_ATTR)
+        .map_err(|e| Error::CustomError(format!("{PY_SYS_PATH_ACCESS_FAILED_PREFIX}{e}")))?;
+
+    sys_path
+        .call_method1(PY_SYS_PATH_INSERT, (0, parent.to_string_lossy().as_ref()))
+        .map_err(|e| Error::CustomError(format!("{PY_SYS_PATH_INSERT_FAILED_PREFIX}{e}")))?;
+
+    let module = py.import(&module_name).map_err(|e| {
+        Error::CustomError(format!(
+            "{PY_IMPORT_MODULE_FAILED_PREFIX}{module_name}{PY_IMPORT_MODULE_FAILED_SUFFIX}{e}"
+        ))
+    })?;
+
+    Ok((module, module_name))
+}
+// --- /helpers ---
 
 pub fn read_module_constants(
     plugin_file: &Path,
 ) -> Result<(Option<String>, Option<String>, Option<String>), Error> {
     Python::attach(|py| {
-        let parent = plugin_file
-            .parent()
-            .ok_or_else(|| Error::CustomError("Plugin path has no parent directory".to_string()))?;
-
-        let module_name = plugin_file
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .ok_or_else(|| Error::CustomError("Invalid plugin filename".to_string()))?;
-
-        let sys = py
-            .import("sys")
-            .map_err(|e| Error::CustomError(format!("Python import sys failed: {e}")))?;
-
-        let sys_path = sys
-            .getattr("path")
-            .map_err(|e| Error::CustomError(format!("Python sys.path access failed: {e}")))?;
-
-        sys_path
-            .call_method1("insert", (0, parent.to_string_lossy().as_ref()))
-            .map_err(|e| Error::CustomError(format!("Python sys.path insert failed: {e}")))?;
-
-        let module = py.import(module_name).map_err(|e| {
-            Error::CustomError(format!("Python import '{module_name}' failed: {e}"))
-        })?;
+        let (module, _module_name) = prepare_module_import(py, plugin_file)?;
 
         let name = module
-            .getattr("PLUGIN_NAME")
+            .getattr(PY_ATTR_PLUGIN_NAME)
             .ok()
             .and_then(|v| v.extract::<String>().ok());
 
         let description = module
-            .getattr("PLUGIN_DESCRIPTION")
+            .getattr(PY_ATTR_PLUGIN_DESCRIPTION)
             .ok()
             .and_then(|v| v.extract::<String>().ok());
 
         let trigger = module
-            .getattr("PLUGIN_TRIGGER")
+            .getattr(PY_ATTR_PLUGIN_TRIGGER)
             .ok()
             .and_then(|v| v.extract::<String>().ok());
 
@@ -66,73 +120,45 @@ pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> 
     Python::attach(|py| {
         let mut warnings: Vec<String> = Vec::new();
 
-        let parent = plugin_file.parent().ok_or_else(|| {
-            Error::CustomError("Plugin path has no parent directory".to_string())
-        })?;
-
-        let module_name = plugin_file
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .ok_or_else(|| Error::CustomError("Invalid plugin filename".to_string()))?;
-
-        let sys = py
-            .import("sys")
-            .map_err(|e| Error::CustomError(format!("Python import sys failed: {e}")))?;
-
-        let sys_path = sys
-            .getattr("path")
-            .map_err(|e| Error::CustomError(format!("Python sys.path access failed: {e}")))?;
-
-        sys_path
-            .call_method1("insert", (0, parent.to_string_lossy().as_ref()))
-            .map_err(|e| Error::CustomError(format!(
-                "Python sys.path insert failed: {e}")))?;
-
-        let module = py
-            .import(module_name)
-            .map_err(|e| Error::CustomError(format!(
-                "Python import '{module_name}' failed: {e}")))?;
+        let (module, module_name) = prepare_module_import(py, plugin_file)?;
 
         // Hard requirements (sonst nicht startbar)
-        let plugin_impl = module.getattr("PluginImpl").map_err(|e| {
-            Error::CustomError(format!("Plugin '{module_name}' has no PluginImpl: {e}"))
+        let plugin_impl = module.getattr(PY_ATTR_PLUGIN_IMPL).map_err(|e| {
+            Error::CustomError(format!(
+                "{ERR_PLUGIN_HAS_NO_PLUGIN_IMPL_PREFIX}{module_name}{ERR_PLUGIN_HAS_NO_PLUGIN_IMPL_MID}{e}"
+            ))
         })?;
 
         if !plugin_impl.is_callable() {
-            return Err(Error::CustomError(
-                "PluginImpl exists but is not callable (expected class or factory function)"
-                    .to_string(),
-            ));
+            return Err(Error::CustomError(ERR_PLUGIN_IMPL_NOT_CALLABLE.to_string()));
         }
 
-        // Neu: run() muss vorhanden und callable sein (wir nutzen kein step() mehr)
-        let run_attr = plugin_impl.getattr("run").map_err(|e| {
+        let run_attr = plugin_impl.getattr(PY_ATTR_RUN).map_err(|e| {
             Error::CustomError(format!(
-                "Plugin '{module_name}': PluginImpl has no run() method: {e}"
+                "{ERR_PLUGIN_IMPL_HAS_NO_RUN_PREFIX}{module_name}{ERR_PLUGIN_IMPL_HAS_NO_RUN_MID}{e}"
             ))
         })?;
-        
+
         if !run_attr.is_callable() {
             return Err(Error::CustomError(format!(
-                "Plugin '{module_name}': PluginImpl.run exists but is not callable"
+                "{ERR_PLUGIN_RUN_NOT_CALLABLE_PREFIX}{module_name}{ERR_PLUGIN_RUN_NOT_CALLABLE_SUFFIX}"
             )));
         }
 
         // Soft requirements (nur Warnungen)
-        if module.getattr("PLUGIN_NAME").is_err() {
+        if module.getattr(PY_ATTR_PLUGIN_NAME).is_err() {
             warnings.push(format!(
-                "Plugin '{module_name}': missing PLUGIN_NAME constant (will use filename fallback)"
+                "{WARN_MISSING_PLUGIN_NAME_PREFIX}{module_name}{WARN_MISSING_PLUGIN_NAME_SUFFIX}"
             ));
         }
-        if module.getattr("PLUGIN_DESCRIPTION").is_err() {
+        if module.getattr(PY_ATTR_PLUGIN_DESCRIPTION).is_err() {
             warnings.push(format!(
-                "Plugin '{module_name}': \
-                missing PLUGIN_DESCRIPTION constant (will use fallback description)"
+                "{WARN_MISSING_PLUGIN_DESCRIPTION_PREFIX}{module_name}{WARN_MISSING_PLUGIN_DESCRIPTION_SUFFIX}"
             ));
         }
-        if module.getattr("PLUGIN_TRIGGER").is_err() {
+        if module.getattr(PY_ATTR_PLUGIN_TRIGGER).is_err() {
             warnings.push(format!(
-                "Plugin '{module_name}': missing PLUGIN_TRIGGER constant (will default to 'manual')"
+                "{WARN_MISSING_PLUGIN_TRIGGER_PREFIX}{module_name}{WARN_MISSING_PLUGIN_TRIGGER_SUFFIX}"
             ));
         }
 

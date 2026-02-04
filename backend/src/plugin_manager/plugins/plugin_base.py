@@ -4,6 +4,15 @@ from __future__ import annotations
 from pathlib import Path
 import threading
 
+# -------------------- constants --------------------
+TICK_SECONDS = 0.1  # wie oft wir beim Warten "ticken", damit Stop schnell reagiert
+
+ERR_NOT_IMPLEMENTED = "Plugin must implement run(data)"
+
+RESULT_PAUSED = "paused"
+RESULT_RESUMED = "resumed"
+RESULT_STOPPING = "stopping"
+
 
 class BasePlugin:
     """
@@ -12,8 +21,6 @@ class BasePlugin:
     - Pause/Resume per Event
     - run() wird vom Plugin selbst implementiert (kein step()-Loop mehr)
     """
-
-    TICK_SECONDS = 0.1  # wie oft wir beim Warten "ticken", damit Stop schnell reagiert
 
     def __init__(self, path: str):
         self.path = Path(path)
@@ -25,7 +32,7 @@ class BasePlugin:
         Muss vom Plugin überschrieben werden.
         Implementierung sollte stop()/pause()/resume() respektieren.
         """
-        raise NotImplementedError("Plugin must implement run(data)")
+        raise NotImplementedError(ERR_NOT_IMPLEMENTED)
 
     # Helper: im run()-Code nutzbar
     def should_stop(self) -> bool:
@@ -36,16 +43,16 @@ class BasePlugin:
         Blockt kooperativ während Pause aktiv ist, reagiert aber schnell auf stop().
         """
         while self._pause_event.is_set() and not self._stop_event.is_set():
-            self._stop_event.wait(self.TICK_SECONDS)
+            self._stop_event.wait(TICK_SECONDS)
 
     def pause(self) -> str:
         self._pause_event.set()
-        return "paused"
+        return RESULT_PAUSED
 
     def resume(self) -> str:
         self._pause_event.clear()
-        return "resumed"
+        return RESULT_RESUMED
 
     def stop(self) -> str:
         self._stop_event.set()
-        return "stopping"
+        return RESULT_STOPPING
