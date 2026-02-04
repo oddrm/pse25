@@ -11,6 +11,9 @@ path = "src/lib.rs"
 name = "backend"
 path = "src/main.rs"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+pq-sys = { version = "0.7.5", features = ["bundled"] }
+
 [dependencies]
 pyo3 = { version = "0.27", features = ["auto-initialize"] }
 notify = "8.2.0"

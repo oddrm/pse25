@@ -7,6 +7,7 @@
           <th v-for="(column, index) in columns" :key="index">
             {{ column }}
           </th>
+          <th>Plugins</th>
         </tr>
       </thead>
       <tbody>
