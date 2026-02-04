@@ -72,7 +72,6 @@ pub struct Tag {
     pub id: TagID,
     pub entry_id: i64,
     pub name: String,
-    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
