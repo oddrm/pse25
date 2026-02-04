@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::error::{Error, StorageError};
-use crate::schema::files;
+use crate::schema::{files, sequences};
 use crate::storage::models::*;
 use deadpool::Runtime;
 use deadpool_diesel::postgres::{Manager, Pool};
@@ -59,6 +59,10 @@ impl StorageManager {
 
     pub fn watch_dir(&self) -> &PathBuf {
         &self.watch_dir
+    }
+
+    pub fn db_pool(&self) -> &Pool {
+        &self.db_connection_pool
     }
 
     pub fn close(self) -> Result<(), StorageError> {
@@ -130,7 +134,24 @@ impl StorageManager {
         sequence: Sequence,
         txid: TxID,
     ) -> Result<(), StorageError> {
-        todo!()
+        let conn = self.db_connection_pool.get().await?;
+        
+        conn.interact(move |conn| {
+            diesel::update(sequences::table)
+                .filter(sequences::id.eq(sequence_id))
+                .filter(sequences::entry_id.eq(entry_id))
+                .set((
+                    sequences::description.eq(&sequence.description),
+                    sequences::start_timestamp.eq(sequence.start_timestamp),
+                    sequences::end_timestamp.eq(sequence.end_timestamp),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| StorageError::CustomError(e.to_string()))?
+        .map_err(|e| StorageError::CustomError(e.to_string()))?;
+        
+        Ok(())
     }
 
     pub async fn remove_sequence(

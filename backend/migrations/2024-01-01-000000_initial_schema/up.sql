@@ -35,7 +35,6 @@ CREATE TABLE tags (
     id BIGSERIAL PRIMARY KEY,
     entry_id BIGINT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
     name VARCHAR NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (entry_id, name)
 );
 
@@ -78,7 +77,6 @@ CREATE INDEX idx_metadata_entry_id ON metadata(entry_id);
 
 
 
---ChatGPT Vorschlag
 
 -- Create function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
