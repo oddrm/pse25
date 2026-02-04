@@ -42,6 +42,7 @@ diesel::table! {
         id -> BigInt,
         entry_id -> BigInt,
         name -> Varchar,
+        created_at -> Timestamptz,
     }
 }
 diesel::table! {

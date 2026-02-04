@@ -15,10 +15,7 @@ use deadpool_diesel::postgres::{Manager, Pool};
 use diesel::prelude::*;
 use diesel_async::AsyncPgConnection;
 use dotenvy::Iter;
-use notify::{
-    INotifyWatcher, RecursiveMode, Watcher,
-    event::{CreateKind, EventAttributes},
-};
+use notify::{RecursiveMode, Watcher};
 use rocket::futures::{FutureExt, StreamExt};
 use tokio::sync::oneshot;
 use tokio::sync::{
