@@ -25,9 +25,23 @@
 
 <script setup lang="ts">
 import { useLogsStore } from '../../stores/logsStore'
-
 const logsStore = useLogsStore()
 const logs = logsStore.logs
+
+import { ref, watch, onMounted } from 'vue'
+const newLogsCount = ref(0)
+
+onMounted(() => {
+  newLogsCount.value = 0
+})
+
+watch(
+  () => logsStore.logs.length,
+  (newLen, oldLen) => {
+    if (newLen > oldLen) newLogsCount.value++
+  }
+)
+
 </script>
 
 

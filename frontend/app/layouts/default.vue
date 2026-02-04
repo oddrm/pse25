@@ -29,11 +29,16 @@
 
         <NuxtLink
           to="/logs"
-          class="tab"
+          class="tab relative"
           :class="{ 'tab-active': route.path === '/logs' }"
+          @click="newLogsCount = 0"
         >
           Logs
-        </NuxtLink>
+          <span
+            v-if="newLogsCount > 0 && route.path !== '/logs'"
+            class="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-600"
+  >       </span>
+      </NuxtLink>
       </nav>
 
     </header>
@@ -47,5 +52,18 @@
 </template>
 
 <script setup lang="ts">
+import { ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { useLogsStore } from '../../stores/logsStore'
+
 const route = useRoute()
+const logsStore = useLogsStore()
+const newLogsCount = ref(0)
+
+watch(
+  () => logsStore.logs.length,
+  (newLen, oldLen) => {
+    if (route.path !== '/logs' && newLen > oldLen) newLogsCount.value++
+  }
+)
 </script>
