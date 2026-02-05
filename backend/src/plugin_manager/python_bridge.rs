@@ -49,11 +49,6 @@ const WARN_MISSING_PLUGIN_TRIGGER_PREFIX: &str = "Plugin '";
 const WARN_MISSING_PLUGIN_TRIGGER_SUFFIX: &str =
     "': missing PLUGIN_TRIGGER constant (will default to 'manual')";
 
-// NOTE:
-// Runtime-Steuerung (run/stop/pause/resume) läuft ab jetzt über den separaten Python Runner Prozess
-// (plugin_runner.py) mit JSON-Commands + ACKs. Diese Bridge ist nur noch für
-// validate_plugin_module() und read_module_constants() gedacht.
-
 // --- helpers ---
 fn prepare_module_import<'py>(
     py: Python<'py>,
