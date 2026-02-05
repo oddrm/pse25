@@ -49,7 +49,7 @@
     <!--Opened-->
     <tr v-if="open">
       <td :colspan="7">
-        <Sequence />
+        <Sequence :entryID="entryID" />
       </td>
     </tr>
 </template>
