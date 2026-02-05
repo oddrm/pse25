@@ -56,7 +56,6 @@ pub struct Sequence {
 #[diesel(table_name = crate::schema::metadata)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Metadata {
-    pub id: MetadataID,
     pub entry_id: EntryID,
     pub metadata_json: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,

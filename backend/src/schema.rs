@@ -56,8 +56,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    metadata (id) {
-        id -> BigInt,
+    metadata (entry_id) {
         entry_id -> BigInt,
         metadata_json -> Nullable<Jsonb>,
         created_at -> Timestamptz,
