@@ -1,10 +1,8 @@
 diesel::table! {
     files (path) {
         path -> Varchar,
-        last_modified -> Timestamp,
-        created -> Timestamp,
-        size -> Int8,
-        last_checked -> Timestamp,
+        is_mcap -> Bool,
+        is_custom_metadata -> Bool,
     }
 }
 diesel::table! {
@@ -57,8 +55,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    metadata (id) {
-        id -> BigInt,
+    metadata (entry_id) {
         entry_id -> BigInt,
         metadata_json -> Nullable<Jsonb>,
         created_at -> Timestamptz,
@@ -166,7 +163,6 @@ diesel::table! {
     }
 }
 
-
 diesel::joinable!(tags -> entries (entry_id));
 diesel::joinable!(metadata -> entries (entry_id));
 diesel::joinable!(sequences -> entries (entry_id));
@@ -178,5 +174,16 @@ diesel::joinable!(metadata_dataset_sequence -> metadata (metadata_id));
 diesel::joinable!(metadata_setup -> metadata (metadata_id));
 diesel::joinable!(metadata_sensor -> metadata (metadata_id));
 
-
-diesel::allow_tables_to_appear_in_same_query!(entries, metadata, sequences, tags, topics, metadata_info, metadata_labeling, metadata_scenario, metadata_dataset_sequence, metadata_setup, metadata_sensor);
+diesel::allow_tables_to_appear_in_same_query!(
+    entries,
+    metadata,
+    sequences,
+    tags,
+    topics,
+    metadata_info,
+    metadata_labeling,
+    metadata_scenario,
+    metadata_dataset_sequence,
+    metadata_setup,
+    metadata_sensor
+);

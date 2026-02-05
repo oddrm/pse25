@@ -2,7 +2,7 @@
 
 use crate::AppState;
 use crate::error::{Error, StorageError};
-use crate::storage::models::{Entry, EntryID, Sequence, SequenceID, Metadata};
+use crate::storage::models::{Entry, EntryID, Metadata, Sequence, SequenceID};
 use crate::storage::storage_manager::{Map, TxID};
 use rocket::serde::json::Json;
 use rocket::{State, delete, get, post, put, response::status};
@@ -65,10 +65,7 @@ pub async fn get_entries(
 }
 
 #[get("/entries/<entry_id>")]
-pub async fn get_entry(
-    state: &State<AppState>,
-    entry_id: EntryID,
-) -> Result<Json<Entry>, Error> {
+pub async fn get_entry(state: &State<AppState>, entry_id: EntryID) -> Result<Json<Entry>, Error> {
     let sm = &state.storage_manager;
     let txid: TxID = 0;
 
@@ -87,7 +84,7 @@ pub async fn get_entry_by_path(
     let sm = &state.storage_manager;
     let txid: TxID = 0;
 
-    let entry = sm.get_entry_by_path(&path, txid).await?;
+    let entry = sm.get_entry_by_path(path.clone(), txid).await?;
     match entry {
         Some(e) => Ok(Json(e)),
         None => not_found(format!("entry with path '{path}' not found")),
@@ -115,11 +112,10 @@ pub async fn add_sequence(
     let sm = &state.storage_manager;
     let txid: TxID = 0;
 
-    let new_id = sm.add_sequence(entry_id, sequence.into_inner(), txid).await?;
-    Ok(
-        status::Created::new(format!("/entries/{entry_id}/sequences/{new_id}"))
-            .body(Json(new_id)),
-    )
+    let new_id = sm
+        .add_sequence(entry_id, sequence.into_inner(), txid)
+        .await?;
+    Ok(status::Created::new(format!("/entries/{entry_id}/sequences/{new_id}")).body(Json(new_id)))
 }
 
 #[put(
@@ -139,9 +135,7 @@ pub async fn update_sequence(
     let mut seq = sequence.into_inner();
     seq.id = sequence_id;
     seq.entry_id = entry_id;
-    
 
-    
     sm.update_sequence(entry_id, sequence_id, seq, txid).await?;
     Ok(status::NoContent)
 }

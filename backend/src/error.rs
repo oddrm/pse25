@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use deadpool_diesel::postgres::PoolError;
+use deadpool_diesel::{InteractError, postgres::PoolError};
 use diesel::ConnectionError;
 use rocket::response::{self, Responder};
 
@@ -10,6 +10,7 @@ pub enum Error {
     ParsingError(String),
     PollingError(notify::Error),
     CustomError(String),
+    IoError(std::io::Error),
 }
 
 impl From<StorageError> for Error {
@@ -57,5 +58,17 @@ impl From<ConnectionError> for StorageError {
 impl From<PoolError> for StorageError {
     fn from(err: PoolError) -> Self {
         StorageError::PoolError(err)
+    }
+}
+
+impl From<InteractError> for StorageError {
+    fn from(err: InteractError) -> Self {
+        StorageError::CustomError(format!("Deadpool interact error: {:?}", err))
+    }
+}
+
+impl From<diesel::result::Error> for StorageError {
+    fn from(err: diesel::result::Error) -> Self {
+        StorageError::CustomError(format!("Diesel error: {:?}", err))
     }
 }

@@ -6,6 +6,7 @@ use backend::routes::queries::{
     add_sequence, add_tag, get_entries, get_metadata, get_sequences, remove_sequence, remove_tag,
     update_metadata, update_sequence,
 };
+use backend::storage::file_watcher;
 use backend::storage::storage_manager::StorageManager;
 use tracing::Subscriber;
 use tracing_subscriber::fmt::writer::{BoxMakeWriter, MakeWriterExt};
@@ -47,6 +48,7 @@ async fn main() {
             tracing_subscriber::fmt()
                 .with_writer(BoxMakeWriter::new(std::io::stdout))
                 .pretty()
+                .compact()
                 .with_max_level(log_level)
                 .finish(),
         )
@@ -57,9 +59,8 @@ async fn main() {
 
     #[allow(unused_mut)]
     let mut storage_manager = StorageManager::new(&db_url).unwrap();
-    storage_manager
-        .start_scanning(Duration::from_secs(1))
-        .unwrap();
+    file_watcher::scan_once(&storage_manager).await.unwrap();
+    file_watcher::start_scanning(&storage_manager, Duration::from_secs(1)).unwrap();
 
     // web server
     rocket::build()

@@ -15,9 +15,9 @@ CREATE TABLE metadata_info (
 
 CREATE INDEX idx_metadata_info_metadata_id ON metadata_info(metadata_id);
 
- 
+
 CREATE TABLE metadata_labeling (
-    labeling_key VARCHAR NOT NULL,
+    labeling_key VARCHAR PRIMARY KEY,
     metadata_id BIGINT NOT NULL REFERENCES metadata(id) ON DELETE CASCADE,
     creation_time_human VARCHAR,
     freetext TEXT,
@@ -36,7 +36,7 @@ CREATE TABLE metadata_scenario (
     metadata_id BIGINT NOT NULL UNIQUE REFERENCES metadata(id) ON DELETE CASCADE,
     environment_dynamics VARCHAR,
     environment_tags JSONB, --ist das JSON????
-    name VARCHAR,
+    name VARCHAR
 );
 
 CREATE INDEX idx_metadata_scenario_metadata_id ON metadata_scenario(metadata_id);
@@ -73,7 +73,7 @@ CREATE INDEX idx_metadata_setup_metadata_id ON metadata_setup(metadata_id);
 
 CREATE TABLE metadata_sensor (
     metadata_id BIGINT NOT NULL REFERENCES metadata(id) ON DELETE CASCADE,
-    sensor_key VARCHAR NOT NULL,
+    sensor_key VARCHAR PRIMARY KEY,
     acquisition_rate DOUBLE PRECISION,
     acquistion_mode VARCHAR,
     capture_rate DOUBLE PRECISION,
@@ -93,7 +93,7 @@ CREATE TABLE metadata_sensor (
     model VARCHAR,
     mtu INT,
     optical_center_frame VARCHAR,
-    ros_topics JSONB --is it true????
+    ros_topics JSONB, --is it true????
     sw_trigger_rate DOUBLE PRECISION,
     time_stamp_accuracy VARCHAR,
     time_sync_method VARCHAR,

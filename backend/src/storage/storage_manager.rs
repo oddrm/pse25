@@ -7,9 +7,14 @@ use std::{
     time::Duration,
 };
 
-use crate::error::{Error, StorageError};
-use crate::schema::{files, sequences};
+use crate::schema::files;
+use crate::schema::metadata::dsl::{entry_id as metadata_entry_id, metadata};
 use crate::storage::models::*;
+use crate::{
+    error::{Error, StorageError},
+    schema,
+};
+
 use deadpool::Runtime;
 use deadpool_diesel::postgres::{Manager, Pool};
 use diesel::prelude::*;
@@ -26,14 +31,14 @@ use tokio::sync::{
     watch,
 };
 use tokio_stream::wrappers::ReceiverStream;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 use tracing_subscriber::field::debug;
 
 pub type Map<K, V> = std::collections::HashMap<K, V>;
 pub type TxID = u64;
 pub type Tag = String;
 
-// this can be cloned and still refer to the same db
+// this can be cloned cheaply and still refer to the same db
 #[derive(Clone)]
 pub struct StorageManager {
     db_connection_pool: Pool,
@@ -61,12 +66,8 @@ impl StorageManager {
         &self.watch_dir
     }
 
-    pub fn db_pool(&self) -> &Pool {
+    pub fn db_connection_pool(&self) -> &Pool {
         &self.db_connection_pool
-    }
-
-    pub fn close(self) -> Result<(), StorageError> {
-        todo!()
     }
 
     pub async fn get_metadata(
@@ -74,13 +75,22 @@ impl StorageManager {
         id: EntryID,
         txid: TxID,
     ) -> Result<Option<Metadata>, StorageError> {
-        todo!()
+        let conn = self.db_connection_pool().get().await?;
+        let result = conn
+            .interact(move |conn| {
+                metadata
+                    .filter(metadata_entry_id.eq(id))
+                    .first::<Metadata>(conn)
+                    .optional()
+            })
+            .await??;
+        Ok(result)
     }
 
     pub async fn update_metadata(
         &self,
-        id: EntryID,
-        metadata: &Metadata,
+        entry_id: EntryID,
+        metadata_obj: &Metadata,
         txid: TxID,
     ) -> Result<EntryID, StorageError> {
         todo!()
@@ -98,24 +108,54 @@ impl StorageManager {
         todo!()
     }
 
-    pub async fn get_entry(&self, id: EntryID, txid: TxID) -> Result<Option<Entry>, StorageError> {
-        todo!()
+    pub async fn get_entry(
+        &self,
+        entry_id: EntryID,
+        txid: TxID,
+    ) -> Result<Option<Entry>, StorageError> {
+        let conn = self.db_connection_pool().get().await?;
+        let entry = conn
+            .interact(move |conn| {
+                schema::entries::dsl::entries
+                    .filter(schema::entries::dsl::id.eq(entry_id))
+                    .first::<Entry>(conn)
+                    .optional()
+            })
+            .await??;
+        Ok(entry)
     }
 
     pub async fn get_entry_by_path(
         &self,
-        path: &String,
+        path: String,
         txid: TxID,
     ) -> Result<Option<Entry>, StorageError> {
-        todo!()
+        let conn = self.db_connection_pool().get().await?;
+        let entry = conn
+            .interact(move |conn| {
+                schema::entries::dsl::entries
+                    .filter(schema::entries::dsl::path.eq(path))
+                    .first::<Entry>(conn)
+                    .optional()
+            })
+            .await??;
+        Ok(entry)
     }
 
     pub async fn get_sequences(
         &self,
-        id: EntryID,
+        entry_id: EntryID,
         txid: TxID,
     ) -> Result<Map<SequenceID, Sequence>, StorageError> {
-        todo!()
+        let conn = self.db_connection_pool().get().await?;
+        let sequences = conn
+            .interact(move |conn| {
+                schema::sequences::dsl::sequences
+                    .filter(schema::sequences::dsl::entry_id.eq(entry_id))
+                    .load::<Sequence>(conn)
+            })
+            .await??;
+        Ok(sequences.into_iter().map(|s| (s.id, s)).collect())
     }
 
     pub async fn add_sequence(
@@ -124,7 +164,16 @@ impl StorageManager {
         sequence: Sequence,
         txid: TxID,
     ) -> Result<SequenceID, StorageError> {
-        todo!()
+        let conn = self.db_connection_pool().get().await?;
+        let sequence_id = conn
+            .interact(move |conn| {
+                diesel::insert_into(schema::sequences::dsl::sequences)
+                    .values(&sequence)
+                    .returning(schema::sequences::dsl::id)
+                    .get_result::<SequenceID>(conn)
+            })
+            .await??;
+        Ok(sequence_id)
     }
 
     pub async fn update_sequence(
@@ -134,27 +183,23 @@ impl StorageManager {
         sequence: Sequence,
         txid: TxID,
     ) -> Result<(), StorageError> {
-        /*
-         let conn = self.db_connection_pool.get().await?;
-        
+        let conn = self.db_connection_pool().get().await?;
         conn.interact(move |conn| {
-            diesel::update(sequences::table)
-                .filter(sequences::id.eq(sequence_id))
-                .filter(sequences::entry_id.eq(entry_id))
-                .set((
-                    sequences::description.eq(&sequence.description),
-                    sequences::start_timestamp.eq(sequence.start_timestamp),
-                    sequences::end_timestamp.eq(sequence.end_timestamp),
-                ))
-                .execute(conn)
+            diesel::update(
+                schema::sequences::dsl::sequences
+                    .filter(schema::sequences::dsl::id.eq(sequence_id))
+                    .filter(schema::sequences::dsl::entry_id.eq(entry_id)),
+            )
+            .set((
+                schema::sequences::dsl::description.eq(sequence.description),
+                schema::sequences::dsl::start_timestamp.eq(sequence.start_timestamp),
+                schema::sequences::dsl::end_timestamp.eq(sequence.end_timestamp),
+                schema::sequences::dsl::updated_at.eq(sequence.updated_at),
+            ))
+            .execute(conn)
         })
-        .await
-        .map_err(|e| StorageError::CustomError(e.to_string()))?
-        .map_err(|e| StorageError::CustomError(e.to_string()))?;
-        
+        .await??;
         Ok(())
-         */
-       
     }
 
     pub async fn remove_sequence(
@@ -163,125 +208,60 @@ impl StorageManager {
         sequence_id: SequenceID,
         txid: TxID,
     ) -> Result<(), StorageError> {
-        todo!()
+        let conn = self.db_connection_pool().get().await?;
+        conn.interact(move |conn| {
+            diesel::delete(
+                schema::sequences::dsl::sequences
+                    .filter(schema::sequences::dsl::id.eq(sequence_id))
+                    .filter(schema::sequences::dsl::entry_id.eq(entry_id)),
+            )
+            .execute(conn)
+        })
+        .await??;
+        Ok(())
     }
 
-    pub async fn add_tag(&self, id: EntryID, tag: Tag, txid: TxID) -> Result<(), StorageError> {
-        todo!()
+    pub async fn add_tag(
+        &self,
+        entry_id: EntryID,
+        tag: Tag,
+        txid: TxID,
+    ) -> Result<(), StorageError> {
+        let conn = self.db_connection_pool().get().await?;
+        conn.interact(move |conn| {
+            diesel::insert_into(schema::tags::dsl::tags)
+                .values((
+                    schema::tags::dsl::entry_id.eq(entry_id),
+                    schema::tags::dsl::name.eq(tag),
+                ))
+                .execute(conn)
+        })
+        .await??;
+        Ok(())
     }
 
-    pub async fn remove_tag(&self, id: EntryID, tag: Tag, txid: TxID) -> Result<(), StorageError> {
-        todo!()
+    pub async fn remove_tag(
+        &self,
+        entry_id: EntryID,
+        tag: Tag,
+        txid: TxID,
+    ) -> Result<(), StorageError> {
+        let conn = self.db_connection_pool().get().await?;
+        conn.interact(move |conn| {
+            diesel::delete(
+                schema::tags::dsl::tags
+                    .filter(schema::tags::dsl::entry_id.eq(entry_id))
+                    .filter(schema::tags::dsl::name.eq(tag)),
+            )
+            .execute(conn)
+        })
+        .await??;
+        Ok(())
     }
 
     pub fn get_transaction_id(&self) -> TxID {
-        todo!()
-    }
-
-    #[instrument]
-    pub async fn process_event(&self, event: &notify::Event) -> Result<(), StorageError> {
-        debug!("Processing file event: {:?}", event);
-        let conn = self.db_connection_pool.get().await?;
-        match &event.kind {
-            notify::event::EventKind::Create(_) => {
-                let now = chrono::Utc::now().timestamp();
-                let naive_datetime = chrono::DateTime::from_timestamp(now, 0)
-                    .unwrap()
-                    .naive_utc();
-
-                let path = event.paths[0].to_string_lossy().to_string();
-                let x = conn
-                    .interact(move |conn| {
-                        diesel::insert_into(files::table)
-                            .values(File {
-                                created: naive_datetime,
-                                last_checked: naive_datetime,
-                                last_modified: naive_datetime,
-                                path,
-                                size: 0,
-                            })
-                            .returning(File::as_returning())
-                            .get_result(conn)
-                    })
-                    .await
-                    .map_err(|e| StorageError::CustomError(e.to_string()))?
-                    .map_err(|e| StorageError::CustomError(e.to_string()))?;
-            }
-            _ => {}
-        };
-        Ok(())
-    }
-
-    // this is a static method so no method uses mutable access to storage_manager and it can then
-    // be shared around the web server so an unnecessary event queue can be skipped
-    // while this won't receive create events of directories, if a directory is moved, the remove
-    // event still shows up these have to be ignored and can't be distinguished from file events
-    // in general there are no rename/move events, just create/ deletes.
-    // They have to be inferred through some other way
-    #[instrument]
-    async fn process_events(self, fs_event_rx: Receiver<notify::Event>) {
-        debug!("Starting to process file events.");
-        // up to 10 simultaneous process event tasks
-        ReceiverStream::new(fs_event_rx)
-            .for_each_concurrent(10, |event| {
-                let self_clone = self.clone();
-                async move {
-                    self_clone.process_event(&event).await.unwrap_or_else(|e| {
-                        error!("Error processing file event {:?}: {:?}", event, e);
-                    });
-                }
-            })
-            .await;
-    }
-
-    // this both scans the directory on startup and starts the continuous scanning process
-    // the notify debouncers can't be used because the the mini-debouncer deletes information
-    // about the eventKind and the full-debouncer compacts events on whole directories as one event,
-    // which is not desired as each file change has to be processed individually.
-    #[instrument]
-    pub fn start_scanning(&self, interval: Duration) -> Result<(), Error> {
-        debug!("starting filesystem scan method");
-        let (fs_event_tx, fs_event_rx) = mpsc::channel(200);
-
-        let fs_event_callback = move |event: Result<notify::Event, notify::Error>| match event {
-            Err(e) => {
-                error!("notify error during initial scan: {:?}", e);
-                return;
-            }
-            Ok(event) => {
-                if event.paths.iter().any(|p| p.is_dir()) {
-                    return;
-                }
-                let _ = fs_event_tx.blocking_send(event);
-            }
-        };
-
-        let initial_scan_callback = move |event: Result<PathBuf, notify::Error>| {
-            if !event.as_ref().unwrap().is_dir() {
-                // debug!("initial scan event: {:?}", event);
-                return;
-            }
-        };
-
-        let mut watcher = notify::PollWatcher::with_initial_scan(
-            fs_event_callback,
-            notify::Config::default().with_poll_interval(interval),
-            initial_scan_callback,
-        )?;
-
-        let watch_dir = self.watch_dir().clone();
-        let self_clone = self.clone();
-        tokio::task::spawn(async move {
-            debug!("Starting filesystem scan watcher.");
-            watcher
-                .watch(&watch_dir, RecursiveMode::Recursive)
-                .unwrap_or_else(|e| {
-                    error!("Error on starting filesystem scan {:?}", e);
-                });
-            debug!("Filesystem scan started.");
-            StorageManager::process_events(self_clone, fs_event_rx).await;
-        });
-        Ok(())
+        // TODO
+        return 0;
     }
 
     pub fn submit_file(
@@ -294,7 +274,8 @@ impl StorageManager {
     }
 
     pub fn end_transaction(&self, txid: TxID) -> Result<(), StorageError> {
-        todo!()
+        // TODO
+        Ok(())
     }
 }
 
