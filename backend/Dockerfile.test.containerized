@@ -15,5 +15,14 @@ ENV RUST_BACKTRACE=1
 ENV DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
 ENV RUSTFLAGS="-A warnings"
 
-# Run tests (source will be mounted)
+# Copy dependency manifests first for caching
+COPY Cargo.toml Cargo.lock ./
+
+# Provide a tiny main to allow cargo to fetch dependencies without full source
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN cargo fetch
+
+# Now copy full source and run tests inside the container
+COPY . .
+
 CMD ["cargo", "test", "--no-fail-fast", "--", "--nocapture"]

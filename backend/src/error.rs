@@ -10,6 +10,7 @@ pub enum Error {
     ParsingError(String),
     PollingError(notify::Error),
     CustomError(String),
+    IoError(std::io::Error),
 }
 
 impl From<StorageError> for Error {

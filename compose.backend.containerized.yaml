@@ -30,7 +30,7 @@ services:
   backend:
     build:
       context: backend
-      dockerfile: Dockerfile.test
+      dockerfile: Dockerfile.test.containerized
     depends_on:
       db:
         condition: service_healthy
@@ -39,9 +39,7 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
       - RUST_BACKTRACE=1
-    volumes:
-      - ./backend:/app
-      - ./backend/target:/app/target
+    restart: no
 
 volumes:
   cargo-cache:
