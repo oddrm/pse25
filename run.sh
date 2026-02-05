@@ -37,6 +37,7 @@ case "$CMD" in
     # Build locally
     cd backend && RUSTFLAGS="-A warnings" cargo test --no-run && cd ..
 
+    docker compose -f compose.backend.yaml down --remove-orphans
     # Run in container
     docker compose -f compose.backend.yaml up --no-attach db --build --remove-orphans
     ;;

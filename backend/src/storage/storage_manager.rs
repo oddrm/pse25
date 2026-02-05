@@ -66,10 +66,11 @@ impl StorageManager {
         &self.watch_dir
     }
 
+    #[instrument]
     pub fn db_connection_pool(&self) -> &Pool {
         &self.db_connection_pool
     }
-
+    #[instrument]
     pub async fn get_metadata(
         &self,
         id: EntryID,
@@ -84,9 +85,10 @@ impl StorageManager {
                     .optional()
             })
             .await??;
+        debug!("Queried metadata for entry_id {}: {:?}", id, result);
         Ok(result)
     }
-
+    #[instrument]
     pub async fn update_metadata(
         &self,
         entry_id: EntryID,
@@ -96,6 +98,7 @@ impl StorageManager {
         todo!()
     }
 
+    #[instrument]
     pub async fn get_entries(
         &self,
         search_string: Option<String>,
@@ -108,6 +111,7 @@ impl StorageManager {
         todo!()
     }
 
+    #[instrument]
     pub async fn get_entry(
         &self,
         entry_id: EntryID,
@@ -117,14 +121,17 @@ impl StorageManager {
         let entry = conn
             .interact(move |conn| {
                 schema::entries::dsl::entries
-                    .filter(schema::entries::dsl::id.eq(entry_id))
+                    .find(entry_id)
+                    .select(Entry::as_select())
                     .first::<Entry>(conn)
                     .optional()
             })
             .await??;
+        debug!("Queried entry by id {}: {:?}", entry_id, entry);
         Ok(entry)
     }
 
+    #[instrument]
     pub async fn get_entry_by_path(
         &self,
         path: String,
@@ -139,9 +146,11 @@ impl StorageManager {
                     .optional()
             })
             .await??;
+        debug!("Queried entry by path: {:?}", entry);
         Ok(entry)
     }
 
+    #[instrument]
     pub async fn get_sequences(
         &self,
         entry_id: EntryID,
@@ -155,9 +164,15 @@ impl StorageManager {
                     .load::<Sequence>(conn)
             })
             .await??;
-        Ok(sequences.into_iter().map(|s| (s.id, s)).collect())
+        let sequences_map = sequences.into_iter().map(|s| (s.id, s)).collect();
+        debug!(
+            "Queried sequences for entry_id {}: {:?}",
+            entry_id, sequences_map
+        );
+        Ok(sequences_map)
     }
 
+    #[instrument]
     pub async fn add_sequence(
         &self,
         entry_id: EntryID,
@@ -173,9 +188,14 @@ impl StorageManager {
                     .get_result::<SequenceID>(conn)
             })
             .await??;
+        debug!(
+            "Added sequence for entry_id {} with new sequence_id {}",
+            entry_id, sequence_id
+        );
         Ok(sequence_id)
     }
 
+    #[instrument]
     pub async fn update_sequence(
         &self,
         entry_id: EntryID,
@@ -199,9 +219,11 @@ impl StorageManager {
             .execute(conn)
         })
         .await??;
+        debug!("Updated sequences");
         Ok(())
     }
 
+    #[instrument]
     pub async fn remove_sequence(
         &self,
         entry_id: EntryID,
@@ -218,9 +240,14 @@ impl StorageManager {
             .execute(conn)
         })
         .await??;
+        debug!(
+            "Removed sequence with id {} for entry_id {}",
+            sequence_id, entry_id
+        );
         Ok(())
     }
 
+    #[instrument]
     pub async fn add_tag(
         &self,
         entry_id: EntryID,
@@ -237,9 +264,11 @@ impl StorageManager {
                 .execute(conn)
         })
         .await??;
+        debug!("Added tag for entry_id {}", entry_id);
         Ok(())
     }
 
+    #[instrument]
     pub async fn remove_tag(
         &self,
         entry_id: EntryID,
@@ -256,14 +285,17 @@ impl StorageManager {
             .execute(conn)
         })
         .await??;
+        debug!("Removed tag");
         Ok(())
     }
 
+    #[instrument]
     pub fn get_transaction_id(&self) -> TxID {
         // TODO
         return 0;
     }
 
+    #[instrument]
     pub fn submit_file(
         &self,
         old_path: &PathBuf,
@@ -273,6 +305,7 @@ impl StorageManager {
         todo!()
     }
 
+    #[instrument]
     pub fn end_transaction(&self, txid: TxID) -> Result<(), StorageError> {
         // TODO
         Ok(())
