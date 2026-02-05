@@ -134,7 +134,8 @@ impl StorageManager {
         sequence: Sequence,
         txid: TxID,
     ) -> Result<(), StorageError> {
-        let conn = self.db_connection_pool.get().await?;
+        /*
+         let conn = self.db_connection_pool.get().await?;
         
         conn.interact(move |conn| {
             diesel::update(sequences::table)
@@ -152,6 +153,8 @@ impl StorageManager {
         .map_err(|e| StorageError::CustomError(e.to_string()))?;
         
         Ok(())
+         */
+       
     }
 
     pub async fn remove_sequence(
