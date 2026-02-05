@@ -61,6 +61,7 @@ case "$CMD" in
 
   dev)
     echo "Starting full development stack..."
+    docker compose -f compose.dev.yaml down --remove-orphans
     docker compose -f compose.dev.yaml up --build --remove-orphans --no-attach db --no-attach pgadmin
     ;;
 

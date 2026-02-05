@@ -108,7 +108,16 @@ impl StorageManager {
         page_size: Option<u32>,
         txid: TxID,
     ) -> Result<Vec<(EntryID, Metadata)>, StorageError> {
-        todo!()
+        debug!("get_entries");
+        return Ok(vec![(
+            1,
+            Metadata {
+                entry_id: 1,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+                metadata_json: None,
+            },
+        )]);
     }
 
     #[instrument]
