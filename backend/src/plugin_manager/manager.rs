@@ -345,7 +345,7 @@ impl PluginManager {
         Ok(())
     }
 
-    pub async fn start_plugin_instance_by_name(
+    pub async fn start_plugin_instance(
         &mut self,
         plugin_name: &str,
         _parameters: Vec<(String, String)>,
