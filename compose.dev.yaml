@@ -4,6 +4,8 @@ services:
     restart: always
     ports:
       - "5432:5432"
+    tmpfs:
+      - /var/lib/postgresql
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres

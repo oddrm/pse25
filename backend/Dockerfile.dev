@@ -1,9 +1,14 @@
 FROM rust:latest as builder
 WORKDIR /app
 
+
 # Install build deps
-RUN apt-get update && apt-get install -y pkg-config libssl-dev ca-certificates --no-install-recommends \
-  && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    gcc \
+    python3 \
+    libpython3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install cargo-watch for fast in-container rebuilds
 RUN cargo install cargo-watch
@@ -16,8 +21,12 @@ FROM rust:latest
 WORKDIR /app
 
 # Runtime build deps (same as builder to allow building native deps)
-RUN apt-get update && apt-get install -y pkg-config libssl-dev ca-certificates --no-install-recommends \
-  && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    gcc \
+    python3 \
+    libpython3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy cached target from builder and cargo-installed binaries (cargo-watch)
 COPY --from=builder /app/target ./target

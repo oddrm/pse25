@@ -9,6 +9,8 @@ WORKDIR /build
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
+    python3 \
+    libpython3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Copy dependency manifests first (better caching)
@@ -41,6 +43,8 @@ FROM docker.io/debian:bookworm-slim
 RUN apt-get update && apt-get install -y \
     libpq5 \
     ca-certificates \
+    python3 \
+    libpython3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
