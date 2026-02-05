@@ -163,7 +163,6 @@ diesel::table! {
     }
 }
 
-
 diesel::joinable!(tags -> entries (entry_id));
 diesel::joinable!(metadata -> entries (entry_id));
 diesel::joinable!(sequences -> entries (entry_id));
@@ -175,5 +174,16 @@ diesel::joinable!(metadata_dataset_sequence -> metadata (metadata_id));
 diesel::joinable!(metadata_setup -> metadata (metadata_id));
 diesel::joinable!(metadata_sensor -> metadata (metadata_id));
 
-
-diesel::allow_tables_to_appear_in_same_query!(entries, metadata, sequences, tags, topics, metadata_info, metadata_labeling, metadata_scenario, metadata_dataset_sequence, metadata_setup, metadata_sensor);
+diesel::allow_tables_to_appear_in_same_query!(
+    entries,
+    metadata,
+    sequences,
+    tags,
+    topics,
+    metadata_info,
+    metadata_labeling,
+    metadata_scenario,
+    metadata_dataset_sequence,
+    metadata_setup,
+    metadata_sensor
+);

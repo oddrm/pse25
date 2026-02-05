@@ -31,10 +31,6 @@ fi
 CMD=$1
 shift || true
 
-# Use sudo for docker if needed (empty when running as root or sudo not available)
-SUDO=""
-
-
 case "$CMD" in
   backend)
     echo "Running backend tests..."
@@ -42,7 +38,7 @@ case "$CMD" in
     cd backend && RUSTFLAGS="-A warnings" cargo test --no-run && cd ..
 
     # Run in container
-    "$SUDO" docker compose -f compose.backend.yaml up --no-attach db --build
+    docker compose -f compose.backend.yaml up --no-attach db --build --remove-orphans
     ;;
   frontend)
     echo "Running frontend unit & component tests..."
@@ -56,7 +52,7 @@ case "$CMD" in
 
     # Use docker compose to (re)build images and run the e2e stack.
     # This ensures images are rebuilt when Dockerfiles or contexts change.
-    docker compose -f compose.e2e.yaml up --build --exit-code-from playwright --remove-orphans playwright
+    docker compose -f compose.e2e.yaml up --build --exit-code-from playwright --remove-orphans
     EXIT_CODE=$?
     docker compose -f compose.e2e.yaml down
     exit $EXIT_CODE
