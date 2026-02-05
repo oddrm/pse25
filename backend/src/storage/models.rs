@@ -16,10 +16,8 @@ pub type Timestamp = i64;
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct File {
     pub path: String,
-    pub last_modified: chrono::NaiveDateTime,
-    pub created: chrono::NaiveDateTime,
-    pub size: i64,
-    pub last_checked: chrono::NaiveDateTime,
+    pub is_mcap: bool,
+    pub is_custom_metadata: bool,
 }
 
 #[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
