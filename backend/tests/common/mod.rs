@@ -1,7 +1,10 @@
+use backend::error::StorageError;
+use backend::storage::storage_manager::StorageManager;
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use std::env;
 use std::sync::Once;
+use tracing::{debug, instrument};
 
 static INIT: Once = Once::new();
 
@@ -34,4 +37,18 @@ pub fn cleanup_test_data(conn: &mut PgConnection) {
     sql_query("TRUNCATE TABLE tags, sequences, metadata, topics, entries, files CASCADE")
         .execute(conn)
         .expect("Failed to clean up test data");
+}
+
+#[instrument]
+pub async fn remove_all_data(storage_manager: &StorageManager) -> Result<(), StorageError> {
+    let conn = storage_manager.db_connection_pool().get().await?;
+    conn.interact(|conn| {
+        diesel::sql_query(
+            "TRUNCATE TABLE tags, sequences, metadata, topics, entries, files CASCADE",
+        )
+        .execute(conn)
+    })
+    .await??;
+    debug!("Removed all data from database");
+    Ok(())
 }

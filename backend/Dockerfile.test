@@ -16,4 +16,4 @@ ENV DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
 ENV RUSTFLAGS="-A warnings"
 
 # Run tests (source will be mounted)
-CMD ["cargo", "test", "--no-fail-fast", "--", "--nocapture"]
+CMD ["cargo", "test", "--no-fail-fast", "-j", "1", "--", "--nocapture"]
