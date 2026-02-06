@@ -34,9 +34,13 @@ const JSON_KEY_INSTANCE_ID: &str = "instance_id";
 const JSON_KEY_REQUEST_ID: &str = "request_id";
 const JSON_KEY_CMD: &str = "cmd";
 
+    const PYTHON_UNBUFFERED_FLAG: &str = "-u";
 
-const PYTHON_EXECUTABLE: &str = "python";
-const PYTHON_UNBUFFERED_FLAG: &str = "-u";
+    #[cfg(windows)]
+    const PYTHON_EXECUTABLE: &str = "python";
+
+    #[cfg(not(windows))]
+    const PYTHON_EXECUTABLE: &str = "python3";
 
 // Achtung: Pfad muss zu deiner echten Datei passen.
 const RUNNER_PATH: &str = "src/plugin_manager/plugins/plugin_runner.py";
@@ -216,17 +220,18 @@ impl PluginManager {
 
         // suche entsprechende Plugins und setze enabled-Flag
         for plugin_cfg in config.plugins {
-            if let Ok(plugin) = self
+            let plugin = self
                 .registered
                 .iter_mut()
                 .find(|p| p.name().as_str() == plugin_cfg.name)
                 .ok_or_else(|| {
-                    Error::CustomError(
-                        format!("{ERR_PLUGIN_NOT_FOUND_PREFIX}{}' not found", plugin_cfg.name))
-                })
-            {
-                plugin.set_enabled(plugin_cfg.enabled);
-            }
+                    Error::CustomError(format!(
+                        "{ERR_PLUGIN_NOT_FOUND_PREFIX}{}' not found",
+                        plugin_cfg.name
+                    ))
+                })?;
+
+            plugin.set_enabled(plugin_cfg.enabled);
         }
 
         Ok(())

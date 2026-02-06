@@ -1,12 +1,10 @@
-mod plugin_manager;
-
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::fs;
+use std::fs;
 
 static INIT: Once = Once::new();
 
