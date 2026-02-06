@@ -31,3 +31,4 @@ playwright-report
 devlogs
 .vscode
 __pycache__
+plugins_dir

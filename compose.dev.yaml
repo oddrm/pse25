@@ -47,6 +47,8 @@ services:
       - backend-target:/app/target
       - ./logs:/logs
       - ./test_data:/data
+      - ./plugins_dir:/plugins
+
   frontend:
     build: frontend
     ports:

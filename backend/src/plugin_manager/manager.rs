@@ -9,7 +9,7 @@ use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 use tracing::{debug, error, warn};
 
 use crate::plugin_manager::manager::InstanceState::Running;
@@ -72,7 +72,8 @@ const LOG_PY_STDERR_PREFIX: &str = "python stderr: {}";
 const LOG_PY_STDOUT_NON_JSON: &str = "python stdout (non-json): {} (parse err: {})";
 const LOG_RUNNER_EVENT: &str = "runner event (instance {}): {}";
 
-const LOG_SOFT_STOP_FORCE_KILL: &str = "Soft stop ACK ok, but process did not exit quickly; forcing kill.";
+const LOG_SOFT_STOP_FORCE_KILL: &str =
+    "Soft stop ACK ok, but process did not exit quickly; forcing kill.";
 const LOG_SOFT_STOP_FAILED_FORCE_KILL: &str = "Soft stop failed/timeout; forcing kill. err={:?}";
 
 const TIMEOUT_START_ACK: Duration = Duration::from_secs(5);
@@ -102,20 +103,29 @@ fn parse_trigger(py_trigger: Option<&str>) -> Trigger {
     }
 }
 // Rückgabe ob pausiert
-fn is_paused(inst: &RunningInstance) -> bool { inst.state == InstanceState::Paused }
+fn is_paused(inst: &RunningInstance) -> bool {
+    inst.state == InstanceState::Paused
+}
 
 // Rückgabe ob laufend
-fn is_running(inst: &RunningInstance) -> bool { inst.state == Running }
+fn is_running(inst: &RunningInstance) -> bool {
+    inst.state == Running
+}
 
 // baut json aus instanz/request_id und cmd
 fn build_cmd_request(instance_id: InstanceID, request_id: &str, cmd: &str) -> serde_json::Value {
     let mut req = serde_json::Map::new();
-    req.insert(JSON_KEY_INSTANCE_ID.to_string(), serde_json::Value::from(instance_id));
-    req.insert(JSON_KEY_REQUEST_ID.to_string(), serde_json::Value::from(request_id));
+    req.insert(
+        JSON_KEY_INSTANCE_ID.to_string(),
+        serde_json::Value::from(instance_id),
+    );
+    req.insert(
+        JSON_KEY_REQUEST_ID.to_string(),
+        serde_json::Value::from(request_id),
+    );
     req.insert(JSON_KEY_CMD.to_string(), serde_json::Value::from(cmd));
     serde_json::Value::Object(req)
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstanceState {
@@ -153,12 +163,12 @@ pub struct PluginsConfig {
 
 #[derive(Debug)]
 struct RunningInstance {
-    plugin_index: usize, // welches Plugin auf Liste
-    state: InstanceState, // Running/Paused
-    child: Child, // Handle auf gestarteten Python Prozess
-    child_stdin: ChildStdin, // Schreibkanal zum Python Prozess
+    plugin_index: usize,                  // welches Plugin auf Liste
+    state: InstanceState,                 // Running/Paused
+    child: Child,                         // Handle auf gestarteten Python Prozess
+    child_stdin: ChildStdin,              // Schreibkanal zum Python Prozess
     stdout_rx: mpsc::Receiver<RunnerMsg>, // Empfangschannel vom Python Prozess
-    next_request_seq: u64, // Zähler für eindeutige Request-IDs
+    next_request_seq: u64,                // Zähler für eindeutige Request-IDs
 }
 
 #[derive(Debug)]
@@ -173,7 +183,7 @@ impl PluginManager {
     async fn cmd_start(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
         Self::send_cmd_ack(inst, id, CMD_START, TIMEOUT_START_ACK).await
     }
-    
+
     async fn cmd_stop(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
         Self::send_cmd_ack(inst, id, CMD_STOP, TIMEOUT_SOFT_STOP_ACK).await
     }
@@ -208,14 +218,15 @@ impl PluginManager {
 
     pub fn load_config_and_apply(&mut self, config_path: &str) -> Result<(), Error> {
         // YAML-Datei lesen
+
         let content = fs::read_to_string(config_path).map_err(|e| {
+            error!("config file not set/cannot be read: {}", e);
             Error::CustomError(format!("{ERR_FAILED_READ_CONFIG_PREFIX}{e}"))
         })?;
 
         // Parsen zu PluginsConfig
-        let config: PluginsConfig = serde_yaml::from_str(&content).map_err(|e| {
-            Error::CustomError(format!("{ERR_FAILED_PARSE_CONFIG_PREFIX}{e}"))
-        })?;
+        let config: PluginsConfig = serde_yaml::from_str(&content)
+            .map_err(|e| Error::CustomError(format!("{ERR_FAILED_PARSE_CONFIG_PREFIX}{e}")))?;
 
         // suche entsprechende Plugins und setze enabled-Flag
         for plugin_cfg in config.plugins {
@@ -257,8 +268,7 @@ impl PluginManager {
             .stdout(Stdio::piped()) // von Python
             .stderr(Stdio::piped()) // von Python Fehler
             .spawn()
-            .map_err(|e| Error::CustomError(
-                format!("{ERR_FAILED_SPAWN_PY_PREFIX}{e}")))?;
+            .map_err(|e| Error::CustomError(format!("{ERR_FAILED_SPAWN_PY_PREFIX}{e}")))?;
 
         // Um Commands an Runner schicken zu kömmem
         let child_stdin = child
@@ -307,8 +317,7 @@ impl PluginManager {
 
     pub fn register_plugins(&mut self, directory: PathBuf) -> Result<(), Error> {
         // iterieren
-        for entry in fs::read_dir(&directory)
-            .map_err(|e| Error::CustomError(e.to_string()))? {
+        for entry in fs::read_dir(&directory).map_err(|e| Error::CustomError(e.to_string()))? {
             let entry = entry.map_err(|e| Error::CustomError(e.to_string()))?;
             let path = entry.path();
 
@@ -336,15 +345,9 @@ impl PluginManager {
     pub fn register_plugin(&mut self, path: PathBuf) -> Result<(), Error> {
         // Duplikate verhindern: gleicher Plugin-Pfad darf nicht zweimal registriert werden.
         // Canonicalize macht es robuster gegen ./foo.py vs foo.py vs absolute Pfade.
-        let canonical_path = path
-            .canonicalize()
-            .unwrap_or_else(|_| path.clone());
+        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.clone());
 
-        if self
-            .registered
-            .iter()
-            .any(|p| p.path() == &canonical_path)
-        {
+        if self.registered.iter().any(|p| p.path() == &canonical_path) {
             return Err(Error::CustomError(format!(
                 "Plugin at path '{:?}' is already registered",
                 canonical_path
@@ -367,7 +370,8 @@ impl PluginManager {
 
         // Auslesen aus Python-Modul
         let (py_name, py_description, py_trigger) =
-            python_bridge::read_module_constants(canonical_path.as_path()).unwrap_or((None, None, None));
+            python_bridge::read_module_constants(canonical_path.as_path())
+                .unwrap_or((None, None, None));
 
         let name = py_name.unwrap_or(fallback_name);
         let description = py_description.unwrap_or(fallback_description);
@@ -398,11 +402,16 @@ impl PluginManager {
         }
 
         // anhand des Namens suchen
-        let plugin_index = self.registered.iter()
-            .position(|p| p.name().as_str() == plugin_name).ok_or_else(|| {
-            Error::CustomError(
-                format!("{ERR_PLUGIN_NOT_REGISTERED_PREFIX}{}' is not registered", plugin_name))
-        })?;
+        let plugin_index = self
+            .registered
+            .iter()
+            .position(|p| p.name().as_str() == plugin_name)
+            .ok_or_else(|| {
+                Error::CustomError(format!(
+                    "{ERR_PLUGIN_NOT_REGISTERED_PREFIX}{}' is not registered",
+                    plugin_name
+                ))
+            })?;
 
         let reg_plugin = &self.registered[plugin_index];
 
@@ -415,12 +424,15 @@ impl PluginManager {
         }
         // muss aktiviert sein
         if !reg_plugin.enabled() {
-            return Err(Error::CustomError(format!("Plugin '{}' is disabled", reg_plugin.name())));
+            return Err(Error::CustomError(format!(
+                "Plugin '{}' is disabled",
+                reg_plugin.name()
+            )));
         }
 
         // Python-Prozess starten
-        let (child, child_stdin, stdout_rx) 
-            = self.spawn_runner(reg_plugin.path(), instance_id).await?;
+        let (child, child_stdin, stdout_rx) =
+            self.spawn_runner(reg_plugin.path(), instance_id).await?;
 
         // Instanz erstellen
         let mut inst = RunningInstance {
@@ -442,8 +454,10 @@ impl PluginManager {
     pub async fn stop_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
         // Entfernt Instanz aus running
         let mut entry = self.running.remove(&instance_id).ok_or_else(|| {
-            Error::CustomError(
-                format!("{ERR_INSTANCE_NOT_RUNNING_PREFIX}{} is not running", instance_id))
+            Error::CustomError(format!(
+                "{ERR_INSTANCE_NOT_RUNNING_PREFIX}{} is not running",
+                instance_id
+            ))
         })?;
 
         // 1) Soft stop mit Bestätigung (damit es nicht "ignoriert" wird)
@@ -452,8 +466,10 @@ impl PluginManager {
 
         if soft.is_ok() {
             // wirklich okay
-            if timeout(TIMEOUT_WAIT_EXIT_AFTER_SOFT_STOP,
-                       entry.child.wait()).await.is_ok() {
+            if timeout(TIMEOUT_WAIT_EXIT_AFTER_SOFT_STOP, entry.child.wait())
+                .await
+                .is_ok()
+            {
                 return Ok(());
             }
             // sonst Warnung
@@ -551,9 +567,7 @@ impl PluginManager {
                 }
 
                 // Request muss übereinstimmen, sonst nicht gesuchte Antwort
-                if msg.request_id.as_deref()
-                    == Some(req[JSON_KEY_REQUEST_ID].as_str().unwrap())
-                {
+                if msg.request_id.as_deref() == Some(req[JSON_KEY_REQUEST_ID].as_str().unwrap()) {
                     // Erfolg -> Rückgabe
                     if msg.ok.unwrap_or(false) {
                         return Ok(msg);
@@ -564,7 +578,9 @@ impl PluginManager {
                     let trace = msg.trace.unwrap_or_default();
 
                     if trace.is_empty() {
-                        return Err(Error::CustomError(format!("Runner cmd '{cmd}' failed: {err}")));
+                        return Err(Error::CustomError(format!(
+                            "Runner cmd '{cmd}' failed: {err}"
+                        )));
                     }
 
                     return Err(Error::CustomError(format!(
@@ -580,10 +596,9 @@ impl PluginManager {
         };
 
         // hängt nicht ewig -> timeout
-        timeout(wait, fut)
-            .await
-            .map_err(|_| Error::CustomError(
-                format!("Runner cmd '{cmd}' timed out after {:?}", wait)))?
+        timeout(wait, fut).await.map_err(|_| {
+            Error::CustomError(format!("Runner cmd '{cmd}' timed out after {:?}", wait))
+        })?
     }
 
     // Ausgabe running Instanzen als Liste von (&Plugin, InstanceID)
