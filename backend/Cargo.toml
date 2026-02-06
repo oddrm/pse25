@@ -15,13 +15,15 @@ path = "src/main.rs"
 pq-sys = { version = "0.7.5", features = ["bundled"] }
 
 [dependencies]
+pyo3 = { version = "0.27", features = ["auto-initialize"] }
 notify = "8.2.0"
 rocket = { version = "0.5.1", features = ["json"] }
-tokio = "1.48.0"
+tokio = { version = "1.49.0", features = ["process", "io-util", "time", "sync", "rt", "macros"] }
 tracing = { version = "0.1.43", features = [] }
 tracing-subscriber = "0.3.22"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 diesel = { version = "2.3.5", features = ["postgres", "chrono", "serde_json"] }
 dotenvy = "0.15.7"
 tracing-appender = "0.2.4"
