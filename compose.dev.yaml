@@ -47,12 +47,15 @@ services:
       - backend-target:/app/target
       - ./logs:/logs
       - ./test_data:/data
+      - ./plugins_dir:/plugins
+
   frontend:
     build: frontend
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      - BACKEND_URL=http://backend:8080
     develop:
       watch:
         - action: rebuild

@@ -11,7 +11,9 @@ pub type TagID = i64;
 pub type TopicID = i64;
 pub type Timestamp = i64;
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq, Eq,
+)]
 #[diesel(table_name = crate::schema::files)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct File {
@@ -20,7 +22,9 @@ pub struct File {
     pub is_custom_metadata: bool,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq, Eq,
+)]
 #[diesel(table_name = crate::schema::entries)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Entry {
@@ -39,7 +43,9 @@ pub struct Entry {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq, Eq,
+)]
 #[diesel(table_name = crate::schema::sequences)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Sequence {
@@ -52,7 +58,9 @@ pub struct Sequence {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq, Eq,
+)]
 #[diesel(table_name = crate::schema::metadata)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Metadata {
@@ -62,7 +70,9 @@ pub struct Metadata {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq, Eq,
+)]
 #[diesel(table_name = crate::schema::tags)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Tag {
@@ -71,7 +81,9 @@ pub struct Tag {
     pub name: String,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq, Eq,
+)]
 #[diesel(table_name = crate::schema::topics)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Topic {
@@ -85,7 +97,7 @@ pub struct Topic {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[diesel(table_name = crate::schema::metadata_info)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[serde(crate = "rocket::serde")]
@@ -103,8 +115,9 @@ pub struct MetadataInfo {
     pub created_at: DateTime<Utc>,
 }
 
-
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq, Eq,
+)]
 #[diesel(table_name = crate::schema::metadata_labeling)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[serde(crate = "rocket::serde")]
@@ -118,7 +131,9 @@ pub struct MetadataLabeling {
     pub sensors_json: Option<serde_json::Value>,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq, Eq,
+)]
 #[diesel(table_name = crate::schema::metadata_scenario)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[serde(crate = "rocket::serde")]
@@ -130,8 +145,7 @@ pub struct MetadataScenario {
     pub name: Option<String>,
 }
 
-
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[diesel(table_name = crate::schema::metadata_dataset_sequence)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[serde(crate = "rocket::serde")]
@@ -148,8 +162,9 @@ pub struct MetadataDatasetSequence {
     pub created_at: DateTime<Utc>,
 }
 
-
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq, Eq,
+)]
 #[diesel(table_name = crate::schema::metadata_setup)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[serde(crate = "rocket::serde")]
@@ -161,8 +176,7 @@ pub struct MetadataSetup {
     pub created_at: DateTime<Utc>,
 }
 
-
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[diesel(table_name = crate::schema::metadata_sensor)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[serde(crate = "rocket::serde")]

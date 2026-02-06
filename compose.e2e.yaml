@@ -46,6 +46,7 @@ services:
     volumes:
       - ./logs:/logs
       - ./test_data:/data
+      - ./plugins_dir:/plugins
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]

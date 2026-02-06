@@ -6,6 +6,7 @@ use crate::storage::models::{Entry, EntryID, Metadata, Sequence, SequenceID};
 use crate::storage::storage_manager::{Map, TxID};
 use rocket::serde::json::Json;
 use rocket::{State, delete, get, post, put, response::status};
+use tracing::debug;
 
 fn not_found<T>(msg: String) -> Result<T, Error> {
     Err(StorageError::NotFound(msg).into())

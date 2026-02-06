@@ -6,6 +6,9 @@ pub mod storage;
 
 use storage::storage_manager::StorageManager;
 
+use crate::plugin_manager::manager::PluginManager;
+
 pub struct AppState {
     pub storage_manager: StorageManager,
+    pub plugin_manager: PluginManager,
 }

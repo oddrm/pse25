@@ -38,11 +38,11 @@ services:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
-      - RUST_BACKTRACE=1
+      # - RUST_BACKTRACE=1
     volumes:
       - ./backend:/app
       - ./backend/target:/app/target
-
+      - ./plugins_dir:/plugins
 volumes:
   cargo-cache:
   target-cache:

@@ -1,18 +1,20 @@
+use std::os::unix::fs::MetadataExt;
+use std::path::{Path, PathBuf};
 use std::{env, time::Duration};
 
 use backend::AppState;
+use backend::plugin_manager::manager::PluginManager;
+use backend::routes::database::*;
 use backend::routes::health_check::health;
-use backend::routes::queries::{
-    add_sequence, add_tag, get_entries, get_metadata, get_sequences, remove_sequence, remove_tag,
-    update_metadata, update_sequence,
-};
+use backend::routes::plugins::*;
 use backend::storage::file_watcher;
 use backend::storage::storage_manager::StorageManager;
-use tracing::Subscriber;
+use tracing::{Subscriber, instrument};
 use tracing_subscriber::fmt::writer::{BoxMakeWriter, MakeWriterExt};
 #[macro_use]
 extern crate rocket;
 
+#[instrument]
 #[rocket::main]
 async fn main() {
     let log_to_file = env::var("LOG_TO_FILE").is_ok_and(|v| v == "true");
@@ -26,12 +28,12 @@ async fn main() {
         "debug" => tracing::Level::DEBUG,
         _ => tracing::Level::INFO,
     };
-    let file_appender = tracing_appender::rolling::daily("/logs", "backend.log");
-    // non blocking so writing to file runs in a separate thread
-    // this has to be kept in the main function and not in an if clause because otherwise the guard gets dropped
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
     // this needs to be boxed because the subscribers have very specific types
     let log_subscriber: Box<dyn Subscriber + Send + Sync + 'static> = if log_to_file {
+        let file_appender = tracing_appender::rolling::daily("/logs", "backend.log");
+        // non blocking so writing to file runs in a separate thread
+        // this has to be kept in the main function and not in an if clause because otherwise the guard gets dropped
+        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
         // if logging to file, log both to file and stdout
         Box::new(
             tracing_subscriber::fmt()
@@ -60,8 +62,21 @@ async fn main() {
     #[allow(unused_mut)]
     let mut storage_manager = StorageManager::new(&db_url).unwrap();
     file_watcher::scan_once(&storage_manager).await.unwrap();
-    file_watcher::start_scanning(&storage_manager, Duration::from_secs(1)).unwrap();
+    file_watcher::start_scanning(&storage_manager, Duration::from_secs(1))
+        .await
+        .unwrap();
+    let mut plugin_manager = PluginManager::new(storage_manager.clone());
+    // check if /plugins exists and list all files
+    let plugin_dir = Path::new("/plugins");
 
+    plugin_manager
+        .register_plugins(PathBuf::from("/plugins"))
+        .unwrap();
+    plugin_manager
+        .load_config_and_apply("/plugins/config/plugins.yaml")
+        .unwrap();
+
+    // TODO check all methods used
     // web server
     rocket::build()
         .mount(
@@ -77,9 +92,13 @@ async fn main() {
                 update_sequence,
                 add_tag,
                 remove_tag,
+                list_plugins
             ],
         )
-        .manage(AppState { storage_manager })
+        .manage(AppState {
+            storage_manager,
+            plugin_manager,
+        })
         .launch()
         .await
         .unwrap();

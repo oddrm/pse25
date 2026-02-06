@@ -13,8 +13,12 @@ pub struct Plugin {
 }
 
 impl Plugin {
-    pub fn new(name: String, description: String, trigger: Trigger, path: std::path::PathBuf)
-        -> Self {
+    pub fn new(
+        name: String,
+        description: String,
+        trigger: Trigger,
+        path: std::path::PathBuf,
+    ) -> Self {
         Self {
             name,
             description,
@@ -75,4 +79,16 @@ pub enum Trigger {
     OnEntryDelete,
     OnSchedule(String),
     Manual,
+}
+
+impl Trigger {
+    pub fn to_string(&self) -> String {
+        match self {
+            Trigger::OnEntryCreate => "OnEntryCreate".to_string(),
+            Trigger::OnEntryUpdate => "OnEntryUpdate".to_string(),
+            Trigger::OnEntryDelete => "OnEntryDelete".to_string(),
+            Trigger::OnSchedule(schedule) => format!("OnSchedule({schedule})"),
+            Trigger::Manual => "Manual".to_string(),
+        }
+    }
 }
