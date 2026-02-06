@@ -335,30 +335,47 @@ impl PluginManager {
     }
 
     pub fn register_plugin(&mut self, path: PathBuf) -> Result<(), Error> {
-        let warnings = python_bridge::validate_plugin_module(path.as_path())?;
+        // Duplikate verhindern: gleicher Plugin-Pfad darf nicht zweimal registriert werden.
+        // Canonicalize macht es robuster gegen ./foo.py vs foo.py vs absolute Pfade.
+        let canonical_path = path
+            .canonicalize()
+            .unwrap_or_else(|_| path.clone());
+
+        if self
+            .registered
+            .iter()
+            .any(|p| p.path() == &canonical_path)
+        {
+            return Err(Error::CustomError(format!(
+                "Plugin at path '{:?}' is already registered",
+                canonical_path
+            )));
+        }
+
+        let warnings = python_bridge::validate_plugin_module(canonical_path.as_path())?;
         for w in &warnings {
             warn!("{w}");
         }
 
         // Dateiname ohne Endung
-        let fallback_name = path
+        let fallback_name = canonical_path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or(FALLBACK_PLUGIN_NAME)
             .to_string();
 
-        let fallback_description = format!("Plugin loaded from {:?}", path);
+        let fallback_description = format!("Plugin loaded from {:?}", canonical_path);
 
         // Auslesen aus Python-Modul
         let (py_name, py_description, py_trigger) =
-            python_bridge::read_module_constants(path.as_path()).unwrap_or((None, None, None));
+            python_bridge::read_module_constants(canonical_path.as_path()).unwrap_or((None, None, None));
 
         let name = py_name.unwrap_or(fallback_name);
         let description = py_description.unwrap_or(fallback_description);
 
         let trigger = parse_trigger(py_trigger.as_deref());
 
-        let mut plugin = Plugin::new(name, description, trigger, path);
+        let mut plugin = Plugin::new(name, description, trigger, canonical_path);
         plugin.set_valid(true);
         plugin.set_validation_warnings(warnings);
 
