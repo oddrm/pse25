@@ -34,13 +34,13 @@ const JSON_KEY_INSTANCE_ID: &str = "instance_id";
 const JSON_KEY_REQUEST_ID: &str = "request_id";
 const JSON_KEY_CMD: &str = "cmd";
 
-    const PYTHON_UNBUFFERED_FLAG: &str = "-u";
+const PYTHON_UNBUFFERED_FLAG: &str = "-u";
 
-    #[cfg(windows)]
-    const PYTHON_EXECUTABLE: &str = "python";
+#[cfg(windows)]
+const PYTHON_EXECUTABLE: &str = "python";
 
-    #[cfg(not(windows))]
-    const PYTHON_EXECUTABLE: &str = "python3";
+#[cfg(not(windows))]
+const PYTHON_EXECUTABLE: &str = "python3";
 
 // Achtung: Pfad muss zu deiner echten Datei passen.
 const RUNNER_PATH: &str = "src/plugin_manager/plugins/plugin_runner.py";
@@ -206,7 +206,6 @@ impl PluginManager {
         })
     }
 
-    // TODO eventuell if-Anweisung überarbeiten
     pub fn load_config_and_apply(&mut self, config_path: &str) -> Result<(), Error> {
         // YAML-Datei lesen
         let content = fs::read_to_string(config_path).map_err(|e| {
