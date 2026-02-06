@@ -16,7 +16,7 @@ use crate::plugin_manager::manager::InstanceState::Running;
 use crate::plugin_manager::plugin::Trigger;
 use crate::plugin_manager::python_bridge;
 use crate::{
-    error::Error, plugin_manager::plugin::Plugin, storage::storage_manager::StorageManager,
+    error::Error, plugin_manager::plugin::Plugin,
 };
 
 // -------------------- constants --------------------
@@ -173,47 +173,17 @@ struct RunningInstance {
 
 #[derive(Debug)]
 pub struct PluginManager {
-    storage_manager: StorageManager,
     registered: Vec<Plugin>,
     running: HashMap<InstanceID, RunningInstance>,
 }
 
 impl PluginManager {
-    // async Wrapper der Befehle an Python Prozess
-    async fn cmd_start(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
-        Self::send_cmd_ack(inst, id, CMD_START, TIMEOUT_START_ACK).await
-    }
-
-    async fn cmd_stop(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
-        Self::send_cmd_ack(inst, id, CMD_STOP, TIMEOUT_SOFT_STOP_ACK).await
-    }
-    async fn cmd_pause(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
-        Self::send_cmd_ack(inst, id, CMD_PAUSE, TIMEOUT_PAUSE_ACK).await
-    }
-    async fn cmd_resume(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
-        Self::send_cmd_ack(inst, id, CMD_RESUME, TIMEOUT_RESUME_ACK).await
-    }
-
     // alles notwendige neu erzeugt
-    pub fn new(storage_manager: StorageManager) -> Self {
+    pub fn new() -> Self {
         Self {
-            storage_manager,
             registered: Vec::new(),
             running: HashMap::new(),
         }
-    }
-
-    // returned laufende Instanz oder Error
-    fn get_running_instance_mut(
-        &mut self,
-        instance_id: InstanceID,
-    ) -> Result<&mut RunningInstance, Error> {
-        self.running.get_mut(&instance_id).ok_or_else(|| {
-            Error::CustomError(format!(
-                "{ERR_INSTANCE_NOT_RUNNING_PREFIX}{} is not running",
-                instance_id
-            ))
-        })
     }
 
     pub fn load_config_and_apply(&mut self, config_path: &str) -> Result<(), Error> {
@@ -245,6 +215,33 @@ impl PluginManager {
         }
 
         Ok(())
+    }
+
+    // async Wrapper der Befehle an Python Prozess
+    async fn cmd_start(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
+        Self::send_cmd_ack(inst, id, CMD_START, TIMEOUT_START_ACK).await
+    }
+    async fn cmd_stop(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
+        Self::send_cmd_ack(inst, id, CMD_STOP, TIMEOUT_SOFT_STOP_ACK).await
+    }
+    async fn cmd_pause(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
+        Self::send_cmd_ack(inst, id, CMD_PAUSE, TIMEOUT_PAUSE_ACK).await
+    }
+    async fn cmd_resume(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
+        Self::send_cmd_ack(inst, id, CMD_RESUME, TIMEOUT_RESUME_ACK).await
+    }
+
+    // returned laufende Instanz oder Error
+    fn get_running_instance_mut(
+        &mut self,
+        instance_id: InstanceID,
+    ) -> Result<&mut RunningInstance, Error> {
+        self.running.get_mut(&instance_id).ok_or_else(|| {
+            Error::CustomError(format!(
+                "{ERR_INSTANCE_NOT_RUNNING_PREFIX}{} is not running",
+                instance_id
+            ))
+        })
     }
 
     // Start Python Runner
@@ -313,6 +310,91 @@ impl PluginManager {
         });
 
         Ok((child, child_stdin, rx))
+    }
+
+    // Herz der Kommunikation
+    async fn send_cmd_ack(
+        inst: &mut RunningInstance,
+        instance_id: InstanceID,
+        cmd: &str,
+        wait: Duration,
+    ) -> Result<RunnerMsg, Error> {
+        // RequestID bauen
+        let request_id = format!("{}-{}", instance_id, inst.next_request_seq);
+        inst.next_request_seq += 1;
+
+        // json request bauen
+        let mut req = serde_json::Map::new();
+        req.insert(
+            JSON_KEY_INSTANCE_ID.to_string(),
+            serde_json::Value::from(instance_id),
+        );
+        req.insert(
+            JSON_KEY_REQUEST_ID.to_string(),
+            serde_json::Value::from(request_id.clone()), // clone weil String
+        );
+        req.insert(JSON_KEY_CMD.to_string(), serde_json::Value::from(cmd));
+
+        let req = serde_json::Value::Object(req);
+
+        // Weiterleiten an Python-Prozess
+        let line = req.to_string() + "\n";
+        inst.child_stdin
+            .write_all(line.as_bytes())
+            .await
+            .map_err(|e| Error::CustomError(format!("{ERR_FAILED_SEND_CMD_PREFIX}{e}")))?;
+        inst.child_stdin
+            .flush() // sonst bleibt es in Buffer
+            .await
+            .map_err(|e| Error::CustomError(format!("{ERR_FAILED_FLUSH_CMD_PREFIX}{e}")))?;
+
+        let fut = async {
+            loop {
+                // asynchrones Warten auf Nachricht von Python
+                let msg = inst
+                    .stdout_rx
+                    .recv()
+                    .await
+                    .ok_or_else(|| Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))?;
+
+                // Instanz nicht betroffen
+                if msg.instance_id != instance_id {
+                    continue;
+                }
+
+                // Request muss übereinstimmen, sonst nicht gesuchte Antwort
+                if msg.request_id.as_deref() == Some(req[JSON_KEY_REQUEST_ID].as_str().unwrap()) {
+                    // Erfolg -> Rückgabe
+                    if msg.ok.unwrap_or(false) {
+                        return Ok(msg);
+                    }
+
+                    // Baue Fehlermeldung
+                    let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+                    let trace = msg.trace.unwrap_or_default();
+
+                    if trace.is_empty() {
+                        return Err(Error::CustomError(format!(
+                            "Runner cmd '{cmd}' failed: {err}"
+                        )));
+                    }
+
+                    return Err(Error::CustomError(format!(
+                        "Runner cmd '{cmd}' failed: {err}\nPython traceback:\n{trace}"
+                    )));
+                }
+
+                // falls Events -> loggen und weiter warten
+                if let Some(ev) = &msg.event {
+                    debug!(LOG_RUNNER_EVENT, instance_id, ev);
+                }
+            }
+        };
+
+        // hängt nicht ewig -> timeout
+        timeout(wait, fut).await.map_err(|_| {
+            Error::CustomError(format!("Runner cmd '{cmd}' timed out after {:?}", wait))
+        })?
     }
 
     pub fn register_plugins(&mut self, directory: PathBuf) -> Result<(), Error> {
@@ -389,7 +471,6 @@ impl PluginManager {
     pub async fn start_plugin_instance(
         &mut self,
         plugin_name: &str,
-        _parameters: Vec<(String, String)>,
         _temp_directory: PathBuf,
         instance_id: InstanceID,
     ) -> Result<(), Error> {
@@ -514,91 +595,6 @@ impl PluginManager {
         let _ = Self::send_cmd_ack(entry, instance_id, CMD_RESUME, TIMEOUT_RESUME_ACK).await?;
         entry.state = Running;
         Ok(())
-    }
-
-    // Herz der Kommunikation
-    async fn send_cmd_ack(
-        inst: &mut RunningInstance,
-        instance_id: InstanceID,
-        cmd: &str,
-        wait: Duration,
-    ) -> Result<RunnerMsg, Error> {
-        // RequestID bauen
-        let request_id = format!("{}-{}", instance_id, inst.next_request_seq);
-        inst.next_request_seq += 1;
-
-        // json request bauen
-        let mut req = serde_json::Map::new();
-        req.insert(
-            JSON_KEY_INSTANCE_ID.to_string(),
-            serde_json::Value::from(instance_id),
-        );
-        req.insert(
-            JSON_KEY_REQUEST_ID.to_string(),
-            serde_json::Value::from(request_id.clone()), // clone weil String
-        );
-        req.insert(JSON_KEY_CMD.to_string(), serde_json::Value::from(cmd));
-
-        let req = serde_json::Value::Object(req);
-
-        // Weiterleiten an Python-Prozess
-        let line = req.to_string() + "\n";
-        inst.child_stdin
-            .write_all(line.as_bytes())
-            .await
-            .map_err(|e| Error::CustomError(format!("{ERR_FAILED_SEND_CMD_PREFIX}{e}")))?;
-        inst.child_stdin
-            .flush() // sonst bleibt es in Buffer
-            .await
-            .map_err(|e| Error::CustomError(format!("{ERR_FAILED_FLUSH_CMD_PREFIX}{e}")))?;
-
-        let fut = async {
-            loop {
-                // asynchrones Warten auf Nachricht von Python
-                let msg = inst
-                    .stdout_rx
-                    .recv()
-                    .await
-                    .ok_or_else(|| Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))?;
-
-                // Instanz nicht betroffen
-                if msg.instance_id != instance_id {
-                    continue;
-                }
-
-                // Request muss übereinstimmen, sonst nicht gesuchte Antwort
-                if msg.request_id.as_deref() == Some(req[JSON_KEY_REQUEST_ID].as_str().unwrap()) {
-                    // Erfolg -> Rückgabe
-                    if msg.ok.unwrap_or(false) {
-                        return Ok(msg);
-                    }
-
-                    // Baue Fehlermeldung
-                    let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
-                    let trace = msg.trace.unwrap_or_default();
-
-                    if trace.is_empty() {
-                        return Err(Error::CustomError(format!(
-                            "Runner cmd '{cmd}' failed: {err}"
-                        )));
-                    }
-
-                    return Err(Error::CustomError(format!(
-                        "Runner cmd '{cmd}' failed: {err}\nPython traceback:\n{trace}"
-                    )));
-                }
-
-                // falls Events -> loggen und weiter warten
-                if let Some(ev) = &msg.event {
-                    debug!(LOG_RUNNER_EVENT, instance_id, ev);
-                }
-            }
-        };
-
-        // hängt nicht ewig -> timeout
-        timeout(wait, fut).await.map_err(|_| {
-            Error::CustomError(format!("Runner cmd '{cmd}' timed out after {:?}", wait))
-        })?
     }
 
     // Ausgabe running Instanzen als Liste von (&Plugin, InstanceID)

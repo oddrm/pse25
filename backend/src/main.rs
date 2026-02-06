@@ -1,4 +1,4 @@
-use std::os::unix::fs::MetadataExt;
+// use std::os::unix::fs::MetadataExt; -> unnötig und Windows Problem
 use std::path::{Path, PathBuf};
 use std::{env, time::Duration};
 
@@ -30,9 +30,11 @@ async fn main() {
     };
     // this needs to be boxed because the subscribers have very specific types
     let log_subscriber: Box<dyn Subscriber + Send + Sync + 'static> = if log_to_file {
-        let file_appender = tracing_appender::rolling::daily("/logs", "backend.log");
+        let file_appender = tracing_appender::rolling::daily("/logs", 
+                                                             "backend.log");
         // non blocking so writing to file runs in a separate thread
-        // this has to be kept in the main function and not in an if clause because otherwise the guard gets dropped
+        // this has to be kept in the main function and not in an if clause because otherwise the 
+        // guard gets dropped
         let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
         // if logging to file, log both to file and stdout
         Box::new(
@@ -65,7 +67,8 @@ async fn main() {
     file_watcher::start_scanning(&storage_manager, Duration::from_secs(1))
         .await
         .unwrap();
-    let mut plugin_manager = PluginManager::new(storage_manager.clone());
+    let mut plugin_manager = PluginManager::new();
+
     // check if /plugins exists and list all files
     let plugin_dir = Path::new("/plugins");
 
@@ -92,12 +95,21 @@ async fn main() {
                 update_sequence,
                 add_tag,
                 remove_tag,
-                list_plugins
+                register_plugins,
+                register_plugin,
+                start_plugin_instance,
+                stop_plugin_instance,
+                pause_plugin_instance,
+                resume_plugin_instance,
+                get_running_instances,
+                get_registered_plugins,
+                enable_plugin,
+                disable_plugin,
             ],
         )
         .manage(AppState {
             storage_manager,
-            plugin_manager,
+            plugin_manager: tokio::sync::Mutex::new(plugin_manager),
         })
         .launch()
         .await
