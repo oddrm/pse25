@@ -1,3 +1,5 @@
+use cron::Schedule;
+
 #[derive(Debug, Clone)]
 pub struct Plugin {
     name: String,
@@ -77,7 +79,7 @@ pub enum Trigger {
     OnEntryCreate,
     OnEntryUpdate,
     OnEntryDelete,
-    OnSchedule(String),
+    OnSchedule(Schedule),
     Manual,
 }
 

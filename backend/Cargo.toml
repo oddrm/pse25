@@ -37,10 +37,11 @@ deadpool = "0.12.3"
 tokio-stream = "0.1.18"
 chrono = { version = "0.4.43", features = ["serde"] }
 walkdir = "2.5.0"
+cron = "0.15.0"
+log = "0.4.29"
 
 [dev-dependencies]
 # Testing dependencies
-tokio-test = "0.4"
 
 [features]
 debug = []
