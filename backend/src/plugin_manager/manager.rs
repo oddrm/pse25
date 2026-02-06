@@ -312,6 +312,22 @@ impl PluginManager {
             .map_err(|e| Error::CustomError(e.to_string()))? {
             let entry = entry.map_err(|e| Error::CustomError(e.to_string()))?;
             let path = entry.path();
+
+            // Nur Dateien registrieren (keine Ordner)
+            if !path.is_file() {
+                continue;
+            }
+
+            // Nur *.py registrieren (sonst ist ein Plugin-Ordner extrem fragil)
+            let is_py = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("py"));
+
+            if !is_py {
+                continue;
+            }
+
             // jeweils registrieren
             self.register_plugin(path)?;
         }
