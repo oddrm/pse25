@@ -53,6 +53,7 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      - BACKEND_URL=http://backend:8080
     develop:
       watch:
         - action: rebuild

@@ -1,10 +1,13 @@
+use backend::error::StorageError;
+use backend::storage::storage_manager::StorageManager;
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::fs;
+use tracing::{debug, instrument};
 
 static INIT: Once = Once::new();
 
@@ -54,4 +57,18 @@ pub fn create_yaml_config(contents: &str) -> PathBuf {
     let path = unique_temp_file_path("plugins.yaml");
     fs::write(&path, contents).expect("failed to write temp yaml config");
     path
+}
+
+#[instrument]
+pub async fn remove_all_data(storage_manager: &StorageManager) -> Result<(), StorageError> {
+    let conn = storage_manager.db_connection_pool().get().await?;
+    conn.interact(|conn| {
+        diesel::sql_query(
+            "TRUNCATE TABLE tags, sequences, metadata, topics, entries, files CASCADE",
+        )
+        .execute(conn)
+    })
+    .await??;
+    debug!("Removed all data from database");
+    Ok(())
 }

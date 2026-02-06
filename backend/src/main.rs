@@ -26,12 +26,12 @@ async fn main() {
         "debug" => tracing::Level::DEBUG,
         _ => tracing::Level::INFO,
     };
-    let file_appender = tracing_appender::rolling::daily("/logs", "backend.log");
-    // non blocking so writing to file runs in a separate thread
-    // this has to be kept in the main function and not in an if clause because otherwise the guard gets dropped
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
     // this needs to be boxed because the subscribers have very specific types
     let log_subscriber: Box<dyn Subscriber + Send + Sync + 'static> = if log_to_file {
+        let file_appender = tracing_appender::rolling::daily("/logs", "backend.log");
+        // non blocking so writing to file runs in a separate thread
+        // this has to be kept in the main function and not in an if clause because otherwise the guard gets dropped
+        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
         // if logging to file, log both to file and stdout
         Box::new(
             tracing_subscriber::fmt()
