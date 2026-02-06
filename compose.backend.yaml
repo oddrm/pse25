@@ -42,7 +42,7 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/target:/app/target
-
+      - ./plugins_dir:/plugins
 volumes:
   cargo-cache:
   target-cache:

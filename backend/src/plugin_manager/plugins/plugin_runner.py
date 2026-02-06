@@ -12,7 +12,7 @@ from typing import Any, Final, Literal, NotRequired, TypedDict
 MAIN__ = "__main__"
 
 EVENT: Final[Literal["event"]] = "event"
-PLUGIN_IMPL: Final[Literal["pluginImpl"]] = "pluginImpl"
+PLUGIN_IMPL: Final[Literal["PluginImpl"]] = "PluginImpl"
 
 DATA: Final[Literal["--data"]] = "--data"
 ID: Final[Literal["--instance-id"]] = "--instance-id"

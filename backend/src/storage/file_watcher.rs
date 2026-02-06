@@ -97,7 +97,10 @@ async fn process_events(storage_manager: StorageManager, fs_event_rx: Receiver<n
 // about the eventKind and the full-debouncer compacts events on whole directories as one event,
 // which is not desired as each file change has to be processed individually.
 #[instrument]
-pub fn start_scanning(storage_manager: &StorageManager, interval: Duration) -> Result<(), Error> {
+pub async fn start_scanning(
+    storage_manager: &StorageManager,
+    interval: Duration,
+) -> Result<(), Error> {
     debug!("starting filesystem scan method");
     let (fs_event_tx, fs_event_rx) = mpsc::channel(200);
 
@@ -131,6 +134,7 @@ pub fn start_scanning(storage_manager: &StorageManager, interval: Duration) -> R
         debug!("Filesystem scan started.");
         process_events(storage_manager_clone, fs_event_rx).await;
     });
+    debug!("Finished starting filesystem scan method.");
     Ok(())
 }
 

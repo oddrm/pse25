@@ -44,6 +44,7 @@ services:
     volumes:
       - ./logs:/logs
       - ./test_data:/data
+      - ./plugins_dir:/plugins
     restart: always
   frontend:
     build: frontend
