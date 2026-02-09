@@ -38,12 +38,18 @@ services:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
-      - LOG_LEVEL=error
+      - LOG_LEVEL=debug
+      - CARGO_TARGET_DIR=/app/target
+      - TEST_ARGS
       # - RUST_BACKTRACE=1
     volumes:
-      - ./backend:/app
-      - ./backend/target:/app/target
+      - ./backend:/app:cached
+      - backend-target:/app/target
+      - cargo-cache:/usr/local/cargo
       - ./plugins_dir:/plugins
+      - ./test_data:/data
+    command: ["sh", "-c", "cargo test ${TEST_ARGS:---no-fail-fast -- --nocapture}"]
 volumes:
   cargo-cache:
   target-cache:
+  backend-target:

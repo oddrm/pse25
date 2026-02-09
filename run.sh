@@ -34,12 +34,21 @@ shift || true
 case "$CMD" in
   backend)
     echo "Running backend tests..."
-    # Build locally
-    cd backend && RUSTFLAGS="-A warnings" cargo test --no-run && cd ..
-
     docker compose -f compose.backend.yaml down --remove-orphans
-    # Run in container
-    docker compose -f compose.backend.yaml up --no-attach db --build --remove-orphans
+
+    # Default test args; if additional args were passed to ./run.sh backend, forward them
+    if [ "$#" -gt 0 ]; then
+      TEST_ARGS="$*"
+    else
+      TEST_ARGS=""
+    fi
+
+    # Start the full compose stack including backend. The backend service's command
+    # will run `cargo test` and read TEST_ARGS (default provided in compose file).
+    TEST_ARGS="$TEST_ARGS" docker compose -f compose.backend.yaml up --build --exit-code-from backend --abort-on-container-exit backend
+    EXIT_CODE=$?
+    docker compose -f compose.backend.yaml down
+    exit $EXIT_CODE
     ;;
   frontend)
     echo "Running frontend unit & component tests..."
