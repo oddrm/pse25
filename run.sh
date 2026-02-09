@@ -7,7 +7,7 @@ Usage: $0 <dev|backend|frontend|e2e|prod> [--] [args...]
 
 Commands:
   dev          Start the full stack in development watch mode
-  backend      Run backend tests
+  backend      Run backend tests. Arguments are passed to cargo test, e.g. ./run.sh backend -- --test test_mcap_reading
   frontend     Run frontend unit & component tests
   e2e          Run end-to-end tests against full stack
   prod         Run the production compose stack
