@@ -38,6 +38,7 @@ services:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+      - LOG_LEVEL=error
       # - RUST_BACKTRACE=1
     volumes:
       - ./backend:/app
