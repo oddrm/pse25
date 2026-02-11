@@ -1,6 +1,5 @@
 <template>
   <div class="p-4 rounded bg-gray-50 mr-3">
-
     <table class="table table-sm">
       <thead>
         <tr>
@@ -13,7 +12,7 @@
       </thead>
 
       <tbody>
-        <tr v-for="seq in sequences" :key="seqKey(seq)">
+        <tr v-for="seq in sequences" :key="seq.id">
           <td>{{ seq.name }}</td>
           <td>{{ formatDate(seq.startTime) }}</td>
           <td>{{ formatDate(seq.endTime) }}</td>
@@ -23,130 +22,94 @@
             <button
               class="text-blue-500 hover:text-blue-700"
               type="button"
-              @click="deleteSequence(seq)"
+              @click="deleteSequence(seq.id)"
               title="Delete"
             >
               <Icon name="solar:trash-bin-minimalistic-linear" size="18" />
             </button>
-         </td>
-       </tr>
+          </td>
+        </tr>
       </tbody>
-
     </table>
 
     <!-- Button -->
     <div class="mt-2">
-      <button class="btn btn-xs btn-primary" @click="openModal">
-      +
-      </button>
+      <button class="btn btn-xs btn-primary" @click="openModal">+</button>
     </div>
-
   </div>
 
   <dialog ref="modalRef" class="modal">
-  <div class="modal-box">
-    <h3 class="font-bold text-lg mb-3">New Sequence</h3>
+    <div class="modal-box">
+      <h3 class="font-bold text-lg mb-3">New Sequence</h3>
 
-    <input
-      class="input input-sm input-bordered w-full mb-2"
-      placeholder="Name"
-      v-model="form.name"
-    />
+      <input
+        class="input input-sm input-bordered w-full mb-2"
+        placeholder="Name"
+        v-model="form.name"
+      />
 
-    <input
-      type="datetime-local"
-      class="input input-sm input-bordered w-full mb-2"
-      v-model="form.startTime"
-    />
+      <input
+        type="datetime-local"
+        class="input input-sm input-bordered w-full mb-2"
+        v-model="form.startTime"
+      />
 
-    <input
-      type="datetime-local"
-      class="input input-sm input-bordered w-full mb-2"
-      v-model="form.endTime"
-    />
+      <input
+        type="datetime-local"
+        class="input input-sm input-bordered w-full mb-2"
+        v-model="form.endTime"
+      />
 
-    <textarea
-      class="textarea textarea-bordered w-full mb-3"
-      placeholder="Description"
-      v-model="form.description"
-    ></textarea>
+      <textarea
+        class="textarea textarea-bordered w-full mb-3"
+        placeholder="Description"
+        v-model="form.description"
+      ></textarea>
 
-    <div class="modal-action">
-      <button class="btn btn-sm" @click="closeModal">Cancel</button>
-      <button class="btn btn-sm btn-primary" @click="addSequence">
-        OK
-      </button>
+      <div class="modal-action">
+        <button class="btn btn-sm" @click="closeModal">Cancel</button>
+        <button class="btn btn-sm btn-primary" @click="addSequence">OK</button>
+      </div>
+
     </div>
-  </div>
-</dialog>
-
+  </dialog>
 </template>
 
 <script setup lang="ts">
-import type { Sequence } from "~/utils/sequence";
+import { ref, computed, onMounted } from "vue"
+import { useSequencesStore } from "../../stores/sequenceStore"
 
-  const props = defineProps<{
-    entryID: number
-  }>()
+const props = defineProps<{ entryID: number }>()
 
+const store = useSequencesStore()
 
-const allSequences = ref<Sequence[]>([
-  {
-    name: "Sequence 1",
-    startTime: new Date("2026-01-01 10:00"),
-    endTime: new Date("2026-01-01 10:30"),
-    description: "First hihihaha test",
-    entryID: 1
-  },
-  {
-    name: "Sequence 1",
-    startTime: new Date("2020-01-01 10:00"),
-    endTime: new Date("2020-01-01 10:30"),
-    description: "Second hihihaha test",
-    entryID: 2
-  }
-])
-
-const sequences = computed(() =>
-  allSequences.value.filter(seq => seq.entryID === props.entryID)
-)
-watchEffect(() => {
-  console.log('Entry ID:', props.entryID)
+onMounted(() => {
+  store.init()
 })
 
-const formatDate = (date: Date) => {
-  return new Date(date).toLocaleString("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "medium"
+const sequences = computed(() => store.byEntry(props.entryID))
+
+const formatDate = (date: Date | null) => {
+  if (!date) return ""
+
+  return date.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   })
-}
-
-
-import { ref } from 'vue'
-function seqKey(seq: Sequence) {
-  return `${seq.entryID}-${seq.name}-${seq.startTime.getTime()}-${seq.endTime.getTime()}`
-}
-
-function deleteSequence(seqToDelete: Sequence) {
-  allSequences.value = allSequences.value.filter(seq =>
-    !(
-      seq.entryID === seqToDelete.entryID &&
-      seq.name === seqToDelete.name &&
-      seq.startTime.getTime() === seqToDelete.startTime.getTime() &&
-      seq.endTime.getTime() === seqToDelete.endTime.getTime() &&
-      seq.description === seqToDelete.description
-    )
-  )
 }
 
 
 const modalRef = ref<HTMLDialogElement | null>(null)
 
 const initialForm = {
-  name: '',
-  startTime: '',
-  endTime: '',
-  description: ''
+  name: "",
+  startTime: "", // datetime-local -
+  endTime: "",
+  description: "",
 }
 
 const form = ref({ ...initialForm })
@@ -161,14 +124,29 @@ function closeModal() {
 }
 
 function addSequence() {
-  allSequences.value.push({
-    name: form.value.name,
-    startTime: new Date(form.value.startTime),
-    endTime: new Date(form.value.endTime),
-    description: form.value.description,
-    entryID: props.entryID   
+  const now = new Date()
+  const name = form.value.name?.trim() || "Untitled"
+
+  const start = form.value.startTime
+    ? new Date(form.value.startTime)
+    : now
+
+  const end = form.value.endTime
+    ? new Date(form.value.endTime)
+    : null
+
+  store.add({
+    name,
+    startTime: start,
+    endTime: end,
+    description: form.value.description || "",
+    entryID: props.entryID,
   })
+
   closeModal()
 }
 
+function deleteSequence(id: number) {
+  store.remove(id)
+}
 </script>
