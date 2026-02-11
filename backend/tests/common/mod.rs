@@ -47,7 +47,7 @@ pub fn cleanup_test_data(conn: &mut PgConnection) {
     use diesel::sql_query;
 
     // Clean up in reverse order of foreign key dependencies
-    sql_query("TRUNCATE TABLE tags, sequences, metadata, topics, entries, files CASCADE")
+    sql_query("TRUNCATE TABLE sequences, sensors, entries, files CASCADE")
         .execute(conn)
         .expect("Failed to clean up test data");
 }
@@ -74,7 +74,7 @@ pub async fn remove_all_data(storage_manager: &StorageManager) -> Result<(), Sto
     let conn = storage_manager.db_connection_pool().get().await?;
     conn.interact(|conn| {
         diesel::sql_query(
-            "TRUNCATE TABLE tags, sequences, metadata, topics, entries, files CASCADE",
+            "TRUNCATE TABLE sequences, sensors, entries, files CASCADE",
         )
         .execute(conn)
     })

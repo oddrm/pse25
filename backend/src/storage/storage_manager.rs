@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::schema::files;
-use crate::schema::metadata::dsl::{entry_id as metadata_entry_id, metadata};
+// use crate::schema::metadata::dsl::{entry_id as metadata_entry_id, metadata};
 use crate::storage::models::*;
 use crate::{
     error::{Error, StorageError},
@@ -75,49 +75,53 @@ impl StorageManager {
         &self,
         id: EntryID,
         txid: TxID,
-    ) -> Result<Option<Metadata>, StorageError> {
-        let conn = self.db_connection_pool().get().await?;
-        let result = conn
-            .interact(move |conn| {
-                metadata
-                    .filter(metadata_entry_id.eq(id))
-                    .first::<Metadata>(conn)
-                    .optional()
-            })
-            .await??;
-        debug!("Queried metadata for entry_id {}: {:?}", id, result);
-        Ok(result)
+    ) -> Result<Option<Entry>, StorageError> {
+        // storage manager works with Entry; return the Entry directly
+        let entry = self.get_entry(id, txid).await?;
+        Ok(entry)
     }
+
     #[instrument]
-    pub async fn update_metadata(
+    pub async fn update_entry(
         &self,
         entry_id: EntryID,
-        metadata_obj: &Metadata,
+        entry_obj: &Entry,
         txid: TxID,
-    ) -> Result<EntryID, StorageError> {
-        todo!()
+    ) -> Result<(), StorageError> {
+        let conn = self.db_connection_pool().get().await?;
+        let cloned = entry_obj.clone();
+        conn.interact(move |conn| {
+            diesel::update(
+                schema::entries::dsl::entries.filter(schema::entries::dsl::id.eq(entry_id)),
+            )
+            .set(&cloned)
+            .execute(conn)
+        })
+        .await??;
+        debug!("Updated entry {}", entry_id);
+        Ok(())
     }
 
     #[instrument]
     pub async fn get_entries(
         &self,
-        search_string: Option<String>,
-        sort_by: Option<String>,
-        ascending: Option<bool>,
-        page: Option<u32>,
-        page_size: Option<u32>,
+        _search_string: Option<String>,
+        _sort_by: Option<String>,
+        _ascending: Option<bool>,
+        _page: Option<u32>,
+        _page_size: Option<u32>,
         txid: TxID,
-    ) -> Result<Vec<(EntryID, Metadata)>, StorageError> {
-        debug!("get_entries");
-        return Ok(vec![(
-            1,
-            Metadata {
-                entry_id: 1,
-                created_at: chrono::Utc::now(),
-                updated_at: chrono::Utc::now(),
-                metadata_json: None,
-            },
-        )]);
+    ) -> Result<Vec<Entry>, StorageError> {
+        let conn = self.db_connection_pool().get().await?;
+        let entries = conn
+            .interact(move |conn| {
+                schema::entries::dsl::entries
+                    .select(Entry::as_select())
+                    .load::<Entry>(conn)
+            })
+            .await??;
+        debug!("Queried entries: {}", entries.len());
+        Ok(entries)
     }
 
     #[instrument]
@@ -264,15 +268,13 @@ impl StorageManager {
         txid: TxID,
     ) -> Result<(), StorageError> {
         let conn = self.db_connection_pool().get().await?;
+        let t = tag.clone();
         conn.interact(move |conn| {
-            diesel::insert_into(schema::tags::dsl::tags)
-                .values((
-                    schema::tags::dsl::entry_id.eq(entry_id),
-                    schema::tags::dsl::name.eq(tag),
-                ))
+            diesel::sql_query("UPDATE entries SET tags = array_append(tags, $1) WHERE id = $2 AND NOT ($1 = ANY(tags))")
+                .bind::<diesel::sql_types::Text,_>(t)
+                .bind::<diesel::sql_types::BigInt,_>(entry_id)
                 .execute(conn)
-        })
-        .await??;
+        }).await??;
         debug!("Added tag for entry_id {}", entry_id);
         Ok(())
     }
@@ -285,13 +287,12 @@ impl StorageManager {
         txid: TxID,
     ) -> Result<(), StorageError> {
         let conn = self.db_connection_pool().get().await?;
+        let t = tag.clone();
         conn.interact(move |conn| {
-            diesel::delete(
-                schema::tags::dsl::tags
-                    .filter(schema::tags::dsl::entry_id.eq(entry_id))
-                    .filter(schema::tags::dsl::name.eq(tag)),
-            )
-            .execute(conn)
+            diesel::sql_query("UPDATE entries SET tags = array_remove(tags, $1) WHERE id = $2")
+                .bind::<diesel::sql_types::Text, _>(t)
+                .bind::<diesel::sql_types::BigInt, _>(entry_id)
+                .execute(conn)
         })
         .await??;
         debug!("Removed tag");
