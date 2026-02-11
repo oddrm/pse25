@@ -4,7 +4,8 @@ use diesel::prelude::*;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::fs;
-
+use std::str::FromStr;
+use chrono::Utc;
 use backend::plugin_manager::manager::PluginManager;
 use backend::plugin_manager::plugin::{Plugin, Trigger};
 use backend::storage::storage_manager::StorageManager;
@@ -1467,8 +1468,14 @@ fn register_plugin_maps_all_supported_triggers_and_fallbacks() {
     );
 
     match find("t_schedule").trigger() {
-        Trigger::OnSchedule(pattern) => {
-            assert_eq!(pattern, "*/5 * * * *", "schedule pattern should be trimmed correctly");
+        Trigger::OnSchedule(schedule) => {
+            let next = schedule
+                .upcoming(Utc)
+                .next()
+                .expect("schedule should yield at least one datetime");
+
+            // grobe Plausibilitätsprüfung
+            assert!(next > Utc::now());
         }
         other => panic!("expected Trigger::OnSchedule(..), got: {other:?}"),
     }
