@@ -14,4 +14,9 @@ export default defineNuxtConfig({
     ]
   },
   css: ["~/assets/css/main.css"],
+  routeRules: {
+    "/backend/**": {
+      proxy: "http://backend:8080/**"
+    }
+  }
 })

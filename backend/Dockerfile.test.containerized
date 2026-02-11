@@ -1,0 +1,28 @@
+FROM docker.io/rust:1-slim-bookworm
+
+WORKDIR /app
+
+# Install build and runtime dependencies
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    gcc \
+    python3 \
+    libpython3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set environment variables for testing
+ENV RUST_BACKTRACE=1
+ENV DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+ENV RUSTFLAGS="-A warnings"
+
+# Copy dependency manifests first for caching
+COPY Cargo.toml Cargo.lock ./
+
+# Provide a tiny main to allow cargo to fetch dependencies without full source
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN cargo fetch
+
+# Now copy full source and run tests inside the container
+COPY . .
+
+CMD ["cargo", "test", "--no-fail-fast", "--", "--nocapture"]
