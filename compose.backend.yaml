@@ -38,7 +38,7 @@ services:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
-      - LOG_LEVEL=debug
+      - LOG_LEVEL=error
       - CARGO_TARGET_DIR=/app/target
       - TEST_ARGS
       # - RUST_BACKTRACE=1
