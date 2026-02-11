@@ -1,7 +1,7 @@
 use crate::AppState;
 use crate::error::{Error, StorageError};
 use crate::plugin_manager::plugin::Plugin;
-use crate::storage::models::{Entry, EntryID, Metadata, Sequence, SequenceID};
+use crate::storage::models::{Entry, EntryID, Sequence, SequenceID};
 use crate::storage::storage_manager::{Map, TxID};
 use rocket::serde::json::Json;
 use rocket::{State, delete, get, post, put, response::status};

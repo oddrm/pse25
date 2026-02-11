@@ -11,11 +11,7 @@ use tokio::task::spawn_blocking;
 use tracing::debug;
 use tracing::instrument;
 
-const CUSTOM_METADATA_IDENTIFIER: &str = r"definitions:
-  info:
-    data_spec_version: '0.2'
-    dataset_license: MIT license
-    meta_data_spec_version: '0.2'";
+const CUSTOM_METADATA_IDENTIFIER: &str = r"title: ";
 
 #[instrument]
 pub async fn file_is_mcap(path: &Path) -> bool {
