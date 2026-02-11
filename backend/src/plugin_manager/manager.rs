@@ -4,7 +4,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Stdio;
-
+use std::str::FromStr;
+use cron::Schedule;
 use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
@@ -86,20 +87,34 @@ const TIMEOUT_WAIT_EXIT_AFTER_KILL: Duration = Duration::from_secs(2);
 type InstanceID = u64;
 
 // ---------- helpers (module-internal) ----------
-fn parse_trigger(py_trigger: Option<&str>) -> Trigger {
+fn parse_trigger(py_trigger: Option<&str>) -> Result<Trigger, String> {
     match py_trigger {
         // Trigger extrahieren
-        Some(TRIGGER_MANUAL) | None => Trigger::Manual,
-        Some(TRIGGER_ON_ENTRY_CREATE) => Trigger::OnEntryCreate,
-        Some(TRIGGER_ON_ENTRY_UPDATE) => Trigger::OnEntryUpdate,
-        Some(TRIGGER_ON_ENTRY_DELETE) => Trigger::OnEntryDelete,
-        Some(other) if other.starts_with(TRIGGER_ON_SCHEDULE_PREFIX) => Trigger::OnSchedule(
-            other
+        Some(TRIGGER_MANUAL) | None => Ok(Trigger::Manual),
+        Some(TRIGGER_ON_ENTRY_CREATE) => Ok(Trigger::OnEntryCreate),
+        Some(TRIGGER_ON_ENTRY_UPDATE) => Ok(Trigger::OnEntryUpdate),
+        Some(TRIGGER_ON_ENTRY_DELETE) => Ok(Trigger::OnEntryDelete),
+        Some(other) if other.starts_with(TRIGGER_ON_SCHEDULE_PREFIX) => {
+            let raw = other
                 .trim_start_matches(TRIGGER_ON_SCHEDULE_PREFIX)
-                .trim()
-                .to_string(),
-        ),
-        _ => Trigger::Manual,
+                .trim();
+
+            // Unterstütze sowohl 5-Feld (min hour day mon dow) als auch 6-Feld
+            // (sec min hour day mon dow).
+            // Wenn 5 Felder angegeben sind, interpretieren wir das als "sekunden=0".
+            let field_count = raw.split_whitespace().count();
+            let cron_expr = match field_count {
+                5 => format!("0 {raw}"),
+                _ => raw.to_string(),
+            };
+
+            let schedule = Schedule::from_str(&cron_expr)
+                .map_err(|e| format!(
+                    "Invalid cron expression '{raw}' (parsed as '{cron_expr}'): {e}"))?;
+
+            Ok(Trigger::OnSchedule(schedule))
+        }
+        _ => Ok(Trigger::Manual),
     }
 }
 // Rückgabe ob pausiert
@@ -376,7 +391,10 @@ impl PluginManager {
         let name = py_name.unwrap_or(fallback_name);
         let description = py_description.unwrap_or(fallback_description);
 
-        let trigger = parse_trigger(py_trigger.as_deref());
+        let trigger = parse_trigger(py_trigger.as_deref()).unwrap_or_else(|e| {
+            log::warn!("Invalid trigger, falling back to Manual: {}", e);
+            Trigger::Manual
+        });
 
         let mut plugin = Plugin::new(name, description, trigger, canonical_path);
         plugin.set_valid(true);
