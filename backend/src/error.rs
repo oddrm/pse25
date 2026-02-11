@@ -40,6 +40,7 @@ pub enum StorageError {
     ConnectionError(ConnectionError),
     PoolError(PoolError),
     EventProcessingError(String),
+    McapError(mcap::McapError),
     CustomError(String),
 }
 
@@ -70,5 +71,11 @@ impl From<InteractError> for StorageError {
 impl From<diesel::result::Error> for StorageError {
     fn from(err: diesel::result::Error) -> Self {
         StorageError::CustomError(format!("Diesel error: {:?}", err))
+    }
+}
+
+impl From<mcap::McapError> for StorageError {
+    fn from(err: mcap::McapError) -> Self {
+        StorageError::McapError(err)
     }
 }

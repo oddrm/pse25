@@ -13,11 +13,21 @@ static INIT: Once = Once::new();
 
 /// Initialize logging for tests (only runs once)
 pub fn init_test_logging() {
+    let log_level = match env::var("LOG_LEVEL")
+        .unwrap_or("debug".to_string())
+        .as_str()
+    {
+        "error" => tracing::Level::ERROR,
+        "warn" => tracing::Level::WARN,
+        "info" => tracing::Level::INFO,
+        "debug" => tracing::Level::DEBUG,
+        _ => tracing::Level::INFO,
+    };
     INIT.call_once(|| {
         tracing_subscriber::fmt()
             .with_writer(std::io::stdout)
             .pretty()
-            .with_max_level(tracing::Level::DEBUG)
+            .with_max_level(log_level)
             .try_init()
             .ok(); // Ignore error if already initialized
     });

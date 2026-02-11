@@ -7,7 +7,7 @@ Usage: $0 <dev|backend|frontend|e2e|prod> [--] [args...]
 
 Commands:
   dev          Start the full stack in development watch mode
-  backend      Run backend tests
+  backend      Run backend tests. Arguments are passed to cargo test, e.g. ./run.sh backend -- --test test_mcap_reading
   frontend     Run frontend unit & component tests
   e2e          Run end-to-end tests against full stack
   prod         Run the production compose stack
@@ -34,12 +34,21 @@ shift || true
 case "$CMD" in
   backend)
     echo "Running backend tests..."
-    # Build locally
-    cd backend && RUSTFLAGS="-A warnings" cargo test --no-run && cd ..
-
     docker compose -f compose.backend.yaml down --remove-orphans
-    # Run in container
-    docker compose -f compose.backend.yaml up --no-attach db --build --remove-orphans
+
+    # Default test args; if additional args were passed to ./run.sh backend, forward them
+    if [ "$#" -gt 0 ]; then
+      TEST_ARGS="$*"
+    else
+      TEST_ARGS=""
+    fi
+
+    # Start the full compose stack including backend. The backend service's command
+    # will run `cargo test` and read TEST_ARGS (default provided in compose file).
+    TEST_ARGS="$TEST_ARGS" docker compose -f compose.backend.yaml up --build --exit-code-from backend --abort-on-container-exit backend
+    EXIT_CODE=$?
+    docker compose -f compose.backend.yaml down
+    exit $EXIT_CODE
     ;;
   frontend)
     echo "Running frontend unit & component tests..."
