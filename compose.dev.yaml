@@ -44,7 +44,7 @@ services:
     working_dir: /app
     volumes:
       - ./backend:/app:cached
-      - backend-target:/app/target
+      - backend-target-dev:/app/target
       - ./logs:/logs
       - ./test_data:/data
       - ./plugins_dir:/plugins
@@ -97,4 +97,4 @@ configs:
       }
 volumes:
   pgadmin:
-  backend-target:
+  backend-target-dev:

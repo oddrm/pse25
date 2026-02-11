@@ -44,7 +44,7 @@ services:
       # - RUST_BACKTRACE=1
     volumes:
       - ./backend:/app:cached
-      - backend-target:/app/target
+      - backend-target-test:/app/target
       - cargo-cache:/usr/local/cargo
       - ./plugins_dir:/plugins
       - ./test_data:/data
@@ -52,4 +52,4 @@ services:
 volumes:
   cargo-cache:
   target-cache:
-  backend-target:
+  backend-target-test:
