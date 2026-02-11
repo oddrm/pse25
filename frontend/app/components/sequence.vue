@@ -8,17 +8,30 @@
           <th class="w-40">Start</th>
           <th class="w-40">End</th>
           <th>Description</th>
+          <th class="w-10"></th>
         </tr>
       </thead>
 
       <tbody>
-        <tr v-for="seq in sequences" :key="seq.name">
+        <tr v-for="seq in sequences" :key="seqKey(seq)">
           <td>{{ seq.name }}</td>
           <td>{{ formatDate(seq.startTime) }}</td>
           <td>{{ formatDate(seq.endTime) }}</td>
           <td>{{ seq.description }}</td>
-        </tr>
+
+          <td class="text-right">
+            <button
+              class="text-blue-500 hover:text-blue-700"
+              type="button"
+              @click="deleteSequence(seq)"
+              title="Delete"
+            >
+              <Icon name="solar:trash-bin-minimalistic-linear" size="18" />
+            </button>
+         </td>
+       </tr>
       </tbody>
+
     </table>
 
     <!-- Button -->
@@ -110,6 +123,22 @@ const formatDate = (date: Date) => {
 
 
 import { ref } from 'vue'
+function seqKey(seq: Sequence) {
+  return `${seq.entryID}-${seq.name}-${seq.startTime.getTime()}-${seq.endTime.getTime()}`
+}
+
+function deleteSequence(seqToDelete: Sequence) {
+  allSequences.value = allSequences.value.filter(seq =>
+    !(
+      seq.entryID === seqToDelete.entryID &&
+      seq.name === seqToDelete.name &&
+      seq.startTime.getTime() === seqToDelete.startTime.getTime() &&
+      seq.endTime.getTime() === seqToDelete.endTime.getTime() &&
+      seq.description === seqToDelete.description
+    )
+  )
+}
+
 
 const modalRef = ref<HTMLDialogElement | null>(null)
 
@@ -139,10 +168,7 @@ function addSequence() {
     description: form.value.description,
     entryID: props.entryID   
   })
-
-
   closeModal()
 }
-
 
 </script>
