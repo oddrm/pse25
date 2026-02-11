@@ -7,6 +7,23 @@ use rocket::serde::json::Json;
 use rocket::{State, delete, get, post, put, response::status};
 use tracing::debug;
 
+use tokio::time::{timeout, Duration};
+
+const PM_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+
+async fn lock_plugin_manager(
+    state: &State<AppState>,
+) -> Result<tokio::sync::MutexGuard<'_, crate::plugin_manager::manager::PluginManager>, Error> {
+    timeout(PM_LOCK_TIMEOUT, state.plugin_manager.lock())
+        .await
+        .map_err(|_| {
+            Error::CustomError(format!(
+                "Plugin manager is busy (lock timeout after {:?}). Please retry.",
+                PM_LOCK_TIMEOUT
+            ))
+        })
+}
+
 #[derive(serde::Serialize)]
 pub struct PluginInfo {
     name: String,
@@ -19,7 +36,7 @@ pub struct PluginInfo {
 
 #[post("/plugins/register")]
 pub async fn register_plugins(state: &State<AppState>) -> Result<status::NoContent, Error> {
-    let mut pm = state.plugin_manager.lock().await;
+    let mut pm = lock_plugin_manager(state).await?;
     pm.register_plugins(std::path::PathBuf::from("/plugins"))?;
     Ok(status::NoContent)
 }
@@ -29,7 +46,7 @@ pub async fn register_plugin(
     state: &State<AppState>,
     plugin_id: String,
 ) -> Result<status::NoContent, Error> {
-    let mut pm = state.plugin_manager.lock().await;
+    let mut pm = lock_plugin_manager(state).await?;
     pm.register_plugin(std::path::PathBuf::from(plugin_id))?;
     Ok(status::NoContent)
 }
@@ -39,7 +56,7 @@ pub async fn start_plugin_instance(
     state: &State<AppState>,
     plugin_name: String,
 ) -> Result<Json<u64>, Error> {
-    let mut pm = state.plugin_manager.lock().await;
+    let mut pm = lock_plugin_manager(state).await?;
     // id entsteht aus Zeitstempel in Millisekunden
     let instance_id = chrono::Utc::now().timestamp_millis().max(0) as u64;
 
@@ -58,7 +75,7 @@ pub async fn stop_plugin_instance(
     state: &State<AppState>,
     instance_id: u64,
 ) -> Result<status::NoContent, Error> {
-    let mut pm = state.plugin_manager.lock().await;
+    let mut pm = lock_plugin_manager(state).await?;
     pm.stop_plugin_instance(instance_id).await?;
     Ok(status::NoContent)
 }
@@ -68,7 +85,7 @@ pub async fn pause_plugin_instance(
     state: &State<AppState>,
     instance_id: u64,
 ) -> Result<status::NoContent, Error> {
-    let mut pm = state.plugin_manager.lock().await;
+    let mut pm = lock_plugin_manager(state).await?;
     pm.pause_plugin_instance(instance_id).await?;
     Ok(status::NoContent)
 }
@@ -78,7 +95,7 @@ pub async fn resume_plugin_instance(
     state: &State<AppState>,
     instance_id: u64,
 ) -> Result<status::NoContent, Error> {
-    let mut pm = state.plugin_manager.lock().await;
+    let mut pm = lock_plugin_manager(state).await?;
     pm.resume_plugin_instance(instance_id).await?;
     Ok(status::NoContent)
 }
@@ -87,7 +104,7 @@ pub async fn resume_plugin_instance(
 pub async fn get_running_instances(
     state: &State<AppState>,
 ) -> Result<Json<Vec<PluginInfo>>, Error> {
-    let pm = state.plugin_manager.lock().await;
+    let pm = lock_plugin_manager(state).await?;
 
     let plugins = pm
         .get_running_instances()
@@ -109,7 +126,7 @@ pub async fn get_running_instances(
 pub async fn get_registered_plugins(
     state: &State<AppState>,
 ) -> Result<Json<Vec<PluginInfo>>, Error> {
-    let pm = state.plugin_manager.lock().await;
+    let pm = lock_plugin_manager(state).await?;
 
     let plugins = pm
         .get_registered_plugins()
@@ -132,7 +149,7 @@ pub async fn enable_plugin(
     state: &State<AppState>,
     plugin_name: &str,
 ) -> Result<status::NoContent, Error> {
-    let mut pm = state.plugin_manager.lock().await;
+    let mut pm = lock_plugin_manager(state).await?;
     pm.enable_plugin(plugin_name)?;
     Ok(status::NoContent)
 }
@@ -142,7 +159,7 @@ pub async fn disable_plugin(
     state: &State<AppState>,
     plugin_name: String,
 ) -> Result<status::NoContent, Error> {
-    let mut pm = state.plugin_manager.lock().await;
+    let mut pm = lock_plugin_manager(state).await?;
     pm.disable_plugin(&plugin_name)?;
     Ok(status::NoContent)
 }
