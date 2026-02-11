@@ -52,7 +52,7 @@ CREATE TABLE metadata_dataset_sequence (
     lat_starting_point_deg DOUBLE PRECISION,
     lon_starting_point_deg DOUBLE PRECISION,
     name VARCHAR,
-    weather JSONB,
+    weather JSONB, --ist das JSON????
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -93,7 +93,7 @@ CREATE TABLE metadata_sensor (
     model VARCHAR,
     mtu INT,
     optical_center_frame VARCHAR,
-    ros_topics JSONB, --is it true????
+    ros_topics JSONB --is it true????
     sw_trigger_rate DOUBLE PRECISION,
     time_stamp_accuracy VARCHAR,
     time_sync_method VARCHAR,

@@ -39,14 +39,14 @@ fn not_found<T>(msg: String) -> Result<T, Error> {
 }
 
 //Kapitel 5.1.2 im Entwurfsheft (falls noch andere das ewig suchen)
-#[get("/entries/<entry_id>/metadata")]
+#[get("/entries/<entry_id>/<txid>/metadata")]
 pub async fn get_metadata(
     state: &State<AppState>,
     entry_id: EntryID,
+    txid: TxID
 ) -> Result<Json<Metadata>, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
-
+    
     let entry = sm.get_metadata(entry_id, txid).await?;
     match entry {
         Some(e) => {
@@ -76,6 +76,7 @@ pub async fn get_metadata(
         None => not_found(format!("metadata for entry {entry_id} not found")),
     }
 }
+
 //Das müssen wir nochmal anschauen. Vielleicht funktioniert nicht mit JSON ????????????????????????????????????
 //?????????????????????????????????????????????????????????????????????????????????????????????????????????????
 #[put("/entries/<entry_id>/metadata", format = "json", data = "<metadata>")]
@@ -83,9 +84,9 @@ pub async fn update_metadata(
     state: &State<AppState>,
     entry_id: EntryID,
     metadata: Json<Metadata>,
+    txid: TxID
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
     let m = metadata.into_inner();
 
     let mut entry = match sm.get_entry(entry_id, txid).await? {
@@ -167,7 +168,6 @@ pub async fn get_entries(
     page_size: Option<u32>,
 )-> Result<Json<Vec<Entry>>, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
 
     let entries = sm
         .get_entries(search_string, sort_by, ascending, page, page_size, txid)
@@ -176,10 +176,13 @@ pub async fn get_entries(
     Ok(Json(entries))
 }
 
-#[get("/entries/<entry_id>")]
-pub async fn get_entry(state: &State<AppState>, entry_id: EntryID) -> Result<Json<Entry>, Error> {
+#[get("/entries/<entry_id>/<txid>")]
+pub async fn get_entry(state: &State<AppState>, 
+    entry_id: EntryID,
+    txid: TxID
+) -> Result<Json<Entry>, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
+
 
     let entry = sm.get_entry(entry_id, txid).await?;
     match entry {
@@ -188,13 +191,13 @@ pub async fn get_entry(state: &State<AppState>, entry_id: EntryID) -> Result<Jso
     }
 }
 
-#[get("/paths/<path>")]
+#[get("/paths/<path>/<txid>")]
 pub async fn get_entry_by_path(
     state: &State<AppState>,
     path: String,
+    txid: TxID
 ) -> Result<Json<Entry>, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
 
     let entry = sm.get_entry_by_path(path.clone(), txid).await?;
     match entry {
@@ -207,22 +210,24 @@ pub async fn get_entry_by_path(
 pub async fn get_sequences(
     state: &State<AppState>,
     entry_id: EntryID,
+    txid: TxID
 ) -> Result<Json<Map<SequenceID, Sequence>>, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
+    
 
     let sequences = sm.get_sequences(entry_id, txid).await?;
     Ok(Json(sequences))
 }
 
-#[post("/entries/<entry_id>/sequences", format = "json", data = "<sequence>")]
+#[post("/entries/<entry_id>/sequences/<txid>", format = "json", data = "<sequence>")]
 pub async fn add_sequence(
     state: &State<AppState>,
     entry_id: EntryID,
     sequence: Json<Sequence>,
+    txid: TxID
 ) -> Result<status::Created<Json<SequenceID>>, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
+    
 
     let new_id = sm
         .add_sequence(entry_id, sequence.into_inner(), txid)
@@ -240,9 +245,10 @@ pub async fn update_sequence(
     entry_id: EntryID,
     sequence_id: SequenceID,
     sequence: Json<Sequence>,
+    txid: TxID
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
+    
 
     let mut seq = sequence.into_inner();
     seq.id = sequence_id;
@@ -257,9 +263,10 @@ pub async fn remove_sequence(
     state: &State<AppState>,
     entry_id: EntryID,
     sequence_id: SequenceID,
+    txid: TxID
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
+    
     sm.remove_sequence(entry_id, sequence_id, txid).await?;
     Ok(status::NoContent)
 }
@@ -269,9 +276,10 @@ pub async fn add_tag(
     state: &State<AppState>,
     entry_id: EntryID,
     tag: String,
+    txid: TxID
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
+    
 
     sm.add_tag(entry_id, tag, txid).await?;
     Ok(status::NoContent)
@@ -282,9 +290,10 @@ pub async fn remove_tag(
     state: &State<AppState>,
     entry_id: EntryID,
     tag: String,
+    txid: TxID
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
+    
 
     sm.remove_tag(entry_id, tag, txid).await?;
     Ok(status::NoContent)
