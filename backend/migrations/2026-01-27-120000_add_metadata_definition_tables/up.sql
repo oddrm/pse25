@@ -93,7 +93,7 @@ CREATE TABLE metadata_sensor (
     model VARCHAR,
     mtu INT,
     optical_center_frame VARCHAR,
-    ros_topics JSONB --is it true????
+    ros_topics JSONB, --is it true????
     sw_trigger_rate DOUBLE PRECISION,
     time_stamp_accuracy VARCHAR,
     time_sync_method VARCHAR,

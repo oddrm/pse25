@@ -45,6 +45,7 @@ cron = "0.15.0"
 log = "0.4.29"
 mcap = "0.24.0"
 memmap2 = "0.9.9"
+rayon = "1.11.0"
 
 [dev-dependencies]
 # Testing dependencies
