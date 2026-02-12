@@ -3,12 +3,16 @@ import type { Sequence } from "~/utils/sequence"
 
 const STORAGE_KEY = "sequences_v1"
 
-function reviveSequences(raw: any[]): Sequence[] {
-  // перетворюємо строки дат назад у Date
-  return (raw ?? []).map((s: any) => ({
+type RawSequence = Omit<Sequence, "startTime" | "endTime"> & {
+  startTime: string
+  endTime: string | null
+}
+
+function reviveSequences(raw: RawSequence[] = []): Sequence[] {
+  return raw.map((s) => ({
     ...s,
     startTime: new Date(s.startTime),
-    endTime: new Date(s.endTime),
+    endTime: s.endTime ? new Date(s.endTime) : null,
   }))
 }
 
