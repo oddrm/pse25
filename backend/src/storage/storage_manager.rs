@@ -156,11 +156,8 @@ impl StorageManager {
         // 1. Split the search string by whitespace into "words", lowercased.
         //    Example: "  Rain  Highway  " → ["rain", "highway"]
         let search_parts: Vec<String> = match search_string.as_deref() {
-            None | Some("") => return Ok(entries),  // no search → return all entries
-            Some(s) => s
-                .split_whitespace()
-                .map(|p| p.to_lowercase())
-                .collect(),
+            None | Some("") => return Ok(entries), // no search → return all entries
+            Some(s) => s.split_whitespace().map(|p| p.to_lowercase()).collect(),
         };
 
         if search_parts.is_empty() {
@@ -174,14 +171,6 @@ impl StorageManager {
             .into_par_iter()
             .filter(|e| entry_matches_search(e, &search_parts))
             .collect();
-
-        // 3. If no entry had all the words, return NotFound error.
-        if filtered.is_empty() {
-            return Err(StorageError::NotFound(format!(
-                "no entries match search '{}'",
-                search_parts.join(" ")
-            )));
-        }
 
         Ok(filtered)
     }

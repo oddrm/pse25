@@ -68,8 +68,16 @@ pub async fn get_metadata(
                 weather_road_humidity: e.weather_road_humidity,
                 weather_fog: e.weather_fog,
                 weather_snow: e.weather_snow,
-                tags: if e.tags.is_empty() { None } else { Some(e.tags) },
-                topics: if e.topics.is_empty() { None } else { Some(e.topics) },
+                tags: if e.tags.is_empty() {
+                    None
+                } else {
+                    Some(e.tags)
+                },
+                topics: if e.topics.is_empty() {
+                    None
+                } else {
+                    Some(e.topics)
+                },
             };
             Ok(Json(md))
         }
@@ -166,7 +174,7 @@ pub async fn get_entries(
     ascending: Option<bool>,
     page: Option<u32>,
     page_size: Option<u32>,
-)-> Result<Json<Vec<Entry>>, Error> {
+) -> Result<Json<Vec<Entry>>, Error> {
     let sm = &state.storage_manager;
     let txid: TxID = 0;
 
