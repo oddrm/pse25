@@ -1,8 +1,10 @@
 export interface Sequence {
-    name: String
-    startTime: Date,
-    endTime: Date,
-    Description: String
+  id: sequenceID
+  name: string
+  startTime: Date
+  endTime: Date | null
+  description: string
+  entryID: number
 }
 
 export type sequenceID = number;

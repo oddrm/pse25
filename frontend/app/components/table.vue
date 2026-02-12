@@ -11,7 +11,7 @@
         </tr>
       </thead>
       <tbody>
-        <Entry v-for="entry in entries" :key="entry.entryID" v-bind="entry" @select="$emit('select', $event)" />
+        <Entry v-for="entry in entries" :key="entry.entryID" v-bind="entry" expandable @select="$emit('select', $event)" />
       </tbody>
     </table>
   </div>

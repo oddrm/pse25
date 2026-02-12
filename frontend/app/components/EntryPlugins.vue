@@ -98,7 +98,7 @@ const runPluginOnEntry = async (plugin: PluginItem) => {
     <button
   ref="buttonRef"
   type="button"
-  class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700 transition-all duration-200 text-sm font-medium"
+  class="inline-flex items-center gap-2 bg-blue-800 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700 transition-all duration-200 text-sm font-medium"
   @click="toggleDropdown"
 >
   Plugins
