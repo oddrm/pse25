@@ -30,7 +30,7 @@ services:
   backend:
     build:
       context: backend
-      dockerfile: Dockerfile.test
+      dockerfile: Dockerfile.test.containerized
     depends_on:
       db:
         condition: service_healthy
@@ -38,18 +38,11 @@ services:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
-      - LOG_LEVEL=error
-      - CARGO_TARGET_DIR=/app/target
-      - TEST_ARGS
-      # - RUST_BACKTRACE=1
+      - RUST_BACKTRACE=1
     volumes:
-      - ./backend:/app:cached
-      - backend-target-test:/app/target
-      - cargo-cache:/usr/local/cargo
       - ./plugins_dir:/plugins
-      - ./test_data:/data
-    command: ["sh", "-c", "cargo test ${TEST_ARGS:---no-fail-fast -- --nocapture}"]
+    restart: no
+
 volumes:
   cargo-cache:
   target-cache:
-  backend-target-test:

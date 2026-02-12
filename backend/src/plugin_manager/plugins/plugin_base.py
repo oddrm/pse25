@@ -1,0 +1,58 @@
+# plugin_base.py
+from __future__ import annotations
+
+from pathlib import Path
+import threading
+
+# -------------------- constants --------------------
+TICK_SECONDS = 0.1  # wie oft wir beim Warten "ticken", damit Stop schnell reagiert
+
+ERR_NOT_IMPLEMENTED = "Plugin must implement run(data)"
+
+RESULT_PAUSED = "paused"
+RESULT_RESUMED = "resumed"
+RESULT_STOPPING = "stopping"
+
+
+class BasePlugin:
+    """
+    Gemeinsame Basis für alle Plugins:
+    - kooperatives Stoppen per Event
+    - Pause/Resume per Event
+    - run() wird vom Plugin selbst implementiert (kein step()-Loop mehr)
+    """
+
+    def __init__(self, path: str):
+        self.path = Path(path)
+        # Threading event funktioniert wie eine Ampel
+        self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
+
+    def run(self, data: str) -> str:
+        """
+        Muss vom Plugin überschrieben werden.
+        Implementierung sollte stop()/pause()/resume() respektieren.
+        """
+        raise NotImplementedError(ERR_NOT_IMPLEMENTED)
+
+    def should_stop(self) -> bool:
+        return self._stop_event.is_set()
+
+    def wait_while_paused(self) -> None:
+        """
+        Blockt kooperativ während Pause aktiv ist, reagiert aber schnell auf stop().
+        """
+        while self._pause_event.is_set() and not self._stop_event.is_set():
+            self._stop_event.wait(TICK_SECONDS)
+
+    def pause(self) -> str:
+        self._pause_event.set()
+        return RESULT_PAUSED
+
+    def resume(self) -> str:
+        self._pause_event.clear()
+        return RESULT_RESUMED
+
+    def stop(self) -> str:
+        self._stop_event.set()
+        return RESULT_STOPPING
