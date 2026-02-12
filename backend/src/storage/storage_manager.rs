@@ -24,6 +24,7 @@ use notify::{
     RecursiveMode, Watcher,
     event::{CreateKind, EventAttributes},
 };
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use rocket::futures::{FutureExt, StreamExt};
 use tokio::sync::oneshot;
 use tokio::sync::{
@@ -37,6 +38,36 @@ use tracing_subscriber::field::debug;
 pub type Map<K, V> = std::collections::HashMap<K, V>;
 pub type TxID = u64;
 pub type Tag = String;
+fn contains_part(value: &str, part: &str) -> bool {
+    value.to_lowercase().contains(part)
+}
+fn opt_contains(opt: &Option<String>, part: &str) -> bool {
+    opt.as_deref()
+        .map(|s| contains_part(s, part))
+        .unwrap_or(false)
+}
+/// Returns true if this entry matches the search: every word in `search_parts` must appear
+/// in at least one of the entry's string fields (name, path, tags, scenario_name, etc.).
+fn entry_matches_search(entry: &Entry, search_parts: &[String]) -> bool {
+    for part in search_parts {
+        let matches = contains_part(&entry.name, part)
+            || contains_part(&entry.path, part)
+            || opt_contains(&entry.platform_name, part)
+            || opt_contains(&entry.scenario_name, part)
+            || opt_contains(&entry.scenario_description, part)
+            || opt_contains(&entry.weather_cloudiness, part)
+            || opt_contains(&entry.weather_precipitation, part)
+            || opt_contains(&entry.weather_precipitation_deposits, part)
+            || opt_contains(&entry.weather_wind_intensity, part)
+            || opt_contains(&entry.weather_road_humidity, part)
+            || entry.tags.iter().any(|t| contains_part(t, part))
+            || entry.topics.iter().any(|t| contains_part(t, part));
+        if !matches {
+            return false;
+        }
+    }
+    true
+}
 
 // this can be cloned cheaply and still refer to the same db
 #[derive(Clone)]
@@ -105,7 +136,7 @@ impl StorageManager {
     #[instrument]
     pub async fn get_entries(
         &self,
-        _search_string: Option<String>,
+        search_string: Option<String>,
         _sort_by: Option<String>,
         _ascending: Option<bool>,
         _page: Option<u32>,
@@ -121,7 +152,38 @@ impl StorageManager {
             })
             .await??;
         debug!("Queried entries: {}", entries.len());
-        Ok(entries)
+        // --- Search logic (only when search_string is provided) ---
+        // 1. Split the search string by whitespace into "words", lowercased.
+        //    Example: "  Rain  Highway  " → ["rain", "highway"]
+        let search_parts: Vec<String> = match search_string.as_deref() {
+            None | Some("") => return Ok(entries),  // no search → return all entries
+            Some(s) => s
+                .split_whitespace()
+                .map(|p| p.to_lowercase())
+                .collect(),
+        };
+
+        if search_parts.is_empty() {
+            return Ok(entries);
+        }
+
+        // 2. Keep only entries where EVERY search word appears in at least one field.
+        //    We look in: name, path, platform_name, scenario_name, scenario_description,
+        //    weather_*, tags, topics (substring match, case-insensitive).
+        let filtered: Vec<Entry> = entries
+            .into_par_iter()
+            .filter(|e| entry_matches_search(e, &search_parts))
+            .collect();
+
+        // 3. If no entry had all the words, return NotFound error.
+        if filtered.is_empty() {
+            return Err(StorageError::NotFound(format!(
+                "no entries match search '{}'",
+                search_parts.join(" ")
+            )));
+        }
+
+        Ok(filtered)
     }
 
     #[instrument]
