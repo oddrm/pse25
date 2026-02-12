@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col items-center">
-    <input placeholder="Search" class="input" />
+    <input placeholder="Search" class="input" v-model="searchString" />
     <table class="table">
       <thead>
         <tr>
@@ -25,6 +25,8 @@ const columns = ENTRY_COLUMNS;
 const searchString = ref("");
 const sortBy = ref(Sorting.Name);
 const ascending = ref(true);
+
+watchEffect(() => refreshEntries());
 
 const { data: entries, refresh: refreshEntries, error: entriesFetchError, status: entriesStatus } = await useAsyncData("entries", async () => fetchEntries(searchString.value, sortBy.value, ascending.value, 1, 50));
 

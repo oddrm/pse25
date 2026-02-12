@@ -27,14 +27,16 @@ const entry = ref<Entry | null>(null)
 
 watch(
   () => props.entryID,
-  (id) => {
+  async (id) => {
     if (!id) {
       entry.value = null
       return
     }
 
-    const entries = fetchEntries('', Sorting.Name, true, 1, 50)
-    entry.value = entries.find(e => e.entryID === id) || null
+    const entries = await fetchEntries('', Sorting.Name, true, 1, 50).catch((error) => console.error(error))
+    if (entries) {
+      entry.value = entries.find(e => e.entryID === id) || null
+    }
   },
   { immediate: true }
 )
