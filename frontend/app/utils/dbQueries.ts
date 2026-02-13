@@ -11,18 +11,27 @@ export const fetchEntries = (searchString: string, sortBy: Sorting, ascending: b
             platform: "Alice", 
             size: 2048000, 
             tags: ["field", "forest", "flat", "persons", "barrels"],
+            
+            // Korrektur: Topic-Strings zu Topic-Objekten umwandeln
             topics: [
-                "sensors/ouster_cabin_left/points", 
-                "sensors/ouster_cabin_left/nav_sat_fix",
-                "sensors/jai_fs_3200d_cabin_left/image_raw",
-                "sensors/jai_fs_3200d_cabin_left/camera_info",
-                "sensors/accurate_localization_oxford/nav_sat_fix"
+                { name: "sensors/ouster_cabin_left/points", type: "sensor_msgs/PointCloud2", frequency: 10, messageCount: 300 },
+                { name: "sensors/jai_fs_3200d_cabin_left/image_raw", type: "sensor_msgs/Image", frequency: 10, messageCount: 300 }
             ],
-            description: "Alice detects barrel during excavation.",
+            
+            description: "Alice detects barrel during excavation.", //
+            
+            // Korrektur: Sensor-Objekte um das Feld 'topics' erweitern
             sensors: [
-                { name: "ouster_cabin_left", type: "rotating_lidar" }, 
-                { name: "jai_fs_3200d_cabin_left", type: "area_scan_camera" },
-                { name: "accurate_localization_oxford", type: "imu" }
+                { 
+                    name: "ouster_cabin_left", 
+                    type: "rotating_lidar", 
+                    topics: ["sensors/ouster_cabin_left/points"] 
+                },
+                { 
+                    name: "jai_fs_3200d_cabin_left", 
+                    type: "area_scan_camera", 
+                    topics: ["sensors/jai_fs_3200d_cabin_left/image_raw"] 
+                }
             ]
         },
         { 

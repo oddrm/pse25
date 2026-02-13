@@ -7,7 +7,7 @@ export interface Entry {
     platform: string;
     tags: string[];
     entryID: entryID;
-    topics?: string[];
+    topics?: Topic[];
     description?: string;
     sensors?: Sensor[];
 }
@@ -15,6 +15,14 @@ export interface Entry {
 export interface Sensor {
     name: string;
     type: string;
+    topics: string[];
+}
+
+export interface Topic {
+    name: string;
+    type: string;
+    frequency: number;
+    messageCount: number;
 }
 
 export type entryID = number;
