@@ -1,4 +1,6 @@
+
 <template>
+
   <div v-if="entry && editableEntry" class="h-[calc(100vh-3rem)] flex flex-col bg-base-100">
     
     <div class="flex-1 overflow-y-auto p-4 space-y-6 pb-24">

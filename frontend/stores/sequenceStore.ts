@@ -54,6 +54,7 @@ export const useSequencesStore = defineStore("sequences", {
       this.sequences.push({
         id,
         ...payload,
+        tags: payload.tags || []
       })
     },
 

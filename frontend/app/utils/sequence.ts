@@ -7,6 +7,7 @@ export interface Sequence {
   endTime: number
   description: string
   entryID: number
+  tags: string[] // <--- NEU
 }
 
 export type sequenceID = number;

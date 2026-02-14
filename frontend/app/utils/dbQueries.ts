@@ -56,7 +56,8 @@ export const fetchSequences = (entryID: entryID): Sequence[] => {
                 startTime: 10,      // Start bei Sekunde 10
                 endTime: 40.1,      // Ende bei 40.1
                 description: "Alice detects barrel during excavation.", 
-                entryID: 1 
+                entryID: 1, 
+                tags: ["barrel", "lidar"] // <--- NEU
             },
             { 
                 id: 102, 
@@ -64,7 +65,8 @@ export const fetchSequences = (entryID: entryID): Sequence[] => {
                 startTime: 50, 
                 endTime: 60, 
                 description: "Alice grasps barrel, while the camera fails.", 
-                entryID: 1 
+                entryID: 1,
+                tags: ["test"] // <--- NEU
             }
         ];
     }
@@ -78,7 +80,8 @@ export const fetchSequences = (entryID: entryID): Sequence[] => {
                 startTime: 0, 
                 endTime: 15, 
                 description: "Kurzer Test am Anfang", 
-                entryID: 2 
+                entryID: 2,
+                tags: ["test"] // <--- NEU
             }
         ];
     }

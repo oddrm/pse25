@@ -12,6 +12,7 @@
           <th class="w-24">Start</th>
           <th class="w-24">Ende</th>
           <th>Description</th>
+          <th class="w-40">Tags</th> 
           <th class="w-20 text-right">Aktionen</th>
         </tr>
       </thead>
@@ -21,6 +22,15 @@
           <td class="font-mono text-xs">{{ formatSeconds(seq.startTime) }}</td>
           <td class="font-mono text-xs">{{ formatSeconds(seq.endTime) }}</td>
           <td class="text-base-content/80 text-sm truncate max-w-xs">{{ seq.description }}</td>
+          
+          <td>
+             <div class="flex flex-wrap gap-1">
+                <span v-for="t in seq.tags" :key="t" class="badge badge-xs bg-blue-800 text-white border-none">
+                    {{ t }}
+                </span>
+             </div>
+          </td>
+
           <td class="text-right flex justify-end gap-1">
             <button class="btn btn-ghost btn-xs text-warning" @click="openModal(seq)">
               <Icon name="solar:pen-new-square-linear" size="16" />
@@ -31,7 +41,7 @@
           </td>
         </tr>
         <tr v-if="sequences.length === 0">
-          <td colspan="5" class="text-center text-base-content/40 text-sm py-4">Keine Sequenzen vorhanden</td>
+          <td colspan="6" class="text-center text-base-content/40 text-sm py-4">Keine Sequenzen vorhanden</td>
         </tr>
       </tbody>
     </table>
@@ -52,7 +62,7 @@
            
            <Slider
              :model-value="[currentStartTime, currentEndTime]"
-             @slide="updateFromSlider"
+             @update="updateFromSlider"
              :min="0"
              :max="props.totalDuration > 0 ? props.totalDuration : 1" 
              :step="0.1"
@@ -91,12 +101,20 @@
         </div>
 
         <div class="form-control w-full mb-4">
+          <label class="label py-1"><span class="label-text font-bold">Tags</span></label>
+          <TagEditor 
+            :tags="formTags" 
+            @update="(newTags) => formTags = newTags" 
+          />
+        </div>
+
+        <div class="form-control w-full mb-4">
           <label class="label py-1"><span class="label-text font-bold">Beschreibung</span></label>
           <textarea class="textarea textarea-bordered w-full h-20" v-model="formDesc"></textarea>
         </div>
 
         <div class="modal-action flex justify-between items-center pt-2 border-t">
-          <div class="text-xs text-gtext-base-content/60 ray-500 font-mono">
+          <div class="text-xs text-base-content/60 font-mono">
             Dauer: {{ formatSeconds(currentEndTime - currentStartTime) }}
           </div>
           <div class="gap-2 flex">
@@ -116,6 +134,7 @@ import { ref, computed, onMounted } from "vue"
 import { useSequencesStore } from "../../stores/sequenceStore"
 import type { Sequence } from "~/utils/sequence"
 import Slider from '@vueform/slider'
+import TagEditor from '~/components/TagEditor.vue' // Import TagEditor
 import '@vueform/slider/themes/default.css'
 
 const props = defineProps<{ 
@@ -132,19 +151,19 @@ const currentStartTime = ref(0);
 const currentEndTime = ref(0);
 const formName = ref("");
 const formDesc = ref("");
+const formTags = ref<string[]>([]); // NEU: Tags State
 
 const isEditing = ref(false);
 const editingId = ref<number | null>(null);
 const modalRef = ref<HTMLDialogElement | null>(null);
 
 // --- ECHTZEIT SLIDER UPDATE ---
-// Diese Funktion wird gefeuert, während du ziehst (Realtime)
 const updateFromSlider = (val: number[]) => {
     currentStartTime.value = val[0] ?? 0;
     currentEndTime.value = val[1] ?? 0;
 }
 
-// --- COMPUTED INPUTS (Rechnen im Hintergrund) ---
+// --- COMPUTED INPUTS ---
 const startMin = computed({
     get: () => Math.floor(currentStartTime.value / 60),
     set: (val) => {
@@ -170,7 +189,7 @@ const endMin = computed({
 });
 
 const endSec = computed({
-    get: () => Math.floor(currentEndTime.value % 60),
+    get: () => Math.floor(currentEndTime.value / 60),
     set: (val) => {
         const m = Math.floor(currentEndTime.value / 60);
         currentEndTime.value = (m * 60) + (val || 0);
@@ -197,6 +216,7 @@ function openModal(seq: Sequence | null) {
     currentEndTime.value = seq.endTime;
     formName.value = seq.name;
     formDesc.value = seq.description;
+    formTags.value = [...(seq.tags || [])]; // Tags kopieren
   } else {
     isEditing.value = false;
     editingId.value = null;
@@ -204,6 +224,7 @@ function openModal(seq: Sequence | null) {
     currentEndTime.value = props.totalDuration || 60;
     formName.value = "";
     formDesc.value = "";
+    formTags.value = []; // Leere Tags
   }
   modalRef.value?.showModal();
 }
@@ -222,7 +243,8 @@ function saveSequence() {
       startTime: start,
       endTime: end,
       description: formDesc.value || "",
-      entryID: props.entryID
+      entryID: props.entryID,
+      tags: formTags.value // Tags speichern
   };
 
   if (isEditing.value && editingId.value !== null) {
