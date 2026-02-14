@@ -40,7 +40,7 @@
       <div class="bg-base-200 p-4 rounded-lg space-y-4">
         <h3 class="font-bold text-primary">Sensors</h3>
         
-        <div v-for="(sensor, index) in editableEntry.sensors" :key="index" class="card bg-base-100 shadow-sm border border-base-300">
+        <div v-for="(sensor, index) in editableEntry.sensors" :key="index" class="card bg-base-100 shadow border border-base-300">
           <div class="card-body p-4 gap-2">
             <div class="flex justify-between items-start">
               <span class="text-[10px] font-bold opacity-50 uppercase">Sensor #{{ index + 1 }}</span>
@@ -96,7 +96,7 @@
     </div>
   </div>
 
-  <div v-else class="p-8 text-center text-gray-400 flex flex-col items-center justify-center h-full">
+  <div v-else class="p-8 text-center text-base-content/40 flex flex-col items-center justify-center h-full">
     <Icon name="octicon:info-24" class="w-12 h-12 mb-2 opacity-20" />
     <p>Wählen Sie eine Datei aus der Liste aus.</p>
   </div>

@@ -1,8 +1,10 @@
 export interface Sequence {
   id: sequenceID
   name: string
-  startTime: Date
-  endTime: Date | null
+  // WICHTIG: Änderung von Date zu number (Sekunden)
+  startTime: number
+  // WICHTIG: Änderung von Date | null zu number (oder number | null)
+  endTime: number
   description: string
   entryID: number
 }

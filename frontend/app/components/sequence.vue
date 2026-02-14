@@ -1,152 +1,247 @@
 <template>
-  <div class="p-4 rounded bg-gray-50 mr-3">
-    <table class="table table-sm">
-      <thead>
+  <div class="p-4 rounded bg-base-200 mr-3 border border-base-300">
+    <div class="flex justify-between items-center mb-2">
+      <h3 class="font-bold text-base-content">Sequences</h3>
+      <button class="btn btn-xs btn-primary" @click="openModal(null)">+</button>
+    </div>
+
+    <table class="table table-sm bg-base-100 rounded-lg shadow">
+      <thead class="bg-base-200">
         <tr>
-          <th class="w-40">Name</th>
-          <th class="w-40">Start</th>
-          <th class="w-40">End</th>
+          <th class="w-32">Name</th>
+          <th class="w-24">Start</th>
+          <th class="w-24">Ende</th>
           <th>Description</th>
-          <th class="w-10"></th>
+          <th class="w-20 text-right">Aktionen</th>
         </tr>
       </thead>
-
       <tbody>
-        <tr v-for="seq in sequences" :key="seq.id">
-          <td>{{ seq.name }}</td>
-          <td>{{ formatDate(seq.startTime) }}</td>
-          <td>{{ formatDate(seq.endTime) }}</td>
-          <td>{{ seq.description }}</td>
-
-          <td class="text-right">
-            <button
-              class="text-blue-500 hover:text-blue-700"
-              type="button"
-              @click="deleteSequence(seq.id)"
-              title="Delete"
-            >
-              <Icon name="solar:trash-bin-minimalistic-linear" size="18" />
+        <tr v-for="seq in sequences" :key="seq.id" class="hover group">
+          <td class="font-medium">{{ seq.name }}</td>
+          <td class="font-mono text-xs">{{ formatSeconds(seq.startTime) }}</td>
+          <td class="font-mono text-xs">{{ formatSeconds(seq.endTime) }}</td>
+          <td class="text-base-content/80 text-sm truncate max-w-xs">{{ seq.description }}</td>
+          <td class="text-right flex justify-end gap-1">
+            <button class="btn btn-ghost btn-xs text-warning" @click="openModal(seq)">
+              <Icon name="solar:pen-new-square-linear" size="16" />
+            </button>
+            <button class="btn btn-ghost btn-xs text-error" @click="deleteSequence(seq.id)">
+              <Icon name="solar:trash-bin-minimalistic-linear" size="16" />
             </button>
           </td>
+        </tr>
+        <tr v-if="sequences.length === 0">
+          <td colspan="5" class="text-center text-base-content/40 text-sm py-4">Keine Sequenzen vorhanden</td>
         </tr>
       </tbody>
     </table>
 
-    <!-- Button -->
-    <div class="mt-2">
-      <button class="btn btn-xs btn-primary" @click="openModal">+</button>
-    </div>
-  </div>
+    <dialog ref="modalRef" class="modal">
+      <div class="modal-box w-11/12 max-w-lg overflow-visible">
+        <h3 class="font-bold text-lg mb-6 border-b pb-2">
+          {{ isEditing ? 'Sequenz bearbeiten' : 'Neue Sequenz erstellen' }}
+        </h3>
 
-  <dialog ref="modalRef" class="modal">
-    <div class="modal-box">
-      <h3 class="font-bold text-lg mb-3">New Sequence</h3>
+        <div class="form-control w-full mb-4">
+          <label class="label py-1"><span class="label-text font-bold">Name</span></label>
+          <input class="input input-sm input-bordered w-full" placeholder="z.B. Loop Closure" v-model="formName" />
+        </div>
 
-      <input
-        class="input input-sm input-bordered w-full mb-2"
-        placeholder="Name"
-        v-model="form.name"
-      />
+        <div class="px-2 mb-6 mt-8">
+           <label class="label py-1 mb-2"><span class="label-text font-bold label-text-alt">Zeitraum auswählen</span></label>
+           
+           <Slider
+             :model-value="[currentStartTime, currentEndTime]"
+             @slide="updateFromSlider"
+             :min="0"
+             :max="props.totalDuration > 0 ? props.totalDuration : 1" 
+             :step="0.1"
+             :tooltips="false"
+             class="slider-primary z-10"
+           />
+           
+           <div class="flex justify-between text-[10px] text-base-content/40 mt-1 px-1 font-mono">
+              <span>00:00</span>
+              <span>{{ formatSeconds(props.totalDuration) }}</span>
+           </div>
+        </div>
 
-      <input
-        type="datetime-local"
-        class="input input-sm input-bordered w-full mb-2"
-        v-model="form.startTime"
-      />
+        <div class="flex gap-4 mb-4">
+            <div class="form-control w-1/2">
+                <label class="label py-1"><span class="label-text font-bold">Startzeit</span></label>
+                <div class="join w-full">
+                    <input type="number" min="0" class="input input-sm input-bordered join-item w-1/2 text-center font-mono" 
+                           placeholder="Min" v-model="startMin" />
+                    <span class="bg-base-200 flex items-center px-1 font-bold">:</span>
+                    <input type="number" min="0" max="59" class="input input-sm input-bordered join-item w-1/2 text-center font-mono" 
+                           placeholder="Sek" v-model="startSec" />
+                </div>
+            </div>
 
-      <input
-        type="datetime-local"
-        class="input input-sm input-bordered w-full mb-2"
-        v-model="form.endTime"
-      />
+            <div class="form-control w-1/2">
+                <label class="label py-1"><span class="label-text font-bold">Endzeit</span></label>
+                <div class="join w-full">
+                    <input type="number" min="0" class="input input-sm input-bordered join-item w-1/2 text-center font-mono" 
+                           placeholder="Min" v-model="endMin" />
+                    <span class="bg-base-200 flex items-center px-1 font-bold">:</span>
+                    <input type="number" min="0" max="59" class="input input-sm input-bordered join-item w-1/2 text-center font-mono" 
+                           placeholder="Sek" v-model="endSec" />
+                </div>
+            </div>
+        </div>
 
-      <textarea
-        class="textarea textarea-bordered w-full mb-3"
-        placeholder="Description"
-        v-model="form.description"
-      ></textarea>
+        <div class="form-control w-full mb-4">
+          <label class="label py-1"><span class="label-text font-bold">Beschreibung</span></label>
+          <textarea class="textarea textarea-bordered w-full h-20" v-model="formDesc"></textarea>
+        </div>
 
-      <div class="modal-action">
-        <button class="btn btn-sm" @click="closeModal">Cancel</button>
-        <button class="btn btn-sm btn-primary" @click="addSequence">OK</button>
+        <div class="modal-action flex justify-between items-center pt-2 border-t">
+          <div class="text-xs text-gtext-base-content/60 ray-500 font-mono">
+            Dauer: {{ formatSeconds(currentEndTime - currentStartTime) }}
+          </div>
+          <div class="gap-2 flex">
+            <button class="btn btn-sm" @click="closeModal">Abbrechen</button>
+            <button class="btn btn-sm btn-primary" @click="saveSequence">
+              {{ isEditing ? 'Speichern' : 'Erstellen' }}
+            </button>
+          </div>
+        </div>
       </div>
-
-    </div>
-  </dialog>
+    </dialog>
+  </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue"
 import { useSequencesStore } from "../../stores/sequenceStore"
+import type { Sequence } from "~/utils/sequence"
+import Slider from '@vueform/slider'
+import '@vueform/slider/themes/default.css'
 
-const props = defineProps<{ entryID: number }>()
+const props = defineProps<{ 
+  entryID: number,
+  totalDuration: number 
+}>()
 
 const store = useSequencesStore()
-
-onMounted(() => {
-  store.init()
-})
-
+onMounted(() => { store.init() })
 const sequences = computed(() => store.byEntry(props.entryID))
 
-const formatDate = (date: Date | null) => {
-  if (!date) return ""
+// --- STATE ---
+const currentStartTime = ref(0);
+const currentEndTime = ref(0);
+const formName = ref("");
+const formDesc = ref("");
 
-  return date.toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  })
+const isEditing = ref(false);
+const editingId = ref<number | null>(null);
+const modalRef = ref<HTMLDialogElement | null>(null);
+
+// --- ECHTZEIT SLIDER UPDATE ---
+// Diese Funktion wird gefeuert, während du ziehst (Realtime)
+const updateFromSlider = (val: number[]) => {
+    currentStartTime.value = val[0] ?? 0;
+    currentEndTime.value = val[1] ?? 0;
 }
 
+// --- COMPUTED INPUTS (Rechnen im Hintergrund) ---
+const startMin = computed({
+    get: () => Math.floor(currentStartTime.value / 60),
+    set: (val) => {
+        const s = Math.floor(currentStartTime.value % 60);
+        currentStartTime.value = ((val || 0) * 60) + s;
+    }
+});
 
-const modalRef = ref<HTMLDialogElement | null>(null)
+const startSec = computed({
+    get: () => Math.floor(currentStartTime.value % 60),
+    set: (val) => {
+        const m = Math.floor(currentStartTime.value / 60);
+        currentStartTime.value = (m * 60) + (val || 0);
+    }
+});
 
-const initialForm = {
-  name: "",
-  startTime: "", // datetime-local -
-  endTime: "",
-  description: "",
+const endMin = computed({
+    get: () => Math.floor(currentEndTime.value / 60),
+    set: (val) => {
+        const s = Math.floor(currentEndTime.value % 60);
+        currentEndTime.value = ((val || 0) * 60) + s;
+    }
+});
+
+const endSec = computed({
+    get: () => Math.floor(currentEndTime.value % 60),
+    set: (val) => {
+        const m = Math.floor(currentEndTime.value / 60);
+        currentEndTime.value = (m * 60) + (val || 0);
+    }
+});
+
+
+// --- Helper Functions ---
+const formatSeconds = (totalSeconds: number | null) => {
+  if (totalSeconds == null) return "00:00";
+  const m = Math.floor(totalSeconds / 60);
+  const s = Math.floor(totalSeconds % 60);
+  const ms = Math.round((totalSeconds - Math.floor(totalSeconds)) * 10);
+  return ms > 0 
+    ? `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms}` 
+    : `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
-const form = ref({ ...initialForm })
-
-function openModal() {
-  form.value = { ...initialForm }
-  modalRef.value?.showModal()
+function openModal(seq: Sequence | null) {
+  if (seq) {
+    isEditing.value = true;
+    editingId.value = seq.id;
+    currentStartTime.value = seq.startTime;
+    currentEndTime.value = seq.endTime;
+    formName.value = seq.name;
+    formDesc.value = seq.description;
+  } else {
+    isEditing.value = false;
+    editingId.value = null;
+    currentStartTime.value = 0;
+    currentEndTime.value = props.totalDuration || 60;
+    formName.value = "";
+    formDesc.value = "";
+  }
+  modalRef.value?.showModal();
 }
 
 function closeModal() {
-  modalRef.value?.close()
+  modalRef.value?.close();
 }
 
-function addSequence() {
-  const now = new Date()
-  const name = form.value.name?.trim() || "Untitled"
+function saveSequence() {
+  let start = Math.max(0, currentStartTime.value);
+  let end = Math.min(props.totalDuration, currentEndTime.value);
+  if (start > end) start = end;
 
-  const start = form.value.startTime
-    ? new Date(form.value.startTime)
-    : now
+  const payload = {
+      name: formName.value?.trim() || "Untitled",
+      startTime: start,
+      endTime: end,
+      description: formDesc.value || "",
+      entryID: props.entryID
+  };
 
-  const end = form.value.endTime
-    ? new Date(form.value.endTime)
-    : null
-
-  store.add({
-    name,
-    startTime: start,
-    endTime: end,
-    description: form.value.description || "",
-    entryID: props.entryID,
-  })
-
-  closeModal()
+  if (isEditing.value && editingId.value !== null) {
+    store.update({ id: editingId.value, ...payload });
+  } else {
+    store.add(payload);
+  }
+  closeModal();
 }
 
 function deleteSequence(id: number) {
-  store.remove(id)
+  if(confirm("Sequenz löschen?")) store.remove(id);
 }
 </script>
+
+<style scoped>
+.slider-primary {
+  --slider-connect-bg: hsl(var(--p));
+  --slider-handle-bg: hsl(var(--p));
+  --slider-handle-ring-color: hsla(var(--p) / 0.3);
+}
+</style>

@@ -49,7 +49,8 @@
     <!--Opened-->
     <tr v-if="open">
       <td :colspan="7">
-        <Sequence :entryID="entryID" />
+        <Sequence :entryID="props.entryID" 
+        :totalDuration="props.duration || 0" />
       </td>
     </tr>
 </template>
