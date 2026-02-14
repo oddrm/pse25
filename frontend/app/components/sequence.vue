@@ -62,7 +62,7 @@
            
            <Slider
              :model-value="[currentStartTime, currentEndTime]"
-             @update="updateFromSlider"
+             @slide="updateFromSlider"
              :min="0"
              :max="props.totalDuration > 0 ? props.totalDuration : 1" 
              :step="0.1"
@@ -134,7 +134,7 @@ import { ref, computed, onMounted } from "vue"
 import { useSequencesStore } from "../../stores/sequenceStore"
 import type { Sequence } from "~/utils/sequence"
 import Slider from '@vueform/slider'
-import TagEditor from '~/components/TagEditor.vue' // Import TagEditor
+import TagEditor from '~/components/TagEditor.vue'
 import '@vueform/slider/themes/default.css'
 
 const props = defineProps<{ 
@@ -151,24 +151,27 @@ const currentStartTime = ref(0);
 const currentEndTime = ref(0);
 const formName = ref("");
 const formDesc = ref("");
-const formTags = ref<string[]>([]); // NEU: Tags State
+const formTags = ref<string[]>([]);
 
 const isEditing = ref(false);
 const editingId = ref<number | null>(null);
 const modalRef = ref<HTMLDialogElement | null>(null);
 
 // --- ECHTZEIT SLIDER UPDATE ---
-const updateFromSlider = (val: number[]) => {
-    currentStartTime.value = val[0] ?? 0;
-    currentEndTime.value = val[1] ?? 0;
+// @slide sorgt für Aktualisierung während des Ziehens
+const updateFromSlider = (val: any) => {
+    // Da @slide ein Array [number, number] liefert:
+    currentStartTime.value = val[0];
+    currentEndTime.value = val[1];
 }
 
 // --- COMPUTED INPUTS ---
+// Verknüpfung der getrennten Input-Felder (Min/Sek) mit den zentralen Sekunden-Werten
 const startMin = computed({
     get: () => Math.floor(currentStartTime.value / 60),
     set: (val) => {
-        const s = Math.floor(currentStartTime.value % 60);
-        currentStartTime.value = ((val || 0) * 60) + s;
+        const s = currentStartTime.value % 60;
+        currentStartTime.value = (Number(val) * 60) + s;
     }
 });
 
@@ -176,23 +179,23 @@ const startSec = computed({
     get: () => Math.floor(currentStartTime.value % 60),
     set: (val) => {
         const m = Math.floor(currentStartTime.value / 60);
-        currentStartTime.value = (m * 60) + (val || 0);
+        currentStartTime.value = (m * 60) + Number(val);
     }
 });
 
 const endMin = computed({
     get: () => Math.floor(currentEndTime.value / 60),
     set: (val) => {
-        const s = Math.floor(currentEndTime.value % 60);
-        currentEndTime.value = ((val || 0) * 60) + s;
+        const s = currentEndTime.value % 60;
+        currentEndTime.value = (Number(val) * 60) + s;
     }
 });
 
 const endSec = computed({
-    get: () => Math.floor(currentEndTime.value / 60),
+    get: () => Math.floor(currentEndTime.value % 60),
     set: (val) => {
         const m = Math.floor(currentEndTime.value / 60);
-        currentEndTime.value = (m * 60) + (val || 0);
+        currentEndTime.value = (m * 60) + Number(val);
     }
 });
 
@@ -216,7 +219,7 @@ function openModal(seq: Sequence | null) {
     currentEndTime.value = seq.endTime;
     formName.value = seq.name;
     formDesc.value = seq.description;
-    formTags.value = [...(seq.tags || [])]; // Tags kopieren
+    formTags.value = [...(seq.tags || [])];
   } else {
     isEditing.value = false;
     editingId.value = null;
@@ -224,7 +227,7 @@ function openModal(seq: Sequence | null) {
     currentEndTime.value = props.totalDuration || 60;
     formName.value = "";
     formDesc.value = "";
-    formTags.value = []; // Leere Tags
+    formTags.value = [];
   }
   modalRef.value?.showModal();
 }
@@ -244,7 +247,7 @@ function saveSequence() {
       endTime: end,
       description: formDesc.value || "",
       entryID: props.entryID,
-      tags: formTags.value // Tags speichern
+      tags: formTags.value
   };
 
   if (isEditing.value && editingId.value !== null) {
