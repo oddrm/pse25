@@ -2,7 +2,10 @@
 
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     thread,
     time::Duration,
 };
@@ -74,6 +77,7 @@ fn entry_matches_search(entry: &Entry, search_parts: &[String]) -> bool {
 pub struct StorageManager {
     db_connection_pool: Pool,
     watch_dir: PathBuf,
+    tx_counter: Arc<AtomicU64>,
 }
 
 impl StorageManager {
@@ -90,6 +94,7 @@ impl StorageManager {
             db_connection_pool: pool,
             // this only refers to the directory inside the docker container
             watch_dir: PathBuf::from("/data"),
+            tx_counter: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -363,8 +368,7 @@ impl StorageManager {
 
     #[instrument]
     pub fn get_transaction_id(&self) -> TxID {
-        // TODO
-        return 0;
+        self.tx_counter.fetch_add(1, Ordering::Relaxed)
     }
 
     #[instrument]
@@ -374,6 +378,8 @@ impl StorageManager {
         new_path: &PathBuf,
         txid: TxID,
     ) -> Result<(), StorageError> {
+
+        // I do not understand this one
         todo!()
     }
 
