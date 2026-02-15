@@ -1,5 +1,5 @@
 mod common;
-
+// docker compose -f compose.backend.containerized.yaml up --build
 use diesel::prelude::*;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1363,16 +1363,23 @@ fn register_plugin_maps_all_supported_triggers_and_fallbacks() {
     let dir = unique_temp_plugins_dir("trigger_mapping");
     fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
 
-    let _p1 = write_minimal_python_plugin_with_trigger(&dir, "t_create.py", "t_create", "on_entry_create");
-    let _p2 = write_minimal_python_plugin_with_trigger(&dir, "t_update.py", "t_update", "on_entry_update");
-    let _p3 = write_minimal_python_plugin_with_trigger(&dir, "t_delete.py", "t_delete", "on_entry_delete");
+    let _p1 = 
+        write_minimal_python_plugin_with_trigger(&dir, "t_create.py", 
+                                                 "t_create", "on_entry_create");
+    let _p2 = 
+        write_minimal_python_plugin_with_trigger(&dir, "t_update.py", 
+                                                       "t_update", "on_entry_update");
+    let _p3 = 
+        write_minimal_python_plugin_with_trigger(&dir, "t_delete.py", 
+                                                 "t_delete", "on_entry_delete");
     let _p4 = write_minimal_python_plugin_with_trigger(
         &dir,
         "t_schedule.py",
         "t_schedule",
         "on_schedule: */5 * * * *",
     );
-    let _p5 = write_minimal_python_plugin_with_trigger(&dir, "t_manual.py", "t_manual", "manual");
+    let _p5 = write_minimal_python_plugin_with_trigger(&dir, "t_manual.py", 
+                                                       "t_manual", "manual");
     let _p6 = write_minimal_python_plugin_with_trigger(
         &dir,
         "t_unknown.py",
@@ -1437,7 +1444,8 @@ fn register_plugin_fails_validation_when_plugin_impl_missing_or_run_missing() {
     let dir = unique_temp_plugins_dir("validation_errors");
     fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
 
-    let p_missing_impl = write_invalid_python_plugin_missing_plugin_impl(&dir, "missing_impl.py");
+    let p_missing_impl = 
+        write_invalid_python_plugin_missing_plugin_impl(&dir, "missing_impl.py");
     let err = pm
         .register_plugin(p_missing_impl)
         .expect_err("expected error for missing PluginImpl");
@@ -1471,8 +1479,10 @@ fn load_config_and_apply_applies_multiple_known_plugins() {
     let dir = unique_temp_plugins_dir("config_multiple_known");
     fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
 
-    let _p1 = write_minimal_python_plugin_with_trigger(&dir, "a.py", "plugin_a_cfg", "manual");
-    let _p2 = write_minimal_python_plugin_with_trigger(&dir, "b.py", "plugin_b_cfg", "manual");
+    let _p1 = 
+        write_minimal_python_plugin_with_trigger(&dir, "a.py", "plugin_a_cfg", "manual");
+    let _p2 = 
+        write_minimal_python_plugin_with_trigger(&dir, "b.py", "plugin_b_cfg", "manual");
 
     pm.register_plugins(dir.clone())
         .expect("register_plugins failed");
@@ -1673,7 +1683,8 @@ async fn start_actually_executes_run_function() {
     let dir = unique_temp_plugins_dir("run_marker_plugin");
     fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
 
-    let plugin_path = write_python_plugin_that_writes_marker_and_exits(&dir, "marker.py", "marker_plugin");
+    let plugin_path = 
+        write_python_plugin_that_writes_marker_and_exits(&dir, "marker.py", "marker_plugin");
     let marker_path = plugin_path.with_extension("ran");
 
     // Ensure clean start
@@ -1726,7 +1737,8 @@ async fn stop_kills_runner_when_soft_stop_does_not_exit() {
     let dir = unique_temp_plugins_dir("kill_path_plugin");
     fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
 
-    let plugin_path = write_python_plugin_that_ignores_stop(&dir, "ignore_stop.py", "ignore_stop");
+    let plugin_path = 
+        write_python_plugin_that_ignores_stop(&dir, "ignore_stop.py", "ignore_stop");
     pm.register_plugin(plugin_path).expect("register_plugin failed");
 
     let temp_dir = unique_temp_plugins_dir("kill_path_instance");
@@ -1764,7 +1776,8 @@ async fn pause_times_out_when_runner_does_not_ack_in_time() {
     let dir = unique_temp_plugins_dir("slow_pause_plugin");
     fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
 
-    let plugin_path = write_python_plugin_with_slow_pause(&dir, "slow_pause.py", "slow_pause");
+    let plugin_path = 
+        write_python_plugin_with_slow_pause(&dir, "slow_pause.py", "slow_pause");
     pm.register_plugin(plugin_path).expect("register_plugin failed");
 
     let temp_dir = unique_temp_plugins_dir("slow_pause_instance");
@@ -1783,7 +1796,8 @@ async fn pause_times_out_when_runner_does_not_ack_in_time() {
     );
 
     // Act: pause should time out
-    let err = pm.pause_plugin_instance(id).await.expect_err("pause should time out");
+    let err = pm.pause_plugin_instance(id)
+        .await.expect_err("pause should time out");
 
     let msg = format!("{err:?}");
     assert!(

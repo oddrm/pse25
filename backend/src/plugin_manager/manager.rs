@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Stdio;
 
 use serde::Deserialize;
@@ -19,7 +19,7 @@ use crate::{
     error::Error, plugin_manager::plugin::Plugin,
 };
 use std::sync::Arc;
-
+use rocket::futures::TryFutureExt;
 // -------------------- constants --------------------
 
 const TRIGGER_MANUAL: &str = "manual";
@@ -473,7 +473,8 @@ impl PluginManager {
         plugin_path: &PathBuf,
         instance_id: InstanceID,
     ) -> Result<RunningInstance, Error> {
-        let (child, child_stdin, stdout_rx) = self.spawn_runner(plugin_path, instance_id).await?;
+        let (child, child_stdin, stdout_rx)
+            = self.spawn_runner(plugin_path, instance_id).await?;
 
         let mut inst = RunningInstance {
             plugin_index,
@@ -486,6 +487,210 @@ impl PluginManager {
 
         inst.cmd_start(instance_id).await?;
         Ok(inst)
+    }
+
+    pub fn register_plugins(&mut self, directory: PathBuf) -> Result<(), Error> {
+        // iterieren
+        for entry in fs::read_dir(&directory).map_err(|e|
+            Error::CustomError(e.to_string()))? {
+            let entry = entry.map_err(|e| Error::CustomError(e.to_string()))?;
+            let path = entry.path();
+
+            // Nur Dateien registrieren (keine Ordner)
+            if !path.is_file() {
+                continue;
+            }
+
+            // Nur *.py registrieren (sonst ist ein Plugin-Ordner extrem fragil)
+            let is_py = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("py"));
+
+            if !is_py {
+                continue;
+            }
+
+            // jeweils registrieren
+            self.register_plugin(path)?;
+        }
+        Ok(())
+    }
+
+    pub fn register_plugin(&mut self, path: PathBuf) -> Result<(), Error> {
+        // Duplikate verhindern: gleicher Plugin-Pfad darf nicht zweimal registriert werden.
+        // Canonicalize macht es robuster gegen ./foo.py vs foo.py vs absolute Pfade.
+        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.clone());
+
+        if self.registered.iter().any(|p| p.path() == &canonical_path) {
+            return Err(Error::CustomError(format!(
+                "Plugin at path '{:?}' is already registered",
+                canonical_path
+            )));
+        }
+
+        let warnings = python_bridge::validate_plugin_module(canonical_path.as_path())?;
+        for w in &warnings {
+            warn!("{w}");
+        }
+
+        // Dateiname ohne Endung
+        let fallback_name = canonical_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(FALLBACK_PLUGIN_NAME)
+            .to_string();
+
+        let fallback_description = format!("Plugin loaded from {:?}", canonical_path);
+
+        // Auslesen aus Python-Modul
+        let (py_name, py_description, py_trigger) =
+            python_bridge::read_module_constants(canonical_path.as_path())
+                .unwrap_or((None, None, None));
+
+        let name = py_name.unwrap_or(fallback_name);
+        let description = py_description.unwrap_or(fallback_description);
+
+        let trigger = parse_trigger(py_trigger.as_deref()).unwrap_or_else(|e| {
+            log::warn!("Invalid trigger, falling back to Manual: {}", e);
+            Trigger::Manual
+        });
+
+        let mut plugin = Plugin::new(name, description, trigger, canonical_path);
+        plugin.set_valid(true);
+        plugin.set_validation_warnings(warnings);
+
+        self.registered.push(plugin);
+        Ok(())
+    }
+
+
+    pub async fn start_plugin_instance(
+        &mut self,
+        plugin_name: &str,
+        _temp_directory: PathBuf,
+        instance_id: InstanceID,
+    ) -> Result<(), Error> {
+        // noch nicht am laufen
+        if self.running.contains_key(&instance_id) {
+            return Err(Error::CustomError(format!(
+                "{ERR_INSTANCE_ALREADY_RUNNING_PREFIX}{} is already running",
+                instance_id
+            )));
+        }
+
+        // anhand des Namens suchen
+        let plugin_index = self
+            .registered
+            .iter()
+            .position(|p| p.name().as_str() == plugin_name)
+            .ok_or_else(|| {
+                Error::CustomError(format!(
+                    "{ERR_PLUGIN_NOT_REGISTERED_PREFIX}{}' is not registered",
+                    plugin_name
+                ))
+            })?;
+
+        let reg_plugin = &self.registered[plugin_index];
+
+        // muss valid sein
+        if !reg_plugin.valid() {
+            return Err(Error::CustomError(format!(
+                "Plugin '{}' is invalid and cannot be started",
+                reg_plugin.name()
+            )));
+        }
+        // muss aktiviert sein
+        if !reg_plugin.enabled() {
+            return Err(Error::CustomError(format!(
+                "Plugin '{}' is disabled",
+                reg_plugin.name()
+            )));
+        }
+
+        // Python-Prozess starten
+        let (child, child_stdin, stdout_rx) =
+            self.spawn_runner(reg_plugin.path(), instance_id).await?;
+
+        // Instanz erstellen
+        let mut inst = RunningInstance {
+            plugin_index,
+            state: Running,
+            child,
+            child_stdin,
+            stdout_rx,
+            next_request_seq: 1,
+        };
+
+        // Sendet start an Python-Runner
+        let _ = Self::send_cmd_ack(&mut inst, instance_id, CMD_START, TIMEOUT_START_ACK).await?;
+        // Eintrag in running speichern
+        self.running.insert(instance_id, Arc::new(Mutex::new(inst)));
+        Ok(())
+    }
+
+    pub async fn stop_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
+        // Entfernt Instanz aus running
+        let handle = self.running.remove(&instance_id).ok_or_else(|| {
+            Error::CustomError(format!(
+                "{ERR_INSTANCE_NOT_RUNNING_PREFIX}{} is not running",
+                instance_id
+            ))
+        })?;
+
+        // 1) Soft stop mit Bestätigung (damit es nicht "ignoriert" wird)
+        let mut inst = handle.lock().await;
+
+        let soft =
+            Self::send_cmd_ack(&mut *inst, instance_id, CMD_STOP, TIMEOUT_SOFT_STOP_ACK).await;
+
+        if soft.is_ok() {
+            if timeout(TIMEOUT_WAIT_EXIT_AFTER_SOFT_STOP, inst.child.wait())
+                .await
+                .is_ok()
+            {
+                return Ok(());
+            }
+            warn!(LOG_SOFT_STOP_FORCE_KILL);
+        } else {
+            warn!(error = ?soft.err(), "{LOG_SOFT_STOP_FAILED_FORCE_KILL}");
+        }
+
+        // kill
+        inst.child
+            .kill()
+            .await
+            .map_err(|e| Error::CustomError(format!("{ERR_FAILED_KILL_PY_PREFIX}{e}")))?;
+
+        // kurz warten
+        let _ = timeout(TIMEOUT_WAIT_EXIT_AFTER_KILL, inst.child.wait()).await;
+        Ok(())
+    }
+
+    pub async fn pause_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
+        let entry = self.get_running_instance_mut(instance_id)?;
+
+        // schon pausiert
+        if entry.state == InstanceState::Paused {
+            return Ok(());
+        }
+
+        // sendet pause, wartet ack
+        let _ = Self::send_cmd_ack(entry, instance_id, CMD_PAUSE, TIMEOUT_PAUSE_ACK).await?;
+        entry.state = InstanceState::Paused;
+        Ok(())
+    }
+
+    pub async fn resume_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
+        let entry = self.get_running_instance_mut(instance_id)?;
+        // schon running?
+        if entry.state == Running {
+            return Ok(());
+        }
+
+        let _ = Self::send_cmd_ack(entry, instance_id, CMD_RESUME, TIMEOUT_RESUME_ACK).await?;
+        entry.state = Running;
+        Ok(())
     }
 
     /// Stop-Logik auf Instance-Ebene (wird typischerweise über einen Instance-Mutex ausgeführt).
@@ -548,89 +753,6 @@ impl PluginManager {
         entry.state = Running;
         Ok(())
     }
-
-    fn canonical_or_original(path: &Path) -> PathBuf {
-        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
-    }
-
-    fn is_path_already_registered(&self, path: &Path) -> bool {
-        let cand = Self::canonical_or_original(path);
-
-        self.registered.iter().any(|p| {
-            let existing = Self::canonical_or_original(p.path());
-            existing == cand
-        })
-    }
-
-    pub fn register_plugin(&mut self, plugin_path: PathBuf) -> Result<(), Error> {
-        let plugin_path = Self::canonical_or_original(&plugin_path);
-
-        if self.is_path_already_registered(&plugin_path) {
-            return Err(Error::CustomError(format!(
-                "Plugin at path '{}' is already registered",
-                plugin_path.to_string_lossy()
-            )));
-        }
-
-        // Python-Seite: validieren + Konstanten lesen
-        let warnings = python_bridge::validate_plugin_module(&plugin_path)?;
-        let (name_opt, desc_opt, trigger_opt) = python_bridge::read_module_constants(&plugin_path)?;
-
-        let file_stem_fallback = plugin_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(FALLBACK_PLUGIN_NAME);
-
-        let name = name_opt.unwrap_or_else(|| file_stem_fallback.to_string());
-        let description = desc_opt.unwrap_or_else(|| {
-            format!("Plugin loaded from {}", plugin_path.to_string_lossy())
-        });
-        let trigger = parse_trigger(trigger_opt.as_deref());
-
-        let mut plugin = Plugin::new(name, description, trigger, plugin_path);
-        plugin.set_validation_warnings(warnings);
-        plugin.set_valid(true);
-        plugin.set_enabled(true);
-
-        self.registered.push(plugin);
-        Ok(())
-    }
-
-    pub fn register_plugins(&mut self, directory: PathBuf) -> Result<(), Error> {
-        let dir = directory;
-
-        let entries = fs::read_dir(&dir).map_err(|e| {
-            Error::CustomError(format!(
-                "Failed to read plugin directory '{}': {e}",
-                dir.to_string_lossy()
-            ))
-        })?;
-
-        for entry in entries {
-            let entry = entry.map_err(|e| {
-                Error::CustomError(format!(
-                    "Failed to read plugin directory entry in '{}': {e}",
-                    dir.to_string_lossy()
-                ))
-            })?;
-
-            let path = entry.path();
-
-            // Skip: Unterordner / Nicht-.py
-            if path.is_dir() {
-                continue;
-            }
-            if path.extension().and_then(|s| s.to_str()) != Some("py") {
-                continue;
-            }
-
-            // Fehler bei einem Plugin => brich ab (passt zu euren Tests: duplicates sollen Err geben).
-            self.register_plugin(path)?;
-        }
-
-        Ok(())
-    }
-
 
     // Ausgabe running Instanzen als Liste von (&Plugin, InstanceID)
     pub fn get_running_instances(&self) -> Vec<(&Plugin, InstanceID)> {

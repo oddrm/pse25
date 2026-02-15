@@ -84,6 +84,7 @@ dependencies = [
  "diesel",
  "diesel-async",
  "dotenvy",
+ "log",
  "notify",
  "pq-sys",
  "pyo3",
