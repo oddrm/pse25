@@ -1,8 +1,11 @@
 #![allow(unused)]
 
-use deadpool_diesel::{InteractError, postgres::PoolError};
+use deadpool_diesel::{postgres::PoolError, InteractError};
 use diesel::ConnectionError;
+use rocket::http::Status;
 use rocket::response::{self, Responder};
+use rocket::serde::json::Json;
+use serde::Serialize;
 
 #[derive(Debug)]
 pub enum Error {
@@ -25,9 +28,66 @@ impl From<notify::Error> for Error {
     }
 }
 
+#[derive(Debug, Serialize)]
+struct ErrorResponse {
+    error: String,
+}
+
+impl Error {
+    fn to_status_and_message(&self) -> (Status, String) {
+        match self {
+            Error::ParsingError(msg) => (Status::BadRequest, msg.clone()),
+
+            Error::CustomError(msg) => {
+                // Spezieller Fall: "PluginManager lock timeout" => nicht stapeln, sondern retry.
+                if msg.to_lowercase().contains("lock timeout")
+                    || msg.to_lowercase().contains("busy")
+                {
+                    (Status::ServiceUnavailable, msg.clone())
+                } else {
+                    (Status::BadRequest, msg.clone())
+                }
+            }
+
+            Error::StorageError(se) => match se {
+                StorageError::NotFound(msg) => (Status::NotFound, msg.clone()),
+                StorageError::AlreadyExists(msg) => (Status::Conflict, msg.clone()),
+                StorageError::DecodingError(msg) => (Status::BadRequest, msg.clone()),
+
+                // DB/Pool: in der Praxis oft temporär => 503
+                StorageError::ConnectionError(_) | StorageError::PoolError(_) => (
+                    Status::ServiceUnavailable,
+                    "Database temporarily unavailable".to_string(),
+                ),
+
+                StorageError::IoError(_) => (
+                    Status::InternalServerError,
+                    "I/O error".to_string(),
+                ),
+
+                StorageError::EventProcessingError(msg)
+                | StorageError::CustomError(msg) => (Status::InternalServerError, msg.clone()),
+            },
+
+            Error::PollingError(_) => (
+                Status::InternalServerError,
+                "Watcher/polling error".to_string(),
+            ),
+
+            Error::IoError(_) => (
+                Status::InternalServerError,
+                "I/O error".to_string(),
+            ),
+        }
+    }
+}
+
 impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
     fn respond_to(self, req: &'r rocket::Request<'_>) -> response::Result<'o> {
-        todo!()
+        let (status, message) = self.to_status_and_message();
+
+        // Einheitliche JSON-Fehlerform fürs Frontend
+        response::status::Custom(status, Json(ErrorResponse { error: message })).respond_to(req)
     }
 }
 

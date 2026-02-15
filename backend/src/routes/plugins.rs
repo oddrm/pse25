@@ -11,6 +11,10 @@ use tokio::time::{timeout, Duration};
 
 const PM_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
+// Optional (Route-Level): harte Obergrenze für "langsame" Operationen.
+// Das ist unabhängig vom Lock-Timeout und schützt euch vor ewig laufenden Requests.
+const ROUTE_OP_TIMEOUT: Duration = Duration::from_secs(10);
+
 async fn lock_plugin_manager(
     state: &State<AppState>,
 ) -> Result<tokio::sync::MutexGuard<'_, crate::plugin_manager::manager::PluginManager>, Error> {
@@ -23,7 +27,6 @@ async fn lock_plugin_manager(
             ))
         })
 }
-
 #[derive(serde::Serialize)]
 pub struct PluginInfo {
     name: String,
@@ -32,6 +35,41 @@ pub struct PluginInfo {
     path: String,
     enabled: bool,
     valid: bool,
+}
+
+#[put("/plugins/<plugin_name>/start")]
+pub async fn start_plugin_instance(
+    state: &State<AppState>,
+    plugin_name: String,
+) -> Result<Json<u64>, Error> {
+    let instance_id = chrono::Utc::now().timestamp_millis().max(0) as u64;
+
+    // Phase 1: global lock kurz halten (prüfen + Daten holen)
+    let (plugin_index, plugin_path) = {
+        let pm = lock_plugin_manager(state).await?;
+        pm.prepare_start(&plugin_name)?
+    }; // <- pm DROPPED hier, bevor wir irgendwas .await-en
+
+    // Phase 2: langsame Arbeit ohne globalen lock
+    let inst = timeout(
+        ROUTE_OP_TIMEOUT,
+        async {
+            // build braucht &PluginManager, aber hält keinen Mutex
+            let pm = lock_plugin_manager(state).await?; // nur um &self zu bekommen
+            // WICHTIG: wir rufen hier NUR die "build" Methode auf, die keine Map mutiert.
+            pm.build_started_instance(plugin_index, &plugin_path, instance_id).await
+        },
+    )
+        .await
+        .map_err(|_| Error::CustomError(format!("start timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+
+    // Phase 3: commit wieder kurz unter globalem lock
+    {
+        let mut pm = lock_plugin_manager(state).await?;
+        pm.commit_started_instance(instance_id, inst)?;
+    }
+
+    Ok(Json(instance_id))
 }
 
 #[post("/plugins/register")]
@@ -51,32 +89,21 @@ pub async fn register_plugin(
     Ok(status::NoContent)
 }
 
-#[put("/plugins/<plugin_name>/start")]
-pub async fn start_plugin_instance(
-    state: &State<AppState>,
-    plugin_name: String,
-) -> Result<Json<u64>, Error> {
-    let mut pm = lock_plugin_manager(state).await?;
-    // id entsteht aus Zeitstempel in Millisekunden
-    let instance_id = chrono::Utc::now().timestamp_millis().max(0) as u64;
-
-    pm.start_plugin_instance(
-        &plugin_name,
-        std::path::PathBuf::from("/tmp"),
-        instance_id,
-    )
-    .await?;
-
-    Ok(Json(instance_id))
-}
-
 #[put("/plugins/<instance_id>/stop")]
 pub async fn stop_plugin_instance(
     state: &State<AppState>,
     instance_id: u64,
 ) -> Result<status::NoContent, Error> {
-    let mut pm = lock_plugin_manager(state).await?;
-    pm.stop_plugin_instance(instance_id).await?;
+    // take() entfernt die Instanz sofort aus running => UI blockiert nicht auf "running"-Liste
+    let handle = {
+        let mut pm = lock_plugin_manager(state).await?;
+        pm.take_instance_handle(instance_id)?
+    };
+
+    timeout(ROUTE_OP_TIMEOUT, crate::plugin_manager::manager::PluginManager::stop_instance_handle(handle, instance_id))
+        .await
+        .map_err(|_| Error::CustomError(format!("stop timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+
     Ok(status::NoContent)
 }
 
@@ -85,8 +112,16 @@ pub async fn pause_plugin_instance(
     state: &State<AppState>,
     instance_id: u64,
 ) -> Result<status::NoContent, Error> {
-    let mut pm = lock_plugin_manager(state).await?;
-    pm.pause_plugin_instance(instance_id).await?;
+    // Handle unter globalem lock holen, dann lock droppen
+    let handle = {
+        let pm = lock_plugin_manager(state).await?;
+        pm.get_instance_handle(instance_id)?
+    };
+
+    timeout(ROUTE_OP_TIMEOUT, crate::plugin_manager::manager::PluginManager::pause_instance_handle(handle, instance_id))
+        .await
+        .map_err(|_| Error::CustomError(format!("pause timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+
     Ok(status::NoContent)
 }
 
@@ -95,8 +130,15 @@ pub async fn resume_plugin_instance(
     state: &State<AppState>,
     instance_id: u64,
 ) -> Result<status::NoContent, Error> {
-    let mut pm = lock_plugin_manager(state).await?;
-    pm.resume_plugin_instance(instance_id).await?;
+    let handle = {
+        let pm = lock_plugin_manager(state).await?;
+        pm.get_instance_handle(instance_id)?
+    };
+
+    timeout(ROUTE_OP_TIMEOUT, crate::plugin_manager::manager::PluginManager::resume_instance_handle(handle, instance_id))
+        .await
+        .map_err(|_| Error::CustomError(format!("resume timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+
     Ok(status::NoContent)
 }
 
@@ -122,6 +164,7 @@ pub async fn get_running_instances(
     Ok(Json(plugins))
 }
 
+// Die GETs bleiben ok: sie locken kurz und awaiten nichts "Langsames".
 #[get("/plugins/registered")]
 pub async fn get_registered_plugins(
     state: &State<AppState>,
