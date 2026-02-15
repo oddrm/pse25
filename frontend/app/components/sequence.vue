@@ -65,7 +65,7 @@
              @slide="updateFromSlider"
              :min="0"
              :max="props.totalDuration > 0 ? props.totalDuration : 1" 
-             :step="0.1"
+             :step="1"
              :tooltips="false"
              class="slider-primary z-10"
            />
@@ -205,10 +205,7 @@ const formatSeconds = (totalSeconds: number | null) => {
   if (totalSeconds == null) return "00:00";
   const m = Math.floor(totalSeconds / 60);
   const s = Math.floor(totalSeconds % 60);
-  const ms = Math.round((totalSeconds - Math.floor(totalSeconds)) * 10);
-  return ms > 0 
-    ? `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms}` 
-    : `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
 function openModal(seq: Sequence | null) {
@@ -237,8 +234,8 @@ function closeModal() {
 }
 
 function saveSequence() {
-  let start = Math.max(0, currentStartTime.value);
-  let end = Math.min(props.totalDuration, currentEndTime.value);
+  let start = Math.round(Math.max(0, currentStartTime.value));
+  let end = Math.round(Math.min(props.totalDuration, currentEndTime.value));
   if (start > end) start = end;
 
   const payload = {
