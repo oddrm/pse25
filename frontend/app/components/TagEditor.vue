@@ -29,7 +29,7 @@
         ref="inputRef"
         v-model="editString"
         class="input input-sm input-bordered join-item w-full"
-        placeholder="Tags mit Komma trennen (z.B. Wald, Fehler, Lidar)"
+        placeholder="Tags mit Komma trennen (z.B. Wald, Fehler)"
         @keydown.enter="saveTags"
         @keydown.esc="cancelEdit"
       />

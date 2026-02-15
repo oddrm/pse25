@@ -61,17 +61,54 @@
               <input v-model="sensor.type" class="input input-bordered input-xs" />
             </div>
 
-            <div class="mt-2">
-           <span class="text-[10px] font-bold opacity-50 uppercase">Associated Topics</span>
-            <div class="flex flex-wrap gap-1 mt-1">
-               <div v-for="(t, ti) in sensor.topics" :key="ti" class="badge badge-ghost badge-sm py-2">
-                  {{ t }}
-                  </div>
-                <div v-if="!sensor.topics || sensor.topics.length === 0" class="text-[10px] italic opacity-40">
-                   Keine Topics zugeordnet
-                 </div>
-               </div>
-              </div>
+            <div class="mt-4">
+  <span class="text-[10px] font-bold opacity-50 uppercase tracking-wider">Associated Topics</span>
+  
+  <div class="flex flex-wrap gap-2 mt-2">
+    <div 
+      v-for="(topicName, ti) in sensor.topics" 
+      :key="ti" 
+      class="badge badge-secondary badge-sm py-3 gap-1 pl-3"
+    >
+      <span class="max-w-[150px] truncate">{{ topicName }}</span>
+      <button 
+        @click="removeTopicFromSensor(sensor, ti)" 
+        class="btn btn-ghost btn-xs btn-circle h-4 w-4 min-h-0 hover:bg-primary-focus"
+      >
+        <Icon name="solar:close-circle-bold" size="12" />
+      </button>
+    </div>
+
+    <div class="dropdown dropdown-top">
+      <label 
+        tabindex="0" 
+        class="btn btn-outline btn-xs btn-circle border-dashed opacity-50 hover:opacity-100"
+        title="Topic zuordnen"
+      >
+        <Icon name="solar:add-circle-bold" size="16" />
+      </label>
+      
+      <ul 
+        tabindex="0" 
+        class="dropdown-content z-[100] menu p-2 shadow-xl bg-base-100 border border-base-300 rounded-box w-85 max-h-60 overflow-y-auto block"
+      >
+        <li class="menu-title text-[10px] ">Verfügbare Topics</li>
+        <li v-for="availableTopic in getFilteredTopics(sensor)" :key="availableTopic.name">
+          <a @click="addTopicToSensor(sensor, availableTopic.name)" class="text-xs py-2">
+            {{ availableTopic.name }}
+          </a>
+        </li>
+        <li v-if="getFilteredTopics(sensor).length === 0" class="text-xs italic p-2 opacity-40">
+          Alle Topics zugeordnet
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <div v-if="!sensor.topics || sensor.topics.length === 0" class="text-[10px] italic opacity-40 mt-1">
+    Keine Topics zugeordnet
+  </div>
+</div>
           </div>
         </div>
 
@@ -119,6 +156,8 @@ const editableEntry = ref<Entry | null>(null)
 const showSensorSelect = ref(false)
 const selectedExistingSensor = ref<Sensor | null>(null)
 
+  //TODO: HIer noch eine Funktion machen um auf alle Sensoren zuzugreifen, die liegen dann ja irgendwo im Backend,
+  //deshalb ist das hier eine händische Liste
 const globalSensors = ref<Sensor[]>([
   { name: 'ouster_cabin_left', type: 'rotating_lidar', topics: ['sensors/ouster_cabin_left/points'] },
   { name: 'jai_fs_3200d_cabin_left', type: 'area_scan_camera', topics: ['sensors/jai_fs_3200d_cabin_left/image_raw'] },
@@ -175,4 +214,33 @@ const cancelChanges = () => {
     editableEntry.value = JSON.parse(JSON.stringify(entry.value));
   }
 }
+
+// Topic von einem Sensor entfernen
+const removeTopicFromSensor = (sensor: Sensor, topicIndex: number) => {
+  sensor.topics.splice(topicIndex, 1);
+};
+
+//Topic zu einem Sensor hinzufügen
+const addTopicToSensor = (sensor: Sensor, topicName: string) => {
+  if (!sensor.topics) sensor.topics = [];
+  // Nur hinzufügen, wenn noch nicht vorhanden
+  if (!sensor.topics.includes(topicName)) {
+    sensor.topics.push(topicName);
+  }
+  // Fokus vom Dropdown entfernen, um es zu schließen
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+};
+
+// Filtert die Liste der MCAP-Topics, 
+// damit nur die angezeigt werden, die der Sensor noch nicht hat.
+const getFilteredTopics = (sensor: Sensor) => {
+  if (!editableEntry.value?.topics) return [];
+  const currentSensorTopics = sensor.topics || [];
+  return editableEntry.value.topics.filter(
+    t => !currentSensorTopics.includes(t.name)
+  );
+};
+
 </script>

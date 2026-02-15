@@ -25,7 +25,7 @@
           
           <td>
              <div class="flex flex-wrap gap-1">
-                <span v-for="t in seq.tags" :key="t" class="badge badge-xs bg-blue-800 text-white border-none">
+                <span v-for="t in seq.tags" :key="t" class="badge badge-sm badge-primary border-none">
                     {{ t }}
                 </span>
              </div>

@@ -15,7 +15,9 @@ export const fetchEntries = (searchString: string, sortBy: Sorting, ascending: b
             
             topics: [
                 { name: "sensors/ouster_cabin_left/points", type: "sensor_msgs/PointCloud2", frequency: 10, messageCount: 300 },
-                { name: "sensors/jai_fs_3200d_cabin_left/image_raw", type: "sensor_msgs/Image", frequency: 10, messageCount: 300 }
+                { name: "sensors/jai_fs_3200d_cabin_left/image_raw", type: "sensor_msgs/Image", frequency: 10, messageCount: 300 },
+                { name: "sensors/ouster_cabin", type: "sensor_msgs/PointCloud2", frequency: 10, messageCount: 400 },
+                { name: "sensors/jai_fs_3200d_test", type: "sensor_msgs/Image", frequency: 20, messageCount: 300 }
             ],
             
             description: "Alice detects barrel during excavation.",
