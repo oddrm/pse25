@@ -1,8 +1,12 @@
 #![allow(unused)]
 
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     thread,
     time::Duration,
 };
@@ -74,11 +78,13 @@ fn entry_matches_search(entry: &Entry, search_parts: &[String]) -> bool {
     true
 }
 
-// this can be cloned cheaply and still refer to the same db
 #[derive(Clone)]
 pub struct StorageManager {
     db_connection_pool: Pool,
     watch_dir: PathBuf,
+    tx_counter: Arc<AtomicU64>,
+    /// Set of transaction IDs that have been started but not yet ended.
+    active_transactions: Arc<Mutex<HashSet<TxID>>>,
 }
 
 impl StorageManager {
@@ -95,6 +101,8 @@ impl StorageManager {
             db_connection_pool: pool,
             // this only refers to the directory inside the docker container
             watch_dir: PathBuf::from("/data"),
+            tx_counter: Arc::new(AtomicU64::new(0)),
+            active_transactions: Arc::new(Mutex::new(HashSet::new())),
         })
     }
 
@@ -196,9 +204,8 @@ impl StorageManager {
             return Ok(entries);
         }
 
-        // 2. Keep only entries where EVERY search word appears in at least one field.
+        // 2. Keep only entries where every search word appears in at least one field.
         //    We look in: name, path, platform_name, scenario_name, scenario_description,
-        //    weather_*, tags, topics (substring match, case-insensitive).
         let filtered: Vec<Entry> = entries
             .into_par_iter()
             .filter(|e| entry_matches_search(e, &search_parts))
@@ -604,9 +611,13 @@ impl StorageManager {
     }
 
     #[instrument]
-    pub fn get_transaction_id(&self) -> TxID {
-        // TODO
-        return 0;
+    pub fn start_transaction(&self) -> TxID {
+        let txid = self.tx_counter.fetch_add(1, Ordering::Relaxed);
+        self.active_transactions
+            .lock()
+            .expect("active_transactions lock")
+            .insert(txid);
+        txid
     }
 
     #[instrument]
@@ -616,13 +627,26 @@ impl StorageManager {
         new_path: &PathBuf,
         txid: TxID,
     ) -> Result<(), StorageError> {
+        // I do not understand this one?
         todo!()
     }
 
     #[instrument]
-    pub fn end_transaction(&self, txid: TxID) -> Result<(), StorageError> {
-        // TODO
-        Ok(())
+    pub async fn commit_transaction(&self, txid: TxID) -> Result<(), StorageError> {
+        let removed = self
+            .active_transactions
+            .lock()
+            .map_err(|e| StorageError::CustomError(e.to_string()))?
+            .remove(&txid);
+        if removed {
+            debug!("Ended transaction {}", txid);
+            Ok(())
+        } else {
+            Err(StorageError::NotFound(format!(
+                "transaction {} not found or already ended",
+                txid
+            )))
+        }
     }
 }
 
