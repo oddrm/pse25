@@ -11,7 +11,7 @@ describe('Entry Component', () => {
                 size: 1024,
                 platform: 'linux',
                 tags: ['important', 'work'],
-                entryID: 1
+                id: 1
             }
         })
 
@@ -31,7 +31,7 @@ describe('Entry Component', () => {
                 size: 1024,
                 platform: 'linux',
                 tags: [],
-                entryID: 42
+                id: 42
             }
         })
 
@@ -50,7 +50,7 @@ describe('Entry Component', () => {
                 size: 2048,
                 platform: 'windows',
                 tags: ['tag1', 'tag2', 'tag3'],
-                entryID: 1
+                id: 1
             }
         })
 
@@ -69,7 +69,7 @@ describe('Entry Component', () => {
                 size: 512,
                 platform: 'macos',
                 tags: [],
-                entryID: 1
+                id: 1
             }
         })
 
@@ -85,7 +85,7 @@ describe('Entry Component', () => {
                 size: 100,
                 platform: 'linux',
                 tags: [],
-                entryID: 1
+                id: 1
             }
         })
 

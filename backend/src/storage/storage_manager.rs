@@ -169,6 +169,7 @@ impl StorageManager {
             .execute(conn)
         })
         .await??;
+
         debug!("Updated entry {}", entry_id_);
         Ok(())
     }
@@ -298,6 +299,17 @@ impl StorageManager {
     }
 
     #[instrument]
+    pub async fn get_all_sensors(&self, txid: TxID) -> Result<Map<SensorID, Sensor>, StorageError> {
+        let conn = self.db_connection_pool().get().await?;
+        let sensors = conn
+            .interact(move |conn| schema::sensors::dsl::sensors.load::<Sensor>(conn))
+            .await??;
+        let sensors_map = sensors.into_iter().map(|s| (s.id, s)).collect();
+        debug!("Queried all sensors: {:?}", sensors_map);
+        Ok(sensors_map)
+    }
+
+    #[instrument]
     pub async fn get_topics(
         &self,
         entry_id_: EntryID,
@@ -312,10 +324,7 @@ impl StorageManager {
             })
             .await??;
         let topics_map = topics.into_iter().map(|s| (s.id, s)).collect();
-        debug!(
-            "Queried topics for entry_id {}: {:?}",
-            entry_id_, topics_map
-        );
+        debug!("Queried topics for entry_id {}", entry_id_);
         Ok(topics_map)
     }
 
@@ -504,11 +513,20 @@ impl StorageManager {
         txid: TxID,
     ) -> Result<SequenceID, StorageError> {
         let conn = self.db_connection_pool().get().await?;
+        let s = sequence.clone();
         let sequence_id = conn
             .interact(move |conn| {
-                diesel::insert_into(schema::sequences::dsl::sequences)
-                    .values(&sequence)
-                    .returning(schema::sequences::dsl::id)
+                use crate::schema::sequences::dsl as sequences_dsl;
+                diesel::insert_into(sequences_dsl::sequences)
+                    .values((
+                        sequences_dsl::entry_id.eq(s.entry_id),
+                        sequences_dsl::description.eq(s.description),
+                        sequences_dsl::start_timestamp.eq(s.start_timestamp),
+                        sequences_dsl::end_timestamp.eq(s.end_timestamp),
+                        sequences_dsl::created_at.eq(s.created_at),
+                        sequences_dsl::updated_at.eq(s.updated_at),
+                    ))
+                    .returning(sequences_dsl::id)
                     .get_result::<SequenceID>(conn)
             })
             .await??;

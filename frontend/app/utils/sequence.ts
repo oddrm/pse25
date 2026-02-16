@@ -1,14 +1,21 @@
 export interface Sequence {
-  message: string | undefined
-  id: sequenceID
-  name: string
-  // WICHTIG: Änderung von Date zu number (Sekunden)
-  startTime: number
-  // WICHTIG: Änderung von Date | null zu number (oder number | null)
-  endTime: number
-  description: string
-  entryID: number
-  tags: string[] // <--- NEU
+  id: number;
+  entry_id: number;
+  description: string;
+  start_timestamp: number;
+  end_timestamp: number;
+  created_at: string;
+  updated_at: string;
+
+  // Local-only fields (not persisted in backend currently)
+  name?: string;
+  tags?: string[];
+}
+
+export interface SequenceWeb {
+  description: string;
+  start_timestamp: number;
+  end_timestamp: number;
 }
 
 export type sequenceID = number;

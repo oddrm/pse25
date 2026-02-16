@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col items-center">
-    <p>entries: {{ entries?.length }} {{ entriesFetchError }} {{ entriesStatus }}</p>
+    <!-- <p>entries: {{ entries?.length }} {{ entriesFetchError }} {{ entriesStatus }} {{ entries }}</p> -->
     <input placeholder="Search" class="input" v-model="searchString" @keyup.enter="console.log(' enter on search');
     refreshEntries()" />
     <table class="table">
@@ -13,8 +13,7 @@
         </tr>
       </thead>
       <tbody>
-        <Entry v-for="entry in entries" :key="entry.entryID" v-bind="entry" expandable
-          @select="$emit('select', $event)" />
+        <Entry v-for="entry in entries" :key="entry.id" v-bind="entry" expandable @select="$emit('select', $event)" />
       </tbody>
     </table>
   </div>

@@ -62,7 +62,7 @@ services:
           path: frontend
           ignore:
             - frontend/node_modules
-            - frontend/dist
+            - frontend/.output
   pgadmin:
     image: dpage/pgadmin4:latest
     ports:
