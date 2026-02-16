@@ -1,4 +1,5 @@
 export interface Sequence {
+  message: string | undefined
   id: sequenceID
   name: string
   // WICHTIG: Änderung von Date zu number (Sekunden)

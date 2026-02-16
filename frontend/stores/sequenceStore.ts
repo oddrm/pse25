@@ -4,6 +4,19 @@ import { fetchSequences } from "~/utils/dbQueries" // [Neu] Import für Mock-Dat
 
 const STORAGE_KEY = "sequences_v1"
 
+type RawSequence = Omit<Sequence, "startTime" | "endTime"> & {
+  startTime: string
+  endTime: string | null
+}
+
+function reviveSequences(raw: RawSequence[] = []): Sequence[] {
+  return raw.map((s) => ({
+    ...s,
+    startTime: new Date(s.startTime),
+    endTime: s.endTime ? new Date(s.endTime) : null,
+  }))
+}
+
 export const useSequencesStore = defineStore("sequences", {
   state: () => ({
     sequences: [] as Sequence[],
@@ -24,10 +37,10 @@ export const useSequencesStore = defineStore("sequences", {
       if (!process.client) return
 
       const saved = localStorage.getItem(STORAGE_KEY)
-      
+
       if (saved) {
         try {
-          // [Geändert] Keine "revive"-Funktion mehr nötig, da Zahlen (Sekunden) 
+          // [Geändert] Keine "revive"-Funktion mehr nötig, da Zahlen (Sekunden)
           // beim Parsen Zahlen bleiben.
           this.sequences = JSON.parse(saved)
         } catch {
