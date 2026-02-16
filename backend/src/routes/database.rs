@@ -324,3 +324,20 @@ pub async fn remove_tag(
     sm.remove_tag(entry_id, tag, txid).await?;
     Ok(status::NoContent)
 }
+
+#[get("/transaction")]
+pub async fn start_transaction(state: &State<AppState>) -> Result<Json<TxID>, Error> {
+    let sm = &state.storage_manager;
+    let txid = sm.start_transaction();
+    Ok(Json(txid))
+}
+
+#[get("/transaction/<txid>/commit")]
+pub async fn commit_transaction(
+    state: &State<AppState>,
+    txid: TxID,
+) -> Result<status::NoContent, Error> {
+    let sm = &state.storage_manager;
+    sm.commit_transaction(txid).await?;
+    Ok(status::NoContent)
+}

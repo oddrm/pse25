@@ -52,10 +52,10 @@ async fn sync_file_removed(storage_manager: &StorageManager, path: &Path) {
     let removed_path = path.to_string_lossy().to_string();
     // check if an entry exists for this path
     if let Ok(Some(entry)) = storage_manager
-        .get_entry_by_path(removed_path.clone(), storage_manager.get_transaction_id())
+        .get_entry_by_path(removed_path.clone(), storage_manager.start_transaction())
         .await
     {
-        let txid = storage_manager.get_transaction_id();
+        let txid = storage_manager.start_transaction();
         // remove topics
         if let Ok(topics_map) = storage_manager.get_topics(entry.id, txid).await {
             for (tid, _t) in topics_map.into_iter() {

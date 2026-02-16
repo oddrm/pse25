@@ -90,7 +90,9 @@ async fn main() {
                 update_sequence,
                 add_tag,
                 remove_tag,
-                list_plugins
+                list_plugins,
+                start_transaction,
+                commit_transaction
             ],
         )
         .manage(AppState {

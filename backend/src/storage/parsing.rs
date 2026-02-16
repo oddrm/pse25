@@ -468,7 +468,7 @@ pub async fn insert_entry_into_db(
     };
 
     // insert entry into DB and get new id (idempotent)
-    let txid = storage_manager.get_transaction_id();
+    let txid = storage_manager.start_transaction();
 
     // Check if entry with same path already exists
     if let Ok(Some(existing)) = storage_manager

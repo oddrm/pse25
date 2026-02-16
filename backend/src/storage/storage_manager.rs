@@ -611,7 +611,7 @@ impl StorageManager {
     }
 
     #[instrument]
-    pub fn get_transaction_id(&self) -> TxID {
+    pub fn start_transaction(&self) -> TxID {
         let txid = self.tx_counter.fetch_add(1, Ordering::Relaxed);
         self.active_transactions
             .lock()
@@ -632,7 +632,7 @@ impl StorageManager {
     }
 
     #[instrument]
-    pub fn end_transaction(&self, txid: TxID) -> Result<(), StorageError> {
+    pub async fn commit_transaction(&self, txid: TxID) -> Result<(), StorageError> {
         let removed = self
             .active_transactions
             .lock()
