@@ -259,6 +259,48 @@ const triggerToast = (message: string, type: 'success' | 'error' = 'success') =>
   }, 3000)
 }
 
+const loadEntryData = async (numericId: number) => {
+  try {
+    const e = await fetchEntry(numericId)
+
+    // Format datetime for datetime-local input (YYYY-MM-DDTHH:mm)
+    if (e.scenario_creation_time) {
+      const date = new Date(e.scenario_creation_time);
+      const offset = date.getTimezoneOffset() * 60000;
+      e.scenario_creation_time = new Date(date.getTime() - offset).toISOString().slice(0, 16);
+    }
+
+    entry.value = e
+    editableEntry.value = JSON.parse(JSON.stringify(e))
+
+    // fetch sensors and topics for this entry in parallel
+    const [sensorsMap, topicsMap] = await Promise.all([
+      fetchSensors(numericId).catch(err => {
+        console.error('Failed to fetch sensors:', err);
+        return {};
+      }),
+      fetchTopics(numericId).catch(err => {
+        console.error('Failed to fetch topics:', err);
+        return {};
+      })
+    ]);
+
+    const sensors = Object.values(sensorsMap);
+    const topics = Object.values(topicsMap);
+
+    editableEntry.value!.sensors = sensors;
+    entry.value!.sensors = JSON.parse(JSON.stringify(sensors));
+
+    editableEntry.value!.topics = topics;
+    entry.value!.topics = JSON.parse(JSON.stringify(topics));
+
+  } catch (err) {
+    console.error("Error fetching entry:", err)
+    entry.value = null
+    editableEntry.value = null
+  }
+}
+
 const globalSensors = ref<Sensor[]>([])
 
 onMounted(async () => {
@@ -276,136 +318,67 @@ watch(
     if (!id) {
       entry.value = null;
       editableEntry.value = null;
+      deletedSensorIds.value = [];
       return;
     }
     const numericId = Number(id);
-    try {
-      const e = await fetchEntry(numericId)
-
-      // Format datetime for datetime-local input (YYYY-MM-DDTHH:mm)
-      if (e.scenario_creation_time) {
-        const date = new Date(e.scenario_creation_time);
-        // adjust for timezone offset to get local time for the input
-        const offset = date.getTimezoneOffset() * 60000;
-        const localISOTime = new Date(date.getTime() - offset).toISOString().slice(0, 16);
-        e.scenario_creation_time = localISOTime;
-      }
-
-      entry.value = e
-      editableEntry.value = JSON.parse(JSON.stringify(e))
-
-      // fetch sensors and topics for this entry in parallel
-      const [sensorsMap, topicsMap] = await Promise.all([
-        fetchSensors(numericId).catch(err => {
-          console.error('Failed to fetch sensors:', err);
-          return {};
-        }),
-        fetchTopics(numericId).catch(err => {
-          console.error('Failed to fetch topics:', err);
-          return {};
-        })
-      ]);
-
-      const sensors = Object.values(sensorsMap);
-      const topics = Object.values(topicsMap);
-
-      editableEntry.value!.sensors = sensors;
-      entry.value!.sensors = JSON.parse(JSON.stringify(sensors));
-
-      editableEntry.value!.topics = topics;
-      entry.value!.topics = JSON.parse(JSON.stringify(topics));
-
-    } catch (err) {
-      console.error("Error fetching entry:", err)
-      entry.value = null
-      editableEntry.value = null
-    }
+    deletedSensorIds.value = [];
+    await loadEntryData(numericId);
   },
   { immediate: true }
 )
 
-const addNewEmptySensor = async () => {
-  if (!editableEntry.value || !props.entryID) return;
-  const numericId = Number(props.entryID);
-  const newSensor: SensorWeb = { sensor_name: 'New Sensor', sensor_type: 'TBD', ros_topics: [], manufacturer: null, custom_parameters: null };
+const addNewEmptySensor = () => {
+  if (!editableEntry.value) return;
 
-  try {
-    // create on backend
-    await addSensor(numericId, newSensor);
+  const newSensor: Sensor = {
+    id: 0,
+    entry_id: Number(props.entryID),
+    sensor_name: 'New Sensor',
+    sensor_type: 'TBD',
+    manufacturer: null,
+    ros_topics: [],
+    custom_parameters: null
+  };
 
-    // refresh sensors for this entry
-    const map = await fetchSensors(numericId);
-    const sensors = Object.values(map);
-    editableEntry.value!.sensors = sensors;
-    // We also update the 'entry' copy so it doesn't try to "save" them as updates immediately
-    if (entry.value) entry.value.sensors = JSON.parse(JSON.stringify(sensors));
+  if (!editableEntry.value.sensors) editableEntry.value.sensors = [];
+  editableEntry.value.sensors.push(newSensor);
+  showSensorSelect.value = false;
+};
 
-    // Also refresh the global list of sensors
-    const globalmap = await fetchAllSensors();
-    globalSensors.value = Object.values(globalmap);
+const addExistingSensor = () => {
+  if (!editableEntry.value || !selectedExistingSensor.value) return;
 
-    showSensorSelect.value = false;
-    triggerToast('Sensor added', 'success');
-  } catch (e) {
-    console.error('error adding sensor', e);
-    triggerToast('Failed to add sensor', 'error');
+  const newSensor: Sensor = {
+    id: 0,
+    entry_id: Number(props.entryID),
+    sensor_name: selectedExistingSensor.value.sensor_name,
+    manufacturer: selectedExistingSensor.value.manufacturer,
+    sensor_type: selectedExistingSensor.value.sensor_type,
+    ros_topics: [...selectedExistingSensor.value.ros_topics],
+    custom_parameters: selectedExistingSensor.value.custom_parameters ? JSON.parse(JSON.stringify(selectedExistingSensor.value.custom_parameters)) : null
+  };
+
+  if (!editableEntry.value.sensors) editableEntry.value.sensors = [];
+  editableEntry.value.sensors.push(newSensor);
+  showSensorSelect.value = false;
+  selectedExistingSensor.value = null;
+};
+
+const removeSensor = (index: number) => {
+  if (!editableEntry.value?.sensors) return;
+
+  const sensor = editableEntry.value.sensors[index];
+  if (!sensor) {
+    console.warn(`Sensor at index ${index} not found for removal.`);
+    return;
   }
-}
-
-const addExistingSensor = async () => {
-  if (!editableEntry.value || !selectedExistingSensor.value || !props.entryID) return;
-  const numericId = Number(props.entryID);
-
-  try {
-    await addSensor(numericId, {
-      sensor_name: selectedExistingSensor.value.sensor_name,
-      manufacturer: selectedExistingSensor.value.manufacturer,
-      sensor_type: selectedExistingSensor.value.sensor_type,
-      ros_topics: selectedExistingSensor.value.ros_topics,
-      custom_parameters: selectedExistingSensor.value.custom_parameters
-    });
-
-    const map = await fetchSensors(numericId);
-    const sensors = Object.values(map);
-    editableEntry.value!.sensors = sensors;
-    if (entry.value) entry.value.sensors = JSON.parse(JSON.stringify(sensors));
-
-    showSensorSelect.value = false;
-    selectedExistingSensor.value = null;
-    triggerToast('Sensor associated', 'success');
-  } catch (e) {
-    console.error('error adding existing sensor', e);
-    triggerToast('Failed to add existing sensor', 'error');
+  if (sensor.id && sensor.id > 0) {
+    deletedSensorIds.value.push(sensor.id);
   }
-}
 
-const removeSensor = async (index: number) => {
-  const sensor = editableEntry.value?.sensors?.[index]
-  if (!sensor || !props.entryID) return
-
-  const confirmDelete = sensor.id
-    ? window.confirm(`Are you sure you want to delete sensor "${sensor.sensor_name}"? This action is immediate and cannot be undone.`)
-    : true;
-
-  if (!confirmDelete) return;
-
-  try {
-    if (sensor.id) {
-      await apiRemoveSensor(sensor.id);
-      const numericId = Number(props.entryID);
-      const map = await fetchSensors(numericId);
-      const sensors = Object.values(map)
-      if (editableEntry.value) editableEntry.value.sensors = sensors
-      if (entry.value) entry.value.sensors = JSON.parse(JSON.stringify(sensors))
-      triggerToast('Sensor removed', 'success');
-    } else {
-      editableEntry.value?.sensors?.splice(index, 1);
-    }
-  } catch (e) {
-    console.error('error removing sensor', e);
-    triggerToast('Failed to remove sensor', 'error');
-  }
-}
+  editableEntry.value.sensors.splice(index, 1);
+};
 
 const saveChanges = async () => {
   if (!editableEntry.value || !props.entryID) return
@@ -441,10 +414,27 @@ const saveChanges = async () => {
     await updateMetadata(numericId, payload)
 
     // 2. Update Sensors (if any changes were made to their names/types/topics)
+    // 2a. Remove sensors that were marked for deletion
+    if (deletedSensorIds.value.length > 0) {
+      await Promise.all(deletedSensorIds.value.map(id => apiRemoveSensor(id)));
+      deletedSensorIds.value = [];
+    }
+
+    // 2b. Add or Update sensors
     if (editableEntry.value.sensors) {
       for (const s of editableEntry.value.sensors) {
-        if (s.id) {
+        if (s.id && s.id > 0) {
+          // Update existing
           await updateSensor(numericId, s.id, {
+            sensor_name: s.sensor_name,
+            sensor_type: s.sensor_type,
+            ros_topics: s.ros_topics,
+            manufacturer: s.manufacturer,
+            custom_parameters: s.custom_parameters
+          });
+        } else {
+          // Add new (id is 0 or undefined)
+          await addSensor(numericId, {
             sensor_name: s.sensor_name,
             sensor_type: s.sensor_type,
             ros_topics: s.ros_topics,
@@ -456,20 +446,9 @@ const saveChanges = async () => {
     }
 
     // Refresh everything from backend to be sure
-    const e = await fetchEntry(numericId);
-    if (e.scenario_creation_time) {
-      const date = new Date(e.scenario_creation_time);
-      const offset = date.getTimezoneOffset() * 60000;
-      e.scenario_creation_time = new Date(date.getTime() - offset).toISOString().slice(0, 16);
-    }
+    await loadEntryData(numericId);
 
-    entry.value = e;
-    editableEntry.value = JSON.parse(JSON.stringify(e));
-
-    const sensorsMap = await fetchSensors(numericId);
-    const sensors = Object.values(sensorsMap);
-    editableEntry.value!.sensors = sensors;
-    entry.value!.sensors = JSON.parse(JSON.stringify(sensors));
+    triggerToast('Changes saved successfully', 'success');
   }
   catch (e) {
     console.error('error saving changes', e);
@@ -483,6 +462,7 @@ const saveChanges = async () => {
 const cancelChanges = () => {
   if (entry.value) {
     editableEntry.value = JSON.parse(JSON.stringify(entry.value));
+    deletedSensorIds.value = [];
     triggerToast('Changes discarded', 'success')
   }
 }
