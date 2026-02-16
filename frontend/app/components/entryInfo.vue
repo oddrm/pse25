@@ -1,23 +1,29 @@
 <template>
+
   <div v-if="entry && editableEntry" class="h-[calc(100vh-3rem)] flex flex-col bg-base-100">
-    
+
     <div class="flex-1 overflow-y-auto p-4 space-y-6 pb-24">
       <h2 class="text-xl font-bold border-b border-base-300 pb-2">INFO</h2>
 
       <div class="grid grid-cols-2 gap-x-4 gap-y-2 bg-base-200 p-4 rounded-lg shadow-inner">
-        <div class="flex flex-col"><span class="text-xs font-bold opacity-50 uppercase">Name</span><span>{{ editableEntry.name }}</span></div>
-        <div class="flex flex-col"><span class="text-xs font-bold opacity-50 uppercase">Size</span><span>{{ editableEntry.size }} KB</span></div>
-        <div class="flex flex-col col-span-2"><span class="text-xs font-bold opacity-50 uppercase">Path</span><span class="break-all font-mono text-xs">{{ editableEntry.path }}</span></div>
-        <div class="flex flex-col"><span class="text-xs font-bold opacity-50 uppercase">Platform</span><span>{{ editableEntry.platform }}</span></div>
+        <div class="flex flex-col"><span class="text-xs font-bold opacity-50 uppercase">Name</span><span>{{
+          editableEntry.name }}</span></div>
+        <div class="flex flex-col"><span class="text-xs font-bold opacity-50 uppercase">Size</span><span>{{
+          editableEntry.size }} KB</span></div>
+        <div class="flex flex-col col-span-2"><span class="text-xs font-bold opacity-50 uppercase">Path</span><span
+            class="break-all font-mono text-xs">{{ editableEntry.path }}</span></div>
+        <div class="flex flex-col"><span class="text-xs font-bold opacity-50 uppercase">Platform</span><span>{{
+          editableEntry.platform }}</span></div>
       </div>
 
       <div class="bg-base-200 p-4 rounded-lg">
         <h3 class="font-bold mb-3 flex justify-between items-center">
-          Topics 
+          Topics
           <span class="badge badge-sm">{{ editableEntry.topics?.length || 0 }}</span>
         </h3>
         <div class="space-y-3">
-          <div v-for="topic in editableEntry.topics" :key="topic.name" class="p-2 bg-base-100 rounded border border-base-300 text-sm">
+          <div v-for="topic in editableEntry.topics" :key="topic.name"
+            class="p-2 bg-base-100 rounded border border-base-300 text-sm">
             <div class="font-bold text-primary truncate">{{ topic.name }}</div>
             <div class="grid grid-cols-2 text-[12px] mt-1 opacity-70 italic">
               <span>Typ: {{ topic.type }}</span>
@@ -30,17 +36,16 @@
 
       <div class="bg-base-200 p-4 rounded-lg">
         <h3 class="font-bold mb-2">Description</h3>
-        <textarea 
-          v-model="editableEntry!.description" 
-          class="textarea textarea-bordered w-full h-24 bg-base-100 text-sm" 
-          placeholder="Beschreibung der Bagfile..."
-        ></textarea>
+        <textarea v-model="editableEntry!.description"
+          class="textarea textarea-bordered w-full h-24 bg-base-100 text-sm"
+          placeholder="Beschreibung der Bagfile..."></textarea>
       </div>
 
       <div class="bg-base-200 p-4 rounded-lg space-y-4">
         <h3 class="font-bold text-primary">Sensors</h3>
-        
-        <div v-for="(sensor, index) in editableEntry.sensors" :key="index" class="card bg-base-100 shadow-sm border border-base-300">
+
+        <div v-for="(sensor, index) in editableEntry.sensors" :key="index"
+          class="card bg-base-100 shadow border border-base-300">
           <div class="card-body p-4 gap-2">
             <div class="flex justify-between items-start">
               <span class="text-[10px] font-bold opacity-50 uppercase">Sensor #{{ index + 1 }}</span>
@@ -59,27 +64,57 @@
               <input v-model="sensor.type" class="input input-bordered input-xs" />
             </div>
 
-            <div class="mt-2">
-           <span class="text-[10px] font-bold opacity-50 uppercase">Associated Topics</span>
-            <div class="flex flex-wrap gap-1 mt-1">
-               <div v-for="(t, ti) in sensor.topics" :key="ti" class="badge badge-ghost badge-sm py-2">
-                  {{ t }}
-                  </div>
-                <div v-if="!sensor.topics || sensor.topics.length === 0" class="text-[10px] italic opacity-40">
-                   Keine Topics zugeordnet
-                 </div>
-               </div>
+            <div class="mt-4">
+              <span class="text-[10px] font-bold opacity-50 uppercase tracking-wider">Associated Topics</span>
+
+              <div class="flex flex-wrap gap-2 mt-2">
+                <div v-for="(topicName, ti) in sensor.topics" :key="ti"
+                  class="badge badge-secondary badge-sm py-3 gap-1 pl-3">
+                  <span class="max-w-[150px] truncate">{{ topicName }}</span>
+                  <button @click="removeTopicFromSensor(sensor, ti)"
+                    class="btn btn-ghost btn-xs btn-circle h-4 w-4 min-h-0 hover:bg-primary-focus">
+                    <Icon name="solar:close-circle-bold" size="12" />
+                  </button>
+                </div>
+
+                <div class="dropdown dropdown-top">
+                  <label tabindex="0"
+                    class="btn btn-outline btn-xs btn-circle border-dashed opacity-50 hover:opacity-100"
+                    title="Topic zuordnen">
+                    <Icon name="solar:add-circle-bold" size="16" />
+                  </label>
+
+                  <ul tabindex="0"
+                    class="dropdown-content z-[100] menu p-2 shadow-xl bg-base-100 border border-base-300 rounded-box w-85 max-h-60 overflow-y-auto block">
+                    <li class="menu-title text-[10px] ">Verfügbare Topics</li>
+                    <li v-for="availableTopic in getFilteredTopics(sensor)" :key="availableTopic.name">
+                      <a @click="addTopicToSensor(sensor, availableTopic.name)" class="text-xs py-2">
+                        {{ availableTopic.name }}
+                      </a>
+                    </li>
+                    <li v-if="getFilteredTopics(sensor).length === 0" class="text-xs italic p-2 opacity-40">
+                      Alle Topics zugeordnet
+                    </li>
+                  </ul>
+                </div>
               </div>
+
+              <div v-if="!sensor.topics || sensor.topics.length === 0" class="text-[10px] italic opacity-40 mt-1">
+                Keine Topics zugeordnet
+              </div>
+            </div>
           </div>
         </div>
 
-        <div v-if="showSensorSelect" class="bg-base-100 p-3 rounded-lg border-2 border-dashed border-base-300 space-y-3">
+        <div v-if="showSensorSelect"
+          class="bg-base-100 p-3 rounded-lg border-2 border-dashed border-base-300 space-y-3">
           <select v-model="selectedExistingSensor" class="select select-bordered select-sm w-full">
             <option :value="null" disabled>Vorhandenen Sensor wählen</option>
             <option v-for="s in globalSensors" :key="s.name" :value="s">{{ s.name }} ({{ s.type }})</option>
           </select>
           <div class="flex gap-2">
-            <button @click="addExistingSensor" class="btn btn-secondary btn-sm flex-1" :disabled="!selectedExistingSensor">Aus Liste</button>
+            <button @click="addExistingSensor" class="btn btn-secondary btn-sm flex-1"
+              :disabled="!selectedExistingSensor">Aus Liste</button>
             <button @click="addNewEmptySensor" class="btn btn-accent btn-sm flex-1">Neu erstellen</button>
           </div>
         </div>
@@ -96,7 +131,7 @@
     </div>
   </div>
 
-  <div v-else class="p-8 text-center text-gray-400 flex flex-col items-center justify-center h-full">
+  <div v-else class="p-8 text-center text-base-content/40 flex flex-col items-center justify-center h-full">
     <Icon name="octicon:info-24" class="w-12 h-12 mb-2 opacity-20" />
     <p>Wählen Sie eine Datei aus der Liste aus.</p>
   </div>
@@ -117,6 +152,8 @@ const editableEntry = ref<Entry | null>(null)
 const showSensorSelect = ref(false)
 const selectedExistingSensor = ref<Sensor | null>(null)
 
+//TODO: HIer noch eine Funktion machen um auf alle Sensoren zuzugreifen, die liegen dann ja irgendwo im Backend,
+//deshalb ist das hier eine händische Liste
 const globalSensors = ref<Sensor[]>([
   { name: 'ouster_cabin_left', type: 'rotating_lidar', topics: ['sensors/ouster_cabin_left/points'] },
   { name: 'jai_fs_3200d_cabin_left', type: 'area_scan_camera', topics: ['sensors/jai_fs_3200d_cabin_left/image_raw'] },
@@ -125,17 +162,19 @@ const globalSensors = ref<Sensor[]>([
 
 watch(
   () => props.entryID,
-  (id) => {
+  async (id) => {
     if (!id) {
       entry.value = null;
       editableEntry.value = null;
       return;
     }
-    const entries = fetchEntries('', Sorting.Name, true, 1, 50);
-    const foundEntry = entries.find(e => e.entryID === id);
-    if (foundEntry) {
-      entry.value = foundEntry;
-      editableEntry.value = JSON.parse(JSON.stringify(foundEntry));
+    const entries = await fetchEntries('', Sorting.Name, true, 1, 50).catch((e) => console.log("Error fetching entries:", e));
+    if (entries) {
+      const foundEntry = entries.find(e => e.entryID === id);
+      if (foundEntry) {
+        entry.value = foundEntry;
+        editableEntry.value = JSON.parse(JSON.stringify(foundEntry));
+      }
     }
   },
   { immediate: true }
@@ -146,7 +185,7 @@ const addNewEmptySensor = () => {
   if (!editableEntry.value.sensors) editableEntry.value.sensors = [];
   const newSensor: Sensor = { name: 'New Sensor', type: 'TBD', topics: [] };
   editableEntry.value.sensors.push(newSensor);
-  globalSensors.value.push(newSensor); 
+  globalSensors.value.push(newSensor);
   showSensorSelect.value = false;
 }
 
@@ -173,4 +212,33 @@ const cancelChanges = () => {
     editableEntry.value = JSON.parse(JSON.stringify(entry.value));
   }
 }
+
+// Topic von einem Sensor entfernen
+const removeTopicFromSensor = (sensor: Sensor, topicIndex: number) => {
+  sensor.topics.splice(topicIndex, 1);
+};
+
+//Topic zu einem Sensor hinzufügen
+const addTopicToSensor = (sensor: Sensor, topicName: string) => {
+  if (!sensor.topics) sensor.topics = [];
+  // Nur hinzufügen, wenn noch nicht vorhanden
+  if (!sensor.topics.includes(topicName)) {
+    sensor.topics.push(topicName);
+  }
+  // Fokus vom Dropdown entfernen, um es zu schließen
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+};
+
+// Filtert die Liste der MCAP-Topics,
+// damit nur die angezeigt werden, die der Sensor noch nicht hat.
+const getFilteredTopics = (sensor: Sensor) => {
+  if (!editableEntry.value?.topics) return [];
+  const currentSensorTopics = sensor.topics || [];
+  return editableEntry.value.topics.filter(
+    t => !currentSensorTopics.includes(t.name)
+  );
+};
+
 </script>

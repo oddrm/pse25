@@ -7,6 +7,8 @@ export interface Entry {
     platform: string;
     tags: string[];
     entryID: entryID;
+    // NEU: Dauer in Sekunden (wichtig für Sequenz-Max-Limit)
+    duration: number;
     topics?: Topic[];
     description?: string;
     sensors?: Sensor[];

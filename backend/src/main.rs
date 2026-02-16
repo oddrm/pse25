@@ -1,5 +1,4 @@
-use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::{env, time::Duration};
 
 use backend::AppState;
@@ -50,7 +49,7 @@ async fn main() {
             tracing_subscriber::fmt()
                 .with_writer(BoxMakeWriter::new(std::io::stdout))
                 .pretty()
-                .compact()
+                // .compact()
                 .with_max_level(log_level)
                 .finish(),
         )
@@ -67,7 +66,6 @@ async fn main() {
         .unwrap();
     let mut plugin_manager = PluginManager::new(storage_manager.clone());
     // check if /plugins exists and list all files
-    let plugin_dir = Path::new("/plugins");
 
     plugin_manager
         .register_plugins(PathBuf::from("/plugins"))

@@ -15,7 +15,7 @@
     <!--RIGHT INFO CURTAIN -->
     <div
       class="fixed top-0 right-0 h-full transition-all duration-300 bg-base-200 pt-12"
-      :class="infoOpen ? 'w-1/3' : 'w-6'"
+      :class="infoOpen ? 'w-1/3' : 'w-2'"
     >
 
       <!-- ---------- Info Curtain OPEN ---------- -->

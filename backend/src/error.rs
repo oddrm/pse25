@@ -27,7 +27,31 @@ impl From<notify::Error> for Error {
 
 impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
     fn respond_to(self, req: &'r rocket::Request<'_>) -> response::Result<'o> {
-        todo!()
+        let (status, message) = match self {
+            Error::StorageError(e) => (
+                rocket::http::Status::InternalServerError,
+                format!("Storage error: {:?}", e),
+            ),
+            Error::ParsingError(msg) => (
+                rocket::http::Status::BadRequest,
+                format!("Parsing error: {}", msg),
+            ),
+            Error::PollingError(e) => (
+                rocket::http::Status::InternalServerError,
+                format!("Polling error: {:?}", e),
+            ),
+            Error::CustomError(msg) => (
+                rocket::http::Status::InternalServerError,
+                format!("Error: {}", msg),
+            ),
+            Error::IoError(e) => (
+                rocket::http::Status::InternalServerError,
+                format!("IO error: {:?}", e),
+            ),
+        };
+        response::Response::build_from(message.respond_to(req)?)
+            .status(status)
+            .ok()
     }
 }
 
