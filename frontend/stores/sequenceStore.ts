@@ -1,16 +1,8 @@
 import { defineStore } from "pinia"
 import type { Sequence } from "~/utils/sequence"
+import { fetchSequences } from "~/utils/dbQueries" // [Neu] Import für Mock-Daten
 
 const STORAGE_KEY = "sequences_v1"
-
-function reviveSequences(raw: any[]): Sequence[] {
-  // перетворюємо строки дат назад у Date
-  return (raw ?? []).map((s: any) => ({
-    ...s,
-    startTime: new Date(s.startTime),
-    endTime: new Date(s.endTime),
-  }))
-}
 
 export const useSequencesStore = defineStore("sequences", {
   state: () => ({
@@ -32,35 +24,53 @@ export const useSequencesStore = defineStore("sequences", {
       if (!process.client) return
 
       const saved = localStorage.getItem(STORAGE_KEY)
+      
       if (saved) {
         try {
-          this.sequences = reviveSequences(JSON.parse(saved))
+          // [Geändert] Keine "revive"-Funktion mehr nötig, da Zahlen (Sekunden) 
+          // beim Parsen Zahlen bleiben.
+          this.sequences = JSON.parse(saved)
         } catch {
           this.sequences = []
         }
+      } else {
+        // [Neu] Wenn LocalStorage leer ist (erster Besuch), lade Mock-Daten!
+        console.log("Lade Mock-Sequenzen...")
+        const seq1 = fetchSequences(1)
+        const seq2 = fetchSequences(2)
+        this.sequences = [...seq1, ...seq2]
       }
 
-      // автоматично зберігати при будь-якій зміні
+      // [Beibehalten] Automatisch speichern bei Änderungen
       this.$subscribe((_mutation, state) => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state.sequences))
       })
     },
 
     add(payload: Omit<Sequence, "id">) {
-      // простий унікальний id
+      // [Beibehalten] Generiert eine einfache ID
       const id = Date.now() + Math.floor(Math.random() * 1000)
 
       this.sequences.push({
         id,
         ...payload,
+        tags: payload.tags || []
       })
+    },
+
+    // [Neu] Wichtig für den Bearbeiten-Button
+    update(updatedSeq: Sequence) {
+      const index = this.sequences.findIndex(s => s.id === updatedSeq.id)
+      if (index !== -1) {
+        // Ersetzt das alte Objekt durch das bearbeitete
+        this.sequences[index] = updatedSeq
+      }
     },
 
     remove(id: number) {
       this.sequences = this.sequences.filter(s => s.id !== id)
     },
 
-    // (опційно) очистити все
     clearAll() {
       this.sequences = []
     },
