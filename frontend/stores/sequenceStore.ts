@@ -28,11 +28,15 @@ export const useSequencesStore = defineStore("sequences", {
       // Load from backend as primary source of truth
       try {
         const entries = await fetchEntries('', Sorting.Name, true, 1, 1000)
-        const allSeqs: Sequence[] = []
+        let allSeqs: Sequence[] = []
         for (const e of entries) {
           const map = await fetchSequences(e.id)
           const values = Object.values(map) as Sequence[]
-          values.forEach((s) => allSeqs.push(s))
+          values.forEach((s) => {
+            if (!allSeqs.some(existing => existing.id === s.id)) {
+              allSeqs.push(s)
+            }
+          })
         }
         this.sequences = allSeqs
       } catch (err) {
@@ -42,7 +46,6 @@ export const useSequencesStore = defineStore("sequences", {
         if (saved) {
           try {
             const parsed = JSON.parse(saved)
-            // Fix potential naming issues from old versions
             this.sequences = parsed.map((s: any) => ({
               ...s,
               entry_id: s.entry_id || s.entryID,
@@ -68,6 +71,13 @@ export const useSequencesStore = defineStore("sequences", {
           end_timestamp: payload.end_timestamp
         }
         const newId = await addSequence(payload.entry_id, webPayload)
+
+        // Prevent duplicate IDs in store
+        if (this.sequences.some(s => s.id === newId)) {
+          console.warn(`[SequenceStore] Sequence with ID ${newId} already exists in store.`);
+          return
+        }
+
         this.sequences.push({
           id: newId,
           created_at: new Date().toISOString(),
@@ -101,16 +111,18 @@ export const useSequencesStore = defineStore("sequences", {
 
     async remove(id: number) {
       if (id === undefined || id === null) {
-        console.error('Cannot remove sequence without a valid ID')
         return
       }
       const seq = this.sequences.find(s => s.id === id)
-      if (!seq) return
+      if (!seq) {
+        return
+      }
+
       try {
         await removeSequence(seq.entry_id, id)
         this.sequences = this.sequences.filter(s => s.id !== id)
       } catch (err) {
-        console.error('Error removing sequence:', err)
+        console.error('[SequenceStore] Error removing sequence:', err)
       }
     },
 

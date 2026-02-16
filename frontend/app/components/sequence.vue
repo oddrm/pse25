@@ -250,7 +250,9 @@ function saveSequence() {
 }
 
 function deleteSequence(id: number) {
-  if (confirm("Sequenz löschen?")) store.remove(id);
+  if (confirm("Sequenz löschen?")) {
+    store.remove(id);
+  }
 }
 </script>
 
