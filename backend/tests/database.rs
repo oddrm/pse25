@@ -77,7 +77,6 @@ async fn test_get_entry() {
         weather_fog: None,
         weather_snow: None,
         tags: vec!["test".to_string(), "entry".to_string()],
-        topics: vec!["/topic1".to_string(), "/topic2".to_string()],
     };
 
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");

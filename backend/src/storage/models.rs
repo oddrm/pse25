@@ -3,10 +3,13 @@ use crate::error::Error;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use rocket::serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 
 pub type EntryID = i64;
 pub type SequenceID = i64;
+pub type SensorID = i64;
 pub type Timestamp = i64;
+pub type TopicID = i64;
 
 #[derive(
     Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq, Eq,
@@ -49,7 +52,21 @@ pub struct Entry {
     pub weather_fog: Option<bool>,
     pub weather_snow: Option<bool>,
     pub tags: Vec<String>,
-    pub topics: Vec<String>,
+}
+
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[diesel(table_name = crate::schema::topics)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+#[serde(crate = "rocket::serde")]
+pub struct Topic {
+    pub id: TopicID,
+    pub entry_id: i64,
+    pub topic_name: String,
+    pub topic_type: Option<String>,
+    pub message_count: i64,
+    pub frequency: Option<f64>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(

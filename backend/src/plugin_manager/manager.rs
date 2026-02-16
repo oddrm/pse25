@@ -1,12 +1,12 @@
 #![allow(unused)]
 
+use cron::Schedule;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::str::FromStr;
-use cron::Schedule;
-use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
@@ -95,9 +95,7 @@ fn parse_trigger(py_trigger: Option<&str>) -> Result<Trigger, String> {
         Some(TRIGGER_ON_ENTRY_UPDATE) => Ok(Trigger::OnEntryUpdate),
         Some(TRIGGER_ON_ENTRY_DELETE) => Ok(Trigger::OnEntryDelete),
         Some(other) if other.starts_with(TRIGGER_ON_SCHEDULE_PREFIX) => {
-            let raw = other
-                .trim_start_matches(TRIGGER_ON_SCHEDULE_PREFIX)
-                .trim();
+            let raw = other.trim_start_matches(TRIGGER_ON_SCHEDULE_PREFIX).trim();
 
             // Unterstütze sowohl 5-Feld (min hour day mon dow) als auch 6-Feld
             // (sec min hour day mon dow).
@@ -108,9 +106,9 @@ fn parse_trigger(py_trigger: Option<&str>) -> Result<Trigger, String> {
                 _ => raw.to_string(),
             };
 
-            let schedule = Schedule::from_str(&cron_expr)
-                .map_err(|e| format!(
-                    "Invalid cron expression '{raw}' (parsed as '{cron_expr}'): {e}"))?;
+            let schedule = Schedule::from_str(&cron_expr).map_err(|e| {
+                format!("Invalid cron expression '{raw}' (parsed as '{cron_expr}'): {e}")
+            })?;
 
             Ok(Trigger::OnSchedule(schedule))
         }
@@ -242,7 +240,7 @@ impl PluginManager {
         // Parsen zu PluginsConfig
         let config: PluginsConfig = serde_yaml::from_str(&content)
             .map_err(|e| Error::CustomError(format!("{ERR_FAILED_PARSE_CONFIG_PREFIX}{e}")))?;
-
+        // TODO what about disabled plugins?
         // suche entsprechende Plugins und setze enabled-Flag
         for plugin_cfg in config.plugins {
             let plugin = self
@@ -504,7 +502,10 @@ impl PluginManager {
             .map_err(|e| Error::CustomError(format!("{ERR_FAILED_KILL_PY_PREFIX}{e}")))?;
 
         // kurz warten
-        let _ = timeout(TIMEOUT_WAIT_EXIT_AFTER_KILL, entry.child.wait()).await;
+        match timeout(TIMEOUT_WAIT_EXIT_AFTER_KILL, entry.child.wait()).await {
+            Ok(_) => {}
+            Err(e) => warn!("Timeout waiting for process after kill: {:?}", e),
+        }
         Ok(())
     }
 

@@ -2,13 +2,14 @@
 
 use crate::AppState;
 use crate::error::{Error, StorageError};
-use crate::storage::models::{Entry, EntryID, Sequence, SequenceID};
+use crate::storage::models::{Entry, EntryID, Sensor, SensorID, Sequence, SequenceID};
 use chrono::{DateTime, Utc};
 use rocket::serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(crate = "rocket::serde")]
-pub struct Metadata {
+pub struct MetadataWeb {
     pub time_machine: Option<f64>,
     pub platform_name: Option<String>,
     pub platform_image_link: Option<String>,
@@ -26,13 +27,21 @@ pub struct Metadata {
     pub weather_road_humidity: Option<String>,
     pub weather_fog: Option<bool>,
     pub weather_snow: Option<bool>,
-    pub tags: Option<Vec<String>>,
     pub topics: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(crate = "rocket::serde")]
+pub struct SensorWeb {
+    pub sensor_name: String,
+    pub manufacturer: Option<String>,
+    pub sensor_type: Option<String>,
+    pub ros_topics: Vec<String>,
+    pub custom_parameters: Option<JsonValue>,
 }
 use crate::storage::storage_manager::{Map, TxID};
 use rocket::serde::json::Json;
 use rocket::{State, delete, get, post, put, response::status};
-use tracing::debug;
 
 fn not_found<T>(msg: String) -> Result<T, Error> {
     Err(StorageError::NotFound(msg).into())
@@ -43,14 +52,14 @@ fn not_found<T>(msg: String) -> Result<T, Error> {
 pub async fn get_metadata(
     state: &State<AppState>,
     entry_id: EntryID,
-) -> Result<Json<Metadata>, Error> {
+) -> Result<Json<MetadataWeb>, Error> {
     let sm = &state.storage_manager;
     let txid: TxID = 0;
 
     let entry = sm.get_metadata(entry_id, txid).await?;
     match entry {
         Some(e) => {
-            let md = Metadata {
+            let md = MetadataWeb {
                 time_machine: e.time_machine,
                 platform_name: e.platform_name,
                 platform_image_link: e.platform_image_link,
@@ -68,8 +77,18 @@ pub async fn get_metadata(
                 weather_road_humidity: e.weather_road_humidity,
                 weather_fog: e.weather_fog,
                 weather_snow: e.weather_snow,
-                tags: if e.tags.is_empty() { None } else { Some(e.tags) },
-                topics: if e.topics.is_empty() { None } else { Some(e.topics) },
+                topics: {
+                    // fetch topic names from topics table
+                    let txid: crate::storage::storage_manager::TxID = 0;
+                    match state.storage_manager.get_topics(e.id, txid).await {
+                        Ok(map) => {
+                            let names: Vec<String> =
+                                map.values().map(|t| t.topic_name.clone()).collect();
+                            if names.is_empty() { None } else { Some(names) }
+                        }
+                        Err(_) => None,
+                    }
+                },
             };
             Ok(Json(md))
         }
@@ -82,78 +101,12 @@ pub async fn get_metadata(
 pub async fn update_metadata(
     state: &State<AppState>,
     entry_id: EntryID,
-    metadata: Json<Metadata>,
+    metadata: Json<MetadataWeb>,
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
     let txid: TxID = 0;
     let m = metadata.into_inner();
-
-    let mut entry = match sm.get_entry(entry_id, txid).await? {
-        Some(e) => e,
-        None => return not_found(format!("entry {entry_id} not found")),
-    };
-
-    if m.time_machine.is_some() {
-        entry.time_machine = m.time_machine;
-    }
-    if m.platform_name.is_some() {
-        entry.platform_name = m.platform_name.clone();
-    }
-    if m.platform_image_link.is_some() {
-        entry.platform_image_link = m.platform_image_link.clone();
-    }
-    if m.scenario_name.is_some() {
-        entry.scenario_name = m.scenario_name.clone();
-    }
-    if m.scenario_creation_time.is_some() {
-        entry.scenario_creation_time = m.scenario_creation_time;
-    }
-    if m.scenario_description.is_some() {
-        entry.scenario_description = m.scenario_description.clone();
-    }
-    if m.sequence_duration.is_some() {
-        entry.sequence_duration = m.sequence_duration;
-    }
-    if m.sequence_distance.is_some() {
-        entry.sequence_distance = m.sequence_distance;
-    }
-    if m.sequence_lat_starting_point_deg.is_some() {
-        entry.sequence_lat_starting_point_deg = m.sequence_lat_starting_point_deg;
-    }
-    if m.sequence_lon_starting_point_deg.is_some() {
-        entry.sequence_lon_starting_point_deg = m.sequence_lon_starting_point_deg;
-    }
-    if m.weather_cloudiness.is_some() {
-        entry.weather_cloudiness = m.weather_cloudiness.clone();
-    }
-    if m.weather_precipitation.is_some() {
-        entry.weather_precipitation = m.weather_precipitation.clone();
-    }
-    if m.weather_precipitation_deposits.is_some() {
-        entry.weather_precipitation_deposits = m.weather_precipitation_deposits.clone();
-    }
-    if m.weather_wind_intensity.is_some() {
-        entry.weather_wind_intensity = m.weather_wind_intensity.clone();
-    }
-    if m.weather_road_humidity.is_some() {
-        entry.weather_road_humidity = m.weather_road_humidity.clone();
-    }
-    if m.weather_fog.is_some() {
-        entry.weather_fog = m.weather_fog;
-    }
-    if m.weather_snow.is_some() {
-        entry.weather_snow = m.weather_snow;
-    }
-    if let Some(tags) = &m.tags {
-        entry.tags = tags.clone();
-    }
-    if let Some(topics) = &m.topics {
-        entry.topics = topics.clone();
-    }
-
-    entry.updated_at = chrono::Utc::now();
-
-    sm.update_entry(entry_id, &entry, txid).await?;
+    sm.update_entry(entry_id, m, txid).await?;
     Ok(status::NoContent)
 }
 
@@ -165,7 +118,7 @@ pub async fn get_entries(
     ascending: Option<bool>,
     page: Option<u32>,
     page_size: Option<u32>,
-)-> Result<Json<Vec<Entry>>, Error> {
+) -> Result<Json<Vec<Entry>>, Error> {
     let sm = &state.storage_manager;
     let txid: TxID = 0;
 
@@ -213,6 +166,81 @@ pub async fn get_sequences(
 
     let sequences = sm.get_sequences(entry_id, txid).await?;
     Ok(Json(sequences))
+}
+
+#[get("/entries/<entry_id>/sensors")]
+pub async fn get_sensors(
+    state: &State<AppState>,
+    entry_id: EntryID,
+) -> Result<Json<Map<SensorID, Sensor>>, Error> {
+    let sm = &state.storage_manager;
+    let txid: TxID = 0;
+
+    let sensors = sm.get_sensors(entry_id, txid).await?;
+    Ok(Json(sensors))
+}
+#[post("/entries/<entry_id>/sensors", format = "json", data = "<sensor>")]
+pub async fn add_sensor(
+    state: &State<AppState>,
+    entry_id: EntryID,
+    sensor: Json<SensorWeb>,
+) -> Result<status::Created<Json<SensorID>>, Error> {
+    let sm = &state.storage_manager;
+    let txid: TxID = 0;
+
+    let s = sensor.into_inner();
+    let storage_sensor = Sensor {
+        id: 0, // will be generated by storage manager
+        entry_id,
+        sensor_name: s.sensor_name,
+        manufacturer: s.manufacturer,
+        sensor_type: s.sensor_type,
+        ros_topics: s.ros_topics,
+        custom_parameters: s.custom_parameters,
+    };
+
+    let new_id = sm.add_sensor(storage_sensor, txid).await?;
+    Ok(status::Created::new(format!("/entries/{entry_id}/sensors/{new_id}")).body(Json(new_id)))
+}
+
+#[put(
+    "/entries/<entry_id>/sensors/<sensor_id>",
+    format = "json",
+    data = "<sensor>"
+)]
+pub async fn update_sensor(
+    state: &State<AppState>,
+    entry_id: EntryID,
+    sensor_id: SensorID,
+    sensor: Json<SensorWeb>,
+) -> Result<status::NoContent, Error> {
+    let sm = &state.storage_manager;
+    let txid: TxID = 0;
+    let s = sensor.into_inner();
+
+    let storage_sensor = Sensor {
+        id: sensor_id,
+        entry_id,
+        sensor_name: s.sensor_name,
+        manufacturer: s.manufacturer,
+        sensor_type: s.sensor_type,
+        ros_topics: s.ros_topics,
+        custom_parameters: s.custom_parameters,
+    };
+
+    sm.update_sensor(storage_sensor, txid).await?;
+    Ok(status::NoContent)
+}
+
+#[delete("/sensors/<sensor_id>", format = "json")]
+pub async fn remove_sensor(
+    state: &State<AppState>,
+    sensor_id: SensorID,
+) -> Result<status::NoContent, Error> {
+    let sm = &state.storage_manager;
+    let txid: TxID = 0;
+    sm.remove_sensor(sensor_id, txid).await?;
+    Ok(status::NoContent)
 }
 
 #[post("/entries/<entry_id>/sequences", format = "json", data = "<sequence>")]

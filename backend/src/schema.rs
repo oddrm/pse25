@@ -10,6 +10,7 @@ diesel::table! {
     entries (id) {
         // inherent data
         id -> BigInt,
+        // TODO set file name
         name -> Varchar,
         path -> Varchar,
         size -> BigInt,
@@ -34,7 +35,6 @@ diesel::table! {
         weather_fog -> Nullable<Bool>,
         weather_snow -> Nullable<Bool>,
         tags -> Array<Text>,
-        topics -> Array<Text>,
     }
 }
 
@@ -45,6 +45,19 @@ diesel::table! {
         description -> Text,
         start_timestamp -> BigInt,
         end_timestamp -> BigInt,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    topics (id) {
+        id -> BigInt,
+        entry_id -> BigInt,
+        topic_name -> Varchar,
+        topic_type -> Nullable<Varchar>,
+        message_count -> BigInt,
+        frequency -> Nullable<Double>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
     }
@@ -64,5 +77,6 @@ diesel::table! {
 
 diesel::joinable!(sequences -> entries (entry_id));
 diesel::joinable!(sensors -> entries (entry_id));
+diesel::joinable!(topics -> entries (entry_id));
 
-diesel::allow_tables_to_appear_in_same_query!(entries, sequences, sensors, files);
+diesel::allow_tables_to_appear_in_same_query!(entries, sequences, sensors, files, topics);

@@ -25,4 +25,7 @@ RUN cargo fetch
 # Now copy full source and run tests inside the container
 COPY . .
 
+# Ensure helper binaries are built so tests (or runtime paths) can spawn them
+RUN cargo build --bins || true
+
 CMD ["cargo", "test", "--no-fail-fast", "--", "--nocapture"]

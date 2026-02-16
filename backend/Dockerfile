@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y \
     gcc \
     python3 \
     libpython3-dev \
+    curl \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Copy dependency manifests first (better caching)
@@ -30,9 +32,11 @@ RUN --mount=type=cache,target=/build/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     set -eux; \
     touch src/main.rs; \
-    # Build only the requested binary to prevent cargo from attempting to
-    # build a missing library target.
-    cargo build --release --bin ${pkg} || cargo build --release; \
+    # Build all binaries and download mcap CLI from GitHub releases
+    cargo build --release --bins || cargo build --release; \
+        mkdir -p /usr/local/cargo/bin; \
+        curl -fsSL -o /usr/local/cargo/bin/mcap "https://github.com/foxglove/mcap/releases/download/releases/mcap-cli/v0.0.61/mcap-linux-amd64"; \
+        chmod +x /usr/local/cargo/bin/mcap; \
     objcopy --compress-debug-sections target/release/$pkg ./main
 
 ################################################################################
@@ -52,6 +56,9 @@ WORKDIR /app
 ## copy the main binary
 COPY --from=build /build/main ./
 
+## copy the mcap CLI downloaded in the builder into the runtime image
+COPY --from=build /usr/local/cargo/bin/mcap /usr/local/bin/mcap
+
 ## copy runtime assets which may or may not exist
 COPY --from=build /build/Rocket.tom[l] ./static
 COPY --from=build /build/stati[c] ./static
@@ -61,6 +68,8 @@ COPY --from=build /build/template[s] ./templates
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir /data
+
+## runtime checks removed
 
 ## ensure the container listens globally on port 8080
 ENV ROCKET_ADDRESS=0.0.0.0
