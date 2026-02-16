@@ -4,6 +4,8 @@ WORKDIR /app
 # Install build deps
 RUN apt-get update && apt-get install -y \
     libpq-dev \
+    curl \
+    jq \
     gcc \
     python3 \
     libpython3-dev \
@@ -12,8 +14,13 @@ RUN apt-get update && apt-get install -y \
 # Copy manifest to cache dependency layer and build a dummy binary
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir -p src && echo 'fn main() { println!("dummy"); }' > src/main.rs \
+    && echo 'pub fn _dummy_lib() {}' > src/lib.rs \
     && cargo fetch || true \
-    && cargo build --release || true
+    && cargo build --bins || true \
+        && mkdir -p /usr/local/cargo/bin /usr/local/bin \
+        && curl -fsSL -o /usr/local/bin/mcap "https://github.com/foxglove/mcap/releases/download/releases/mcap-cli/v0.0.61/mcap-linux-amd64" \
+        && chmod +x /usr/local/bin/mcap \
+        && ln -sf /usr/local/bin/mcap /usr/local/cargo/bin/mcap
 
 FROM rust:latest
 WORKDIR /app
@@ -30,6 +37,10 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /app/target ./target
 # Copy cargo cache (registry/git) from builder so the runtime image has dependencies cached
 COPY --from=builder /usr/local/cargo /usr/local/cargo
+COPY --from=builder /usr/local/bin/mcap /usr/local/bin/mcap
+ENV PATH="/usr/local/cargo/bin:/usr/local/bin:${PATH}"
+
+# debug: (removed) diagnostic listing
 
 # Copy source into image (docker-compose usually mounts in development/test setups)
 COPY . .
