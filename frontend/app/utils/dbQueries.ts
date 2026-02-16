@@ -17,7 +17,6 @@ export const fetchEntries = async (searchString: string, sortBy: Sorting, ascend
                 page_size: pageSize
             }
         });
-        console.log("Fetched entries:", data);
         return data;
     } catch (error: any) {
         throw new Error(error.message || "unknown error");
@@ -37,6 +36,14 @@ export const fetchSensors = async (entryID: entryID): Promise<Record<number, Sen
         return await $fetch<Record<number, Sensor>>(`/backend/entries/${entryID}/sensors/tx/0`);
     } catch (error: any) {
         throw new Error(error.message || 'error fetching sensors');
+    }
+}
+
+export const fetchAllSensors = async (): Promise<Record<number, Sensor>> => {
+    try {
+        return await $fetch<Record<number, Sensor>>(`/backend/sensors/tx/0`);
+    } catch (error: any) {
+        throw new Error(error.message || 'error fetching all sensors');
     }
 }
 

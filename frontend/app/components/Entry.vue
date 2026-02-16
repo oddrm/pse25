@@ -2,7 +2,7 @@
   <tr class="cursor-pointer hover:bg-base-300 transition-colors duration-150" @click="$emit('select', props.id)">
     <td class="font-medium">{{ props.name }}</td>
     <td class="text-xs text-gray-500 truncate max-w-[150px]" :title="props.path">{{ props.path }}</td>
-    <td>{{ props.size }} KB</td>
+    <td>{{ (props.size / 1000 / 1000).toFixed(2) }} MB</td>
     <td>{{ props.platform_name }}</td>
 
     <td @click.stop class="min-w-[200px]">

@@ -6,14 +6,99 @@
       <h2 class="text-xl font-bold border-b border-base-300 pb-2">INFO</h2>
 
       <div class="grid grid-cols-2 gap-x-4 gap-y-2 bg-base-200 p-4 rounded-lg shadow-inner">
-        <div class="flex flex-col"><span class="text-xs font-bold opacity-50 uppercase">Name</span><span>{{
-          editableEntry.name }}</span></div>
-        <div class="flex flex-col"><span class="text-xs font-bold opacity-50 uppercase">Size</span><span>{{
-          editableEntry.size }} KB</span></div>
-        <div class="flex flex-col col-span-2"><span class="text-xs font-bold opacity-50 uppercase">Path</span><span
-            class="break-all font-mono text-xs">{{ editableEntry.path }}</span></div>
-        <div class="flex flex-col"><span class="text-xs font-bold opacity-50 uppercase">Platform</span><span>{{
-          editableEntry.platform_name }}</span></div>
+        <div class="flex flex-col">
+          <span class="text-xs font-bold opacity-50 uppercase">Name</span>
+          <span class="truncate">{{ editableEntry.name }}</span>
+        </div>
+        <div class="flex flex-col">
+          <span class="text-xs font-bold opacity-50 uppercase">Size</span>
+          <span>{{ (editableEntry.size / 1000 / 1000).toFixed(2) }} MB</span>
+        </div>
+        <div class="flex flex-col col-span-2">
+          <span class="text-xs font-bold opacity-50 uppercase">Path</span>
+          <span class="break-all font-mono text-xs">{{ editableEntry.path }}</span>
+        </div>
+
+        <div class="flex flex-col col-span-2">
+          <span class="text-xs font-bold opacity-50 uppercase">Platform</span>
+          <input v-model="editableEntry.platform_name"
+            class="input input-bordered input-xs bg-base-100 font-bold mt-1" />
+        </div>
+
+        <div class="flex flex-col">
+          <span class="text-xs font-bold opacity-50 uppercase">Scenario</span>
+          <input v-model="editableEntry.scenario_name" class="input input-bordered input-xs bg-base-100 mt-1" />
+        </div>
+        <div class="flex flex-col">
+          <span class="text-xs font-bold opacity-50 uppercase">Scenario Creation Time</span>
+          <input v-model="editableEntry.scenario_creation_time" type="datetime-local"
+            class="input input-bordered input-xs bg-base-100 mt-1 text-[10px]" />
+        </div>
+
+        <div class="flex flex-col">
+          <span class="text-xs font-bold opacity-50 uppercase">Distance</span>
+          <div class="flex gap-1 items-center">
+            <input v-model.number="editableEntry.sequence_distance" type="number" step="0.01"
+              class="input input-bordered input-xs bg-base-100 mt-1 w-full" />
+            <span class="text-xs mt-1">m</span>
+          </div>
+        </div>
+        <div class="flex flex-col"></div>
+
+        <div class="flex flex-col">
+          <span class="text-xs font-bold opacity-50 uppercase">Lat</span>
+          <input v-model.number="editableEntry.sequence_lat_starting_point_deg" type="number" step="0.000001"
+            class="input input-bordered input-xs bg-base-100 mt-1" />
+        </div>
+        <div class="flex flex-col">
+          <span class="text-xs font-bold opacity-50 uppercase">Lon</span>
+          <input v-model.number="editableEntry.sequence_lon_starting_point_deg" type="number" step="0.000001"
+            class="input input-bordered input-xs bg-base-100 mt-1" />
+        </div>
+      </div>
+
+      <!-- Weather Section -->
+      <div class="bg-base-200 p-4 rounded-lg">
+        <h3 class="font-bold mb-3 text-sm opacity-70 uppercase tracking-widest">Weather</h3>
+        <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <div class="flex flex-col">
+            <span class="text-[10px] font-bold opacity-50 uppercase">Cloudiness</span>
+            <input v-model="editableEntry.weather_cloudiness" class="input input-bordered input-xs bg-base-100 mt-1" />
+          </div>
+          <div class="flex flex-col">
+            <span class="text-[10px] font-bold opacity-50 uppercase">Precipitation</span>
+            <input v-model="editableEntry.weather_precipitation"
+              class="input input-bordered input-xs bg-base-100 mt-1" />
+          </div>
+          <div class="flex flex-col">
+            <span class="text-[10px] font-bold opacity-50 uppercase">Deposits</span>
+            <input v-model="editableEntry.weather_precipitation_deposits"
+              class="input input-bordered input-xs bg-base-100 mt-1" />
+          </div>
+          <div class="flex flex-col">
+            <span class="text-[10px] font-bold opacity-50 uppercase">Wind</span>
+            <input v-model="editableEntry.weather_wind_intensity"
+              class="input input-bordered input-xs bg-base-100 mt-1" />
+          </div>
+          <div class="flex flex-col">
+            <span class="text-[10px] font-bold opacity-50 uppercase">Humidity</span>
+            <input v-model="editableEntry.weather_road_humidity"
+              class="input input-bordered input-xs bg-base-100 mt-1" />
+          </div>
+          <div class="flex flex-col">
+            <span class="text-[10px] font-bold opacity-50 uppercase">Flags</span>
+            <div class="flex gap-4 mt-2">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" v-model="editableEntry.weather_fog" class="toggle toggle-primary toggle-xs" />
+                <span class="text-xs">Fog</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" v-model="editableEntry.weather_snow" class="toggle toggle-primary toggle-xs" />
+                <span class="text-xs">Snow</span>
+              </label>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="bg-base-200 p-4 rounded-lg">
@@ -26,7 +111,7 @@
             class="p-2 bg-base-100 rounded border border-base-300 text-sm">
             <div class="font-bold text-primary truncate">{{ topic.topic_name }}</div>
             <div class="grid grid-cols-2 text-[12px] mt-1 opacity-70 italic">
-              <span>Typ: {{ topic.topic_type }}</span>
+              <span>Type: {{ topic.topic_type }}</span>
               <span class="text-right">Freq: {{ topic.frequency ? topic.frequency.toFixed(2) : 0 }} Hz</span>
               <span>Messages: {{ topic.message_count }}</span>
             </div>
@@ -38,7 +123,7 @@
         <h3 class="font-bold mb-2">Description</h3>
         <textarea v-model="editableEntry!.scenario_description"
           class="textarea textarea-bordered w-full h-24 bg-base-100 text-sm"
-          placeholder="Beschreibung der Bagfile..."></textarea>
+          placeholder="Description of the bagfile..."></textarea>
       </div>
 
       <div class="bg-base-200 p-4 rounded-lg space-y-4">
@@ -60,7 +145,7 @@
             </div>
 
             <div class="form-control w-full">
-              <label class="label py-0"><span class="label-text-alt opacity-60">Typ</span></label>
+              <label class="label py-0"><span class="label-text-alt opacity-60">Type</span></label>
               <input v-model="sensor.sensor_type" class="input input-bordered input-xs" />
             </div>
 
@@ -77,31 +162,24 @@
                   </button>
                 </div>
 
-                <div class="dropdown dropdown-top">
-                  <label tabindex="0"
-                    class="btn btn-outline btn-xs btn-circle border-dashed opacity-50 hover:opacity-100"
-                    title="Topic zuordnen">
-                    <Icon name="solar:add-circle-bold" size="16" />
-                  </label>
-
-                  <ul tabindex="0"
-                    class="dropdown-content z-[100] menu p-2 shadow-xl bg-base-100 border border-base-300 rounded-box w-85 max-h-60 overflow-y-auto block">
-                    <li class="menu-title text-[10px] ">Verfügbare Topics</li>
-                    <li v-for="availableTopic in getFilteredTopics(sensor)" :key="availableTopic.topic_name">
-                      <a @click="addTopicToSensor(sensor, availableTopic.topic_name)" class="text-xs py-2">
-                        {{ availableTopic.topic_name }}
-                      </a>
-                    </li>
-                    <li v-if="getFilteredTopics(sensor).length === 0" class="text-xs italic p-2 opacity-40">
-                      Alle Topics zugeordnet
-                    </li>
-                  </ul>
-                </div>
+                <select class="select select-bordered select-xs" @change="(e) => {
+                  const target = e.target as HTMLSelectElement;
+                  if (target.value && target.value !== 'default') {
+                    addTopicToSensor(sensor, target.value);
+                    target.value = 'default';
+                  }
+                }">
+                  <option value="default" disabled selected>+ Topic</option>
+                  <option v-for="availableTopic in getFilteredTopics(sensor)" :key="availableTopic.topic_name"
+                    :value="availableTopic.topic_name">
+                    {{ availableTopic.topic_name }}
+                  </option>
+                </select>
               </div>
 
               <div v-if="!sensor.ros_topics || sensor.ros_topics.length === 0"
                 class="text-[10px] italic opacity-40 mt-1">
-                Keine Topics zugeordnet
+                No topics assigned
               </div>
             </div>
           </div>
@@ -110,42 +188,53 @@
         <div v-if="showSensorSelect"
           class="bg-base-100 p-3 rounded-lg border-2 border-dashed border-base-300 space-y-3">
           <select v-model="selectedExistingSensor" class="select select-bordered select-sm w-full">
-            <option :value="null" disabled>Vorhandenen Sensor wählen</option>
+            <option :value="null" disabled>Select existing sensor</option>
             <option v-for="s in globalSensors" :key="s.sensor_name" :value="s">{{ s.sensor_name }} ({{ s.sensor_type }})
             </option>
           </select>
           <div class="flex gap-2">
             <button @click="addExistingSensor" class="btn btn-secondary btn-sm flex-1"
-              :disabled="!selectedExistingSensor">Aus Liste</button>
-            <button @click="addNewEmptySensor" class="btn btn-accent btn-sm flex-1">Neu erstellen</button>
+              :disabled="!selectedExistingSensor">From list</button>
+            <button @click="addNewEmptySensor" class="btn btn-accent btn-sm flex-1">Create new</button>
           </div>
         </div>
 
         <button v-else @click="showSensorSelect = true" class="btn btn-primary btn-sm btn-outline w-full">
-          + Sensor hinzufügen
+          + Add sensor
         </button>
       </div>
     </div>
 
     <div class="p-4 bg-base-200 border-t border-base-300 flex gap-3 shadow-lg">
-      <button @click="saveChanges" class="btn btn-primary flex-1">Speichern</button>
-      <button @click="cancelChanges" class="btn btn-ghost flex-1">Abbrechen</button>
+      <button @click="saveChanges" class="btn btn-primary flex-1" :disabled="isSaving">
+        <span v-if="isSaving" class="loading loading-spinner loading-xs"></span>
+        {{ isSaving ? 'Saving...' : 'Save' }}
+      </button>
+      <button @click="cancelChanges" class="btn btn-ghost flex-1" :disabled="isSaving">Cancel</button>
+
+      <!-- Toast Notification -->
+      <div v-if="showToast" class="toast toast-end toast-bottom z-[200]">
+        <div
+          :class="['alert', toastType === 'success' ? 'alert-success' : 'alert-error', 'shadow-lg', 'text-white', 'font-bold']">
+          <span>{{ toastMessage }}</span>
+        </div>
+      </div>
     </div>
   </div>
 
   <div v-else class="p-8 text-center text-base-content/40 flex flex-col items-center justify-center h-full">
     <Icon name="octicon:info-24" class="w-12 h-12 mb-2 opacity-20" />
-    <p>Wählen Sie eine Datei aus der Liste aus.</p>
+    <p>Select a file from the list.</p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { Sorting } from '~/utils/entryColumns'
 import type { Entry, entryID } from '~/utils/entry'
 import type { Sensor, SensorWeb } from '~/utils/sensor'
 import type { MetadataWeb } from '~/utils/metadata'
-import { fetchEntry, updateMetadata, addSensor, fetchSensors, removeSensor as apiRemoveSensor, fetchTopics } from '~/utils/dbQueries'
+import { fetchEntry, updateMetadata, addSensor, fetchSensors, removeSensor as apiRemoveSensor, fetchTopics, fetchAllSensors, updateSensor } from '~/utils/dbQueries'
 
 const props = defineProps<{
   entryID: entryID | null
@@ -155,11 +244,31 @@ const entry = ref<Entry | null>(null)
 const editableEntry = ref<Entry | null>(null)
 const showSensorSelect = ref(false)
 const selectedExistingSensor = ref<Sensor | null>(null)
+const deletedSensorIds = ref<number[]>([])
+const isSaving = ref(false)
+const showToast = ref(false)
+const toastMessage = ref('')
+const toastType = ref<'success' | 'error'>('success')
 
-//TODO: HIer noch eine Funktion machen um auf alle Sensoren zuzugreifen, die liegen dann ja irgendwo im Backend,
-//deshalb ist das hier eine händische Liste
-const globalSensors = ref<Sensor[]>([
-])
+const triggerToast = (message: string, type: 'success' | 'error' = 'success') => {
+  toastMessage.value = message
+  toastType.value = type
+  showToast.value = true
+  setTimeout(() => {
+    showToast.value = false
+  }, 3000)
+}
+
+const globalSensors = ref<Sensor[]>([])
+
+onMounted(async () => {
+  try {
+    const sensorsMap = await fetchAllSensors()
+    globalSensors.value = Object.values(sensorsMap)
+  } catch (e) {
+    console.error('error fetching global sensors', e)
+  }
+})
 
 watch(
   () => props.entryID,
@@ -169,25 +278,45 @@ watch(
       editableEntry.value = null;
       return;
     }
+    const numericId = Number(id);
     try {
-      const e = await fetchEntry(id)
+      const e = await fetchEntry(numericId)
+
+      // Format datetime for datetime-local input (YYYY-MM-DDTHH:mm)
+      if (e.scenario_creation_time) {
+        const date = new Date(e.scenario_creation_time);
+        // adjust for timezone offset to get local time for the input
+        const offset = date.getTimezoneOffset() * 60000;
+        const localISOTime = new Date(date.getTime() - offset).toISOString().slice(0, 16);
+        e.scenario_creation_time = localISOTime;
+      }
+
       entry.value = e
       editableEntry.value = JSON.parse(JSON.stringify(e))
-      // fetch sensors for this entry
-      try {
-        const sensorsMap = await fetchSensors(id)
-        editableEntry.value!.sensors = Object.values(sensorsMap)
-      } catch (e) {
-        console.debug('no sensors or failed to fetch sensors', e)
-      }
-      try {
-        const topicsMap = await fetchTopics(id)
-        editableEntry.value!.topics = Object.values(topicsMap)
-      } catch (e) {
-        console.debug('no topics or failed to fetch topics', e)
-      }
+
+      // fetch sensors and topics for this entry in parallel
+      const [sensorsMap, topicsMap] = await Promise.all([
+        fetchSensors(numericId).catch(err => {
+          console.error('Failed to fetch sensors:', err);
+          return {};
+        }),
+        fetchTopics(numericId).catch(err => {
+          console.error('Failed to fetch topics:', err);
+          return {};
+        })
+      ]);
+
+      const sensors = Object.values(sensorsMap);
+      const topics = Object.values(topicsMap);
+
+      editableEntry.value!.sensors = sensors;
+      entry.value!.sensors = JSON.parse(JSON.stringify(sensors));
+
+      editableEntry.value!.topics = topics;
+      entry.value!.topics = JSON.parse(JSON.stringify(topics));
+
     } catch (err) {
-      console.log("Error fetching entry:", err)
+      console.error("Error fetching entry:", err)
       entry.value = null
       editableEntry.value = null
     }
@@ -195,97 +324,188 @@ watch(
   { immediate: true }
 )
 
-const addNewEmptySensor = () => {
+const addNewEmptySensor = async () => {
   if (!editableEntry.value || !props.entryID) return;
+  const numericId = Number(props.entryID);
   const newSensor: SensorWeb = { sensor_name: 'New Sensor', sensor_type: 'TBD', ros_topics: [], manufacturer: null, custom_parameters: null };
-  // create on backend
-  addSensor(props.entryID, newSensor)
-    .then(() => fetchSensors(props.entryID as number))
-    .then((map) => {
-      // set sensors from backend response
-      editableEntry.value!.sensors = Object.values(map)
-    })
-    .catch((e) => console.error('error adding sensor', e))
-    .finally(() => {
-      showSensorSelect.value = false;
-    })
+
+  try {
+    // create on backend
+    await addSensor(numericId, newSensor);
+
+    // refresh sensors for this entry
+    const map = await fetchSensors(numericId);
+    const sensors = Object.values(map);
+    editableEntry.value!.sensors = sensors;
+    // We also update the 'entry' copy so it doesn't try to "save" them as updates immediately
+    if (entry.value) entry.value.sensors = JSON.parse(JSON.stringify(sensors));
+
+    // Also refresh the global list of sensors
+    const globalmap = await fetchAllSensors();
+    globalSensors.value = Object.values(globalmap);
+
+    showSensorSelect.value = false;
+    triggerToast('Sensor added', 'success');
+  } catch (e) {
+    console.error('error adding sensor', e);
+    triggerToast('Failed to add sensor', 'error');
+  }
 }
 
-const addExistingSensor = () => {
+const addExistingSensor = async () => {
   if (!editableEntry.value || !selectedExistingSensor.value || !props.entryID) return;
-  addSensor(props.entryID, {
-    sensor_name: selectedExistingSensor.value.sensor_name,
-    manufacturer: selectedExistingSensor.value.manufacturer,
-    sensor_type: selectedExistingSensor.value.sensor_type,
-    ros_topics: selectedExistingSensor.value.ros_topics,
-    custom_parameters: selectedExistingSensor.value.custom_parameters
-  })
-    .then(() => fetchSensors(props.entryID as number))
-    .then((map) => {
-      editableEntry.value!.sensors = Object.values(map)
-    })
-    .catch((e) => console.error('error adding existing sensor', e))
-    .finally(() => {
-      showSensorSelect.value = false;
-      selectedExistingSensor.value = null;
-    })
+  const numericId = Number(props.entryID);
+
+  try {
+    await addSensor(numericId, {
+      sensor_name: selectedExistingSensor.value.sensor_name,
+      manufacturer: selectedExistingSensor.value.manufacturer,
+      sensor_type: selectedExistingSensor.value.sensor_type,
+      ros_topics: selectedExistingSensor.value.ros_topics,
+      custom_parameters: selectedExistingSensor.value.custom_parameters
+    });
+
+    const map = await fetchSensors(numericId);
+    const sensors = Object.values(map);
+    editableEntry.value!.sensors = sensors;
+    if (entry.value) entry.value.sensors = JSON.parse(JSON.stringify(sensors));
+
+    showSensorSelect.value = false;
+    selectedExistingSensor.value = null;
+    triggerToast('Sensor associated', 'success');
+  } catch (e) {
+    console.error('error adding existing sensor', e);
+    triggerToast('Failed to add existing sensor', 'error');
+  }
 }
 
-const removeSensor = (index: number) => {
+const removeSensor = async (index: number) => {
   const sensor = editableEntry.value?.sensors?.[index]
-  if (!sensor) return
-  if (sensor.id) {
-    apiRemoveSensor(sensor.id)
-      .then(() => fetchSensors(props.entryID as number))
-      .then((map) => {
-        if (editableEntry.value) editableEntry.value.sensors = Object.values(map)
-      })
-      .catch((e) => console.error('error removing sensor', e))
-  } else {
-    editableEntry.value?.sensors?.splice(index, 1)
+  if (!sensor || !props.entryID) return
+
+  const confirmDelete = sensor.id
+    ? window.confirm(`Are you sure you want to delete sensor "${sensor.sensor_name}"? This action is immediate and cannot be undone.`)
+    : true;
+
+  if (!confirmDelete) return;
+
+  try {
+    if (sensor.id) {
+      await apiRemoveSensor(sensor.id);
+      const numericId = Number(props.entryID);
+      const map = await fetchSensors(numericId);
+      const sensors = Object.values(map)
+      if (editableEntry.value) editableEntry.value.sensors = sensors
+      if (entry.value) entry.value.sensors = JSON.parse(JSON.stringify(sensors))
+      triggerToast('Sensor removed', 'success');
+    } else {
+      editableEntry.value?.sensors?.splice(index, 1);
+    }
+  } catch (e) {
+    console.error('error removing sensor', e);
+    triggerToast('Failed to remove sensor', 'error');
   }
 }
 
 const saveChanges = async () => {
-  if (!editableEntry.value) return
+  if (!editableEntry.value || !props.entryID) return
+
+  isSaving.value = true
+  const numericId = Number(props.entryID);
+
+  // Handle datetime conversion if needed
+  let creationTime = editableEntry.value.scenario_creation_time;
+  if (creationTime && !creationTime.endsWith('Z') && !creationTime.includes('+')) {
+    creationTime = new Date(creationTime).toISOString();
+  }
+
   const payload: MetadataWeb = {
+    platform_name: editableEntry.value.platform_name || undefined,
+    scenario_name: editableEntry.value.scenario_name || undefined,
+    scenario_creation_time: creationTime || undefined,
     scenario_description: editableEntry.value.scenario_description || undefined,
+    sequence_distance: editableEntry.value.sequence_distance ?? undefined,
+    sequence_lat_starting_point_deg: editableEntry.value.sequence_lat_starting_point_deg ?? undefined,
+    sequence_lon_starting_point_deg: editableEntry.value.sequence_lon_starting_point_deg ?? undefined,
+    weather_cloudiness: editableEntry.value.weather_cloudiness || undefined,
+    weather_precipitation: editableEntry.value.weather_precipitation || undefined,
+    weather_precipitation_deposits: editableEntry.value.weather_precipitation_deposits || undefined,
+    weather_wind_intensity: editableEntry.value.weather_wind_intensity || undefined,
+    weather_road_humidity: editableEntry.value.weather_road_humidity || undefined,
+    weather_fog: editableEntry.value.weather_fog ?? undefined,
+    weather_snow: editableEntry.value.weather_snow ?? undefined,
     topics: editableEntry.value.topics ? editableEntry.value.topics.map(t => t.topic_name) : undefined
   }
   try {
-    await updateMetadata(editableEntry.value.id, payload)
-    entry.value = JSON.parse(JSON.stringify(editableEntry.value))
-  } catch (err) {
-    console.error('Error saving metadata:', err)
+    // 1. Update Metadata
+    await updateMetadata(numericId, payload)
+
+    // 2. Update Sensors (if any changes were made to their names/types/topics)
+    if (editableEntry.value.sensors) {
+      for (const s of editableEntry.value.sensors) {
+        if (s.id) {
+          await updateSensor(numericId, s.id, {
+            sensor_name: s.sensor_name,
+            sensor_type: s.sensor_type,
+            ros_topics: s.ros_topics,
+            manufacturer: s.manufacturer,
+            custom_parameters: s.custom_parameters
+          });
+        }
+      }
+    }
+
+    // Refresh everything from backend to be sure
+    const e = await fetchEntry(numericId);
+    if (e.scenario_creation_time) {
+      const date = new Date(e.scenario_creation_time);
+      const offset = date.getTimezoneOffset() * 60000;
+      e.scenario_creation_time = new Date(date.getTime() - offset).toISOString().slice(0, 16);
+    }
+
+    entry.value = e;
+    editableEntry.value = JSON.parse(JSON.stringify(e));
+
+    const sensorsMap = await fetchSensors(numericId);
+    const sensors = Object.values(sensorsMap);
+    editableEntry.value!.sensors = sensors;
+    entry.value!.sensors = JSON.parse(JSON.stringify(sensors));
+  }
+  catch (e) {
+    console.error('error saving changes', e);
+    triggerToast('Failed to save changes', 'error');
+  } finally {
+    isSaving.value = false;
   }
 }
+
 
 const cancelChanges = () => {
   if (entry.value) {
     editableEntry.value = JSON.parse(JSON.stringify(entry.value));
+    triggerToast('Changes discarded', 'success')
   }
 }
 
-// Topic von einem Sensor entfernen
+// Remove topic from a sensor
 const removeTopicFromSensor = (sensor: Sensor, topicIndex: number) => {
   sensor.ros_topics.splice(topicIndex, 1);
 };
 
-//Topic zu einem Sensor hinzufügen
+// Add topic to a sensor
 const addTopicToSensor = (sensor: Sensor, topicName: string) => {
   if (!sensor.ros_topics) sensor.ros_topics = [];
-  // Nur hinzufügen, wenn noch nicht vorhanden
+  // Only add if not already present
   if (!sensor.ros_topics.includes(topicName)) {
     sensor.ros_topics.push(topicName);
   }
-  // Fokus vom Dropdown entfernen, um es zu schließen
+  // Remove focus from select to close it
   if (document.activeElement instanceof HTMLElement) {
     document.activeElement.blur();
   }
 };
 
-// Filtert die Liste der MCAP-Topics,
-// damit nur die angezeigt werden, die der Sensor noch nicht hat.
+// Filters the list of MCAP topics to show only those the sensor doesn't have yet.
 const getFilteredTopics = (sensor: Sensor) => {
   if (!editableEntry.value?.topics) return [];
   const currentSensorTopics = sensor.ros_topics || [];

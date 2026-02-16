@@ -169,6 +169,7 @@ impl StorageManager {
             .execute(conn)
         })
         .await??;
+
         debug!("Updated entry {}", entry_id_);
         Ok(())
     }
@@ -298,6 +299,17 @@ impl StorageManager {
     }
 
     #[instrument]
+    pub async fn get_all_sensors(&self, txid: TxID) -> Result<Map<SensorID, Sensor>, StorageError> {
+        let conn = self.db_connection_pool().get().await?;
+        let sensors = conn
+            .interact(move |conn| schema::sensors::dsl::sensors.load::<Sensor>(conn))
+            .await??;
+        let sensors_map = sensors.into_iter().map(|s| (s.id, s)).collect();
+        debug!("Queried all sensors: {:?}", sensors_map);
+        Ok(sensors_map)
+    }
+
+    #[instrument]
     pub async fn get_topics(
         &self,
         entry_id_: EntryID,
@@ -312,10 +324,7 @@ impl StorageManager {
             })
             .await??;
         let topics_map = topics.into_iter().map(|s| (s.id, s)).collect();
-        debug!(
-            "Queried topics for entry_id {}: {:?}",
-            entry_id_, topics_map
-        );
+        debug!("Queried topics for entry_id {}", entry_id_);
         Ok(topics_map)
     }
 

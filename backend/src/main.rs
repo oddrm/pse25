@@ -85,6 +85,7 @@ async fn main() {
                 get_entry_by_path,
                 get_entry,
                 get_sensors,
+                get_all_sensors,
                 add_sensor,
                 update_sensor,
                 remove_sensor,

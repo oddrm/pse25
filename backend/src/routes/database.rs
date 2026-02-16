@@ -209,6 +209,17 @@ pub async fn get_sensors(
     Ok(Json(sensors))
 }
 
+#[get("/sensors/tx/<txid>")]
+pub async fn get_all_sensors(
+    state: &State<AppState>,
+    txid: TxID,
+) -> Result<Json<Map<SensorID, Sensor>>, Error> {
+    let sm = &state.storage_manager;
+
+    let sensors = sm.get_all_sensors(txid).await?;
+    Ok(Json(sensors))
+}
+
 #[post(
     "/entries/<entry_id>/sensors/tx/<txid>",
     format = "json",
@@ -266,7 +277,7 @@ pub async fn update_sensor(
     Ok(status::NoContent)
 }
 
-#[delete("/sensors/<sensor_id>/tx/<txid>", format = "json")]
+#[delete("/sensors/<sensor_id>/tx/<txid>")]
 pub async fn remove_sensor(
     state: &State<AppState>,
     sensor_id: SensorID,
@@ -346,7 +357,7 @@ pub async fn remove_sequence(
     Ok(status::NoContent)
 }
 
-#[put("/entries/<entry_id>/tags/tx/<txid>", format = "json", data = "<tag>")]
+#[put("/entries/<entry_id>/tags/tx/<txid>", data = "<tag>")]
 pub async fn add_tag(
     state: &State<AppState>,
     entry_id: EntryID,
@@ -358,7 +369,7 @@ pub async fn add_tag(
     Ok(status::NoContent)
 }
 
-#[delete("/entries/<entry_id>/tags/tx/<txid>", format = "json", data = "<tag>")]
+#[delete("/entries/<entry_id>/tags/tx/<txid>", data = "<tag>")]
 pub async fn remove_tag(
     state: &State<AppState>,
     entry_id: EntryID,
