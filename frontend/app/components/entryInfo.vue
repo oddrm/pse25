@@ -13,7 +13,7 @@
         <div class="flex flex-col col-span-2"><span class="text-xs font-bold opacity-50 uppercase">Path</span><span
             class="break-all font-mono text-xs">{{ editableEntry.path }}</span></div>
         <div class="flex flex-col"><span class="text-xs font-bold opacity-50 uppercase">Platform</span><span>{{
-          editableEntry.platform }}</span></div>
+          editableEntry.platform_name }}</span></div>
       </div>
 
       <div class="bg-base-200 p-4 rounded-lg">
@@ -22,13 +22,13 @@
           <span class="badge badge-sm">{{ editableEntry.topics?.length || 0 }}</span>
         </h3>
         <div class="space-y-3">
-          <div v-for="topic in editableEntry.topics" :key="topic.name"
+          <div v-for="topic in editableEntry.topics" :key="topic.topic_name"
             class="p-2 bg-base-100 rounded border border-base-300 text-sm">
-            <div class="font-bold text-primary truncate">{{ topic.name }}</div>
+            <div class="font-bold text-primary truncate">{{ topic.topic_name }}</div>
             <div class="grid grid-cols-2 text-[12px] mt-1 opacity-70 italic">
-              <span>Typ: {{ topic.type }}</span>
-              <span class="text-right">Freq: {{ topic.frequency }} Hz</span>
-              <span>Messages: {{ topic.messageCount }}</span>
+              <span>Typ: {{ topic.topic_type }}</span>
+              <span class="text-right">Freq: {{ topic.frequency ? topic.frequency.toFixed(2) : 0 }} Hz</span>
+              <span>Messages: {{ topic.message_count }}</span>
             </div>
           </div>
         </div>
@@ -36,7 +36,7 @@
 
       <div class="bg-base-200 p-4 rounded-lg">
         <h3 class="font-bold mb-2">Description</h3>
-        <textarea v-model="editableEntry!.description"
+        <textarea v-model="editableEntry!.scenario_description"
           class="textarea textarea-bordered w-full h-24 bg-base-100 text-sm"
           placeholder="Beschreibung der Bagfile..."></textarea>
       </div>
@@ -56,19 +56,19 @@
 
             <div class="form-control w-full">
               <label class="label py-0"><span class="label-text-alt opacity-60">Name</span></label>
-              <input v-model="sensor.name" class="input input-bordered input-xs font-bold" />
+              <input v-model="sensor.sensor_name" class="input input-bordered input-xs font-bold" />
             </div>
 
             <div class="form-control w-full">
               <label class="label py-0"><span class="label-text-alt opacity-60">Typ</span></label>
-              <input v-model="sensor.type" class="input input-bordered input-xs" />
+              <input v-model="sensor.sensor_type" class="input input-bordered input-xs" />
             </div>
 
             <div class="mt-4">
               <span class="text-[10px] font-bold opacity-50 uppercase tracking-wider">Associated Topics</span>
 
               <div class="flex flex-wrap gap-2 mt-2">
-                <div v-for="(topicName, ti) in sensor.topics" :key="ti"
+                <div v-for="(topicName, ti) in sensor.ros_topics" :key="ti"
                   class="badge badge-secondary badge-sm py-3 gap-1 pl-3">
                   <span class="max-w-[150px] truncate">{{ topicName }}</span>
                   <button @click="removeTopicFromSensor(sensor, ti)"
@@ -87,9 +87,9 @@
                   <ul tabindex="0"
                     class="dropdown-content z-[100] menu p-2 shadow-xl bg-base-100 border border-base-300 rounded-box w-85 max-h-60 overflow-y-auto block">
                     <li class="menu-title text-[10px] ">Verfügbare Topics</li>
-                    <li v-for="availableTopic in getFilteredTopics(sensor)" :key="availableTopic.name">
-                      <a @click="addTopicToSensor(sensor, availableTopic.name)" class="text-xs py-2">
-                        {{ availableTopic.name }}
+                    <li v-for="availableTopic in getFilteredTopics(sensor)" :key="availableTopic.topic_name">
+                      <a @click="addTopicToSensor(sensor, availableTopic.topic_name)" class="text-xs py-2">
+                        {{ availableTopic.topic_name }}
                       </a>
                     </li>
                     <li v-if="getFilteredTopics(sensor).length === 0" class="text-xs italic p-2 opacity-40">
@@ -99,7 +99,8 @@
                 </div>
               </div>
 
-              <div v-if="!sensor.topics || sensor.topics.length === 0" class="text-[10px] italic opacity-40 mt-1">
+              <div v-if="!sensor.ros_topics || sensor.ros_topics.length === 0"
+                class="text-[10px] italic opacity-40 mt-1">
                 Keine Topics zugeordnet
               </div>
             </div>
@@ -110,7 +111,8 @@
           class="bg-base-100 p-3 rounded-lg border-2 border-dashed border-base-300 space-y-3">
           <select v-model="selectedExistingSensor" class="select select-bordered select-sm w-full">
             <option :value="null" disabled>Vorhandenen Sensor wählen</option>
-            <option v-for="s in globalSensors" :key="s.name" :value="s">{{ s.name }} ({{ s.type }})</option>
+            <option v-for="s in globalSensors" :key="s.sensor_name" :value="s">{{ s.sensor_name }} ({{ s.sensor_type }})
+            </option>
           </select>
           <div class="flex gap-2">
             <button @click="addExistingSensor" class="btn btn-secondary btn-sm flex-1"
@@ -140,8 +142,10 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { Sorting } from '~/utils/entryColumns'
-import type { Entry, entryID, Sensor } from '~/utils/entry'
-import { fetchEntries } from '~/utils/dbQueries'
+import type { Entry, entryID } from '~/utils/entry'
+import type { Sensor, SensorWeb } from '~/utils/sensor'
+import type { MetadataWeb } from '~/utils/metadata'
+import { fetchEntry, updateMetadata, addSensor, fetchSensors, removeSensor as apiRemoveSensor, fetchTopics } from '~/utils/dbQueries'
 
 const props = defineProps<{
   entryID: entryID | null
@@ -155,9 +159,6 @@ const selectedExistingSensor = ref<Sensor | null>(null)
 //TODO: HIer noch eine Funktion machen um auf alle Sensoren zuzugreifen, die liegen dann ja irgendwo im Backend,
 //deshalb ist das hier eine händische Liste
 const globalSensors = ref<Sensor[]>([
-  { name: 'ouster_cabin_left', type: 'rotating_lidar', topics: ['sensors/ouster_cabin_left/points'] },
-  { name: 'jai_fs_3200d_cabin_left', type: 'area_scan_camera', topics: ['sensors/jai_fs_3200d_cabin_left/image_raw'] },
-  { name: 'accurate_localization_oxford', type: 'imu', topics: ['sensors/accurate_localization_oxford/nav_sat_fix'] }
 ])
 
 watch(
@@ -168,42 +169,94 @@ watch(
       editableEntry.value = null;
       return;
     }
-    const entries = await fetchEntries('', Sorting.Name, true, 1, 50).catch((e) => console.log("Error fetching entries:", e));
-    if (entries) {
-      const foundEntry = entries.find(e => e.entryID === id);
-      if (foundEntry) {
-        entry.value = foundEntry;
-        editableEntry.value = JSON.parse(JSON.stringify(foundEntry));
+    try {
+      const e = await fetchEntry(id)
+      entry.value = e
+      editableEntry.value = JSON.parse(JSON.stringify(e))
+      // fetch sensors for this entry
+      try {
+        const sensorsMap = await fetchSensors(id)
+        editableEntry.value!.sensors = Object.values(sensorsMap)
+      } catch (e) {
+        console.debug('no sensors or failed to fetch sensors', e)
       }
+      try {
+        const topicsMap = await fetchTopics(id)
+        editableEntry.value!.topics = Object.values(topicsMap)
+      } catch (e) {
+        console.debug('no topics or failed to fetch topics', e)
+      }
+    } catch (err) {
+      console.log("Error fetching entry:", err)
+      entry.value = null
+      editableEntry.value = null
     }
   },
   { immediate: true }
 )
 
 const addNewEmptySensor = () => {
-  if (!editableEntry.value) return;
-  if (!editableEntry.value.sensors) editableEntry.value.sensors = [];
-  const newSensor: Sensor = { name: 'New Sensor', type: 'TBD', topics: [] };
-  editableEntry.value.sensors.push(newSensor);
-  globalSensors.value.push(newSensor);
-  showSensorSelect.value = false;
+  if (!editableEntry.value || !props.entryID) return;
+  const newSensor: SensorWeb = { sensor_name: 'New Sensor', sensor_type: 'TBD', ros_topics: [], manufacturer: null, custom_parameters: null };
+  // create on backend
+  addSensor(props.entryID, newSensor)
+    .then(() => fetchSensors(props.entryID as number))
+    .then((map) => {
+      // set sensors from backend response
+      editableEntry.value!.sensors = Object.values(map)
+    })
+    .catch((e) => console.error('error adding sensor', e))
+    .finally(() => {
+      showSensorSelect.value = false;
+    })
 }
 
 const addExistingSensor = () => {
-  if (!editableEntry.value || !selectedExistingSensor.value) return;
-  if (!editableEntry.value.sensors) editableEntry.value.sensors = [];
-  editableEntry.value.sensors.push(JSON.parse(JSON.stringify(selectedExistingSensor.value)));
-  showSensorSelect.value = false;
-  selectedExistingSensor.value = null;
+  if (!editableEntry.value || !selectedExistingSensor.value || !props.entryID) return;
+  addSensor(props.entryID, {
+    sensor_name: selectedExistingSensor.value.sensor_name,
+    manufacturer: selectedExistingSensor.value.manufacturer,
+    sensor_type: selectedExistingSensor.value.sensor_type,
+    ros_topics: selectedExistingSensor.value.ros_topics,
+    custom_parameters: selectedExistingSensor.value.custom_parameters
+  })
+    .then(() => fetchSensors(props.entryID as number))
+    .then((map) => {
+      editableEntry.value!.sensors = Object.values(map)
+    })
+    .catch((e) => console.error('error adding existing sensor', e))
+    .finally(() => {
+      showSensorSelect.value = false;
+      selectedExistingSensor.value = null;
+    })
 }
 
 const removeSensor = (index: number) => {
-  editableEntry.value?.sensors?.splice(index, 1);
+  const sensor = editableEntry.value?.sensors?.[index]
+  if (!sensor) return
+  if (sensor.id) {
+    apiRemoveSensor(sensor.id)
+      .then(() => fetchSensors(props.entryID as number))
+      .then((map) => {
+        if (editableEntry.value) editableEntry.value.sensors = Object.values(map)
+      })
+      .catch((e) => console.error('error removing sensor', e))
+  } else {
+    editableEntry.value?.sensors?.splice(index, 1)
+  }
 }
 
-const saveChanges = () => {
-  if (editableEntry.value) {
-    entry.value = JSON.parse(JSON.stringify(editableEntry.value));
+const saveChanges = async () => {
+  if (!editableEntry.value) return
+  const payload: MetadataWeb = {
+    scenario_description: editableEntry.value.scenario_description || undefined,
+    topics: editableEntry.value.topics ? editableEntry.value.topics.map(t => t.topic_name) : undefined
+  }
+  try {
+    await updateMetadata(editableEntry.value.id, payload)
+    entry.value = JSON.parse(JSON.stringify(editableEntry.value))
+  } catch (err) {
+    console.error('Error saving metadata:', err)
   }
 }
 
@@ -215,15 +268,15 @@ const cancelChanges = () => {
 
 // Topic von einem Sensor entfernen
 const removeTopicFromSensor = (sensor: Sensor, topicIndex: number) => {
-  sensor.topics.splice(topicIndex, 1);
+  sensor.ros_topics.splice(topicIndex, 1);
 };
 
 //Topic zu einem Sensor hinzufügen
 const addTopicToSensor = (sensor: Sensor, topicName: string) => {
-  if (!sensor.topics) sensor.topics = [];
+  if (!sensor.ros_topics) sensor.ros_topics = [];
   // Nur hinzufügen, wenn noch nicht vorhanden
-  if (!sensor.topics.includes(topicName)) {
-    sensor.topics.push(topicName);
+  if (!sensor.ros_topics.includes(topicName)) {
+    sensor.ros_topics.push(topicName);
   }
   // Fokus vom Dropdown entfernen, um es zu schließen
   if (document.activeElement instanceof HTMLElement) {
@@ -235,9 +288,9 @@ const addTopicToSensor = (sensor: Sensor, topicName: string) => {
 // damit nur die angezeigt werden, die der Sensor noch nicht hat.
 const getFilteredTopics = (sensor: Sensor) => {
   if (!editableEntry.value?.topics) return [];
-  const currentSensorTopics = sensor.topics || [];
+  const currentSensorTopics = sensor.ros_topics || [];
   return editableEntry.value.topics.filter(
-    t => !currentSensorTopics.includes(t.name)
+    t => !currentSensorTopics.includes(t.topic_name)
   );
 };
 

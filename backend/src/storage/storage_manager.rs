@@ -504,11 +504,20 @@ impl StorageManager {
         txid: TxID,
     ) -> Result<SequenceID, StorageError> {
         let conn = self.db_connection_pool().get().await?;
+        let s = sequence.clone();
         let sequence_id = conn
             .interact(move |conn| {
-                diesel::insert_into(schema::sequences::dsl::sequences)
-                    .values(&sequence)
-                    .returning(schema::sequences::dsl::id)
+                use crate::schema::sequences::dsl as sequences_dsl;
+                diesel::insert_into(sequences_dsl::sequences)
+                    .values((
+                        sequences_dsl::entry_id.eq(s.entry_id),
+                        sequences_dsl::description.eq(s.description),
+                        sequences_dsl::start_timestamp.eq(s.start_timestamp),
+                        sequences_dsl::end_timestamp.eq(s.end_timestamp),
+                        sequences_dsl::created_at.eq(s.created_at),
+                        sequences_dsl::updated_at.eq(s.updated_at),
+                    ))
+                    .returning(sequences_dsl::id)
                     .get_result::<SequenceID>(conn)
             })
             .await??;

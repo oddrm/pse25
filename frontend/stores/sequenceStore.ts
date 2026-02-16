@@ -1,21 +1,10 @@
 import { defineStore } from "pinia"
-import type { Sequence } from "~/utils/sequence"
-import { fetchSequences } from "~/utils/dbQueries" // [Neu] Import für Mock-Daten
+import type { Sequence, SequenceWeb } from "~/utils/sequence"
+import { fetchSequences, fetchEntries } from "~/utils/dbQueries"
+import { addSequence, updateSequence, removeSequence } from "~/utils/dbQueries"
+import { Sorting } from "~/utils/entryColumns"
 
 const STORAGE_KEY = "sequences_v1"
-
-type RawSequence = Omit<Sequence, "startTime" | "endTime"> & {
-  startTime: string
-  endTime: string | null
-}
-
-function reviveSequences(raw: RawSequence[] = []): Sequence[] {
-  return raw.map((s) => ({
-    ...s,
-    startTime: new Date(s.startTime),
-    endTime: s.endTime ? new Date(s.endTime) : null,
-  }))
-}
 
 export const useSequencesStore = defineStore("sequences", {
   state: () => ({
@@ -25,63 +14,104 @@ export const useSequencesStore = defineStore("sequences", {
 
   getters: {
     byEntry: (state) => {
-      return (entryID: number) => state.sequences.filter(s => s.entryID === entryID)
+      return (entry_id: number) => state.sequences.filter(s => s.entry_id === entry_id)
     },
   },
 
   actions: {
-    init() {
+    async init() {
       if (this._inited) return
       this._inited = true
 
       if (!process.client) return
 
-      const saved = localStorage.getItem(STORAGE_KEY)
-
-      if (saved) {
-        try {
-          // [Geändert] Keine "revive"-Funktion mehr nötig, da Zahlen (Sekunden)
-          // beim Parsen Zahlen bleiben.
-          this.sequences = JSON.parse(saved)
-        } catch {
-          this.sequences = []
+      // Load from backend as primary source of truth
+      try {
+        const entries = await fetchEntries('', Sorting.Name, true, 1, 1000)
+        const allSeqs: Sequence[] = []
+        for (const e of entries) {
+          const map = await fetchSequences(e.id)
+          const values = Object.values(map) as Sequence[]
+          values.forEach((s) => allSeqs.push(s))
         }
-      } else {
-        // [Neu] Wenn LocalStorage leer ist (erster Besuch), lade Mock-Daten!
-        console.log("Lade Mock-Sequenzen...")
-        const seq1 = fetchSequences(1)
-        const seq2 = fetchSequences(2)
-        this.sequences = [...seq1, ...seq2]
+        this.sequences = allSeqs
+      } catch (err) {
+        console.error("Error loading sequences from backend:", err)
+        // Fallback to localStorage if backend fails
+        const saved = localStorage.getItem(STORAGE_KEY)
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved)
+            // Fix potential naming issues from old versions
+            this.sequences = parsed.map((s: any) => ({
+              ...s,
+              entry_id: s.entry_id || s.entryID,
+              id: s.id ?? 0
+            }))
+          } catch {
+            this.sequences = []
+          }
+        }
       }
 
-      // [Beibehalten] Automatisch speichern bei Änderungen
+      // Automatically save to localStorage when changes occur
       this.$subscribe((_mutation, state) => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state.sequences))
       })
     },
 
-    add(payload: Omit<Sequence, "id">) {
-      // [Beibehalten] Generiert eine einfache ID
-      const id = Date.now() + Math.floor(Math.random() * 1000)
-
-      this.sequences.push({
-        id,
-        ...payload,
-        tags: payload.tags || []
-      })
-    },
-
-    // [Neu] Wichtig für den Bearbeiten-Button
-    update(updatedSeq: Sequence) {
-      const index = this.sequences.findIndex(s => s.id === updatedSeq.id)
-      if (index !== -1) {
-        // Ersetzt das alte Objekt durch das bearbeitete
-        this.sequences[index] = updatedSeq
+    async add(payload: Omit<Sequence, "id" | "created_at" | "updated_at">) {
+      try {
+        const webPayload: SequenceWeb = {
+          description: payload.description,
+          start_timestamp: payload.start_timestamp,
+          end_timestamp: payload.end_timestamp
+        }
+        const newId = await addSequence(payload.entry_id, webPayload)
+        this.sequences.push({
+          id: newId,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          ...payload
+        })
+      } catch (err) {
+        console.error('Error adding sequence:', err)
       }
     },
 
-    remove(id: number) {
-      this.sequences = this.sequences.filter(s => s.id !== id)
+    // [Neu] Wichtig für den Bearbeiten-Button
+    async update(updatedSeq: Sequence) {
+      const index = this.sequences.findIndex(s => s.id === updatedSeq.id)
+      if (index === -1) return
+      try {
+        const webPayload: SequenceWeb = {
+          description: updatedSeq.description,
+          start_timestamp: updatedSeq.start_timestamp,
+          end_timestamp: updatedSeq.end_timestamp
+        }
+        await updateSequence(updatedSeq.entry_id, updatedSeq.id, webPayload)
+        this.sequences[index] = {
+          ...updatedSeq,
+          updated_at: new Date().toISOString()
+        }
+      } catch (err) {
+        console.error('Error updating sequence:', err)
+      }
+    },
+
+    async remove(id: number) {
+      if (id === undefined || id === null) {
+        console.error('Cannot remove sequence without a valid ID')
+        return
+      }
+      const seq = this.sequences.find(s => s.id === id)
+      if (!seq) return
+      try {
+        await removeSequence(seq.entry_id, id)
+        this.sequences = this.sequences.filter(s => s.id !== id)
+      } catch (err) {
+        console.error('Error removing sequence:', err)
+      }
     },
 
     clearAll() {

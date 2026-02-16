@@ -9,7 +9,7 @@ describe('Entry Type', () => {
             size: 1024,
             platform: 'linux',
             tags: ['important', 'work'],
-            entryID: 1 as entryID
+            id: 1 as entryID
         }
 
         expect(entry.name).toBe('test.txt')
@@ -18,7 +18,7 @@ describe('Entry Type', () => {
         expect(entry.platform).toBe('linux')
         expect(entry.tags).toHaveLength(2)
         expect(entry.tags).toContain('important')
-        expect(entry.entryID).toBe(1)
+        expect(entry.id).toBe(1)
     })
 
     it('should handle empty tags array', () => {
@@ -28,7 +28,7 @@ describe('Entry Type', () => {
             size: 2048,
             platform: 'windows',
             tags: [],
-            entryID: 2 as entryID
+            id: 2 as entryID
         }
 
         expect(entry.tags).toEqual([])

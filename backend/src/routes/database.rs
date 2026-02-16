@@ -1,8 +1,8 @@
-#![allow(unused_variables)]
-
 use crate::AppState;
 use crate::error::{Error, StorageError};
-use crate::storage::models::{Entry, EntryID, Sensor, SensorID, Sequence, SequenceID};
+use crate::storage::models::{
+    Entry, EntryID, Sensor, SensorID, Sequence, SequenceID, Topic, TopicID,
+};
 use chrono::{DateTime, Utc};
 use rocket::serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -39,6 +39,14 @@ pub struct SensorWeb {
     pub ros_topics: Vec<String>,
     pub custom_parameters: Option<JsonValue>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(crate = "rocket::serde")]
+pub struct SequenceWeb {
+    pub description: String,
+    pub start_timestamp: i64,
+    pub end_timestamp: i64,
+}
 use crate::storage::storage_manager::{Map, TxID};
 use rocket::serde::json::Json;
 use rocket::{State, delete, get, post, put, response::status};
@@ -48,7 +56,7 @@ fn not_found<T>(msg: String) -> Result<T, Error> {
 }
 
 //Kapitel 5.1.2 im Entwurfsheft (falls noch andere das ewig suchen)
-#[get("/entries/<entry_id>/<txid>/metadata")]
+#[get("/entries/<entry_id>/metadata/tx/<txid>")]
 pub async fn get_metadata(
     state: &State<AppState>,
     entry_id: EntryID,
@@ -98,20 +106,24 @@ pub async fn get_metadata(
 
 //Das müssen wir nochmal anschauen. Vielleicht funktioniert nicht mit JSON ????????????????????????????????????
 //?????????????????????????????????????????????????????????????????????????????????????????????????????????????
-#[put("/entries/<entry_id>/metadata", format = "json", data = "<metadata>")]
+#[put(
+    "/entries/<entry_id>/metadata/tx/<txid>",
+    format = "json",
+    data = "<metadata>"
+)]
 pub async fn update_metadata(
     state: &State<AppState>,
     entry_id: EntryID,
     metadata: Json<MetadataWeb>,
+    txid: TxID,
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
     let m = metadata.into_inner();
     sm.update_entry(entry_id, m, txid).await?;
     Ok(status::NoContent)
 }
 
-#[get("/entries?<search_string>&<sort_by>&<ascending>&<page>&<page_size>")]
+#[get("/entries?<search_string>&<sort_by>&<ascending>&<page>&<page_size>&<txid>")]
 pub async fn get_entries(
     state: &State<AppState>,
     search_string: Option<String>,
@@ -119,9 +131,10 @@ pub async fn get_entries(
     ascending: Option<bool>,
     page: Option<u32>,
     page_size: Option<u32>,
+    txid: Option<TxID>,
 ) -> Result<Json<Vec<Entry>>, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
+    let txid = txid.unwrap_or(0);
 
     let entries = sm
         .get_entries(search_string, sort_by, ascending, page, page_size, txid)
@@ -130,7 +143,7 @@ pub async fn get_entries(
     Ok(Json(entries))
 }
 
-#[get("/entries/<entry_id>/<txid>")]
+#[get("/entries/<entry_id>/tx/<txid>")]
 pub async fn get_entry(
     state: &State<AppState>,
     entry_id: EntryID,
@@ -145,7 +158,7 @@ pub async fn get_entry(
     }
 }
 
-#[get("/paths/<path>/<txid>")]
+#[get("/paths/<path>/tx/<txid>")]
 pub async fn get_entry_by_path(
     state: &State<AppState>,
     path: String,
@@ -160,38 +173,54 @@ pub async fn get_entry_by_path(
     }
 }
 
-#[get("/entries/<entry_id>/sequences")]
+#[get("/entries/<entry_id>/sequences/tx/<txid>")]
 pub async fn get_sequences(
     state: &State<AppState>,
     entry_id: EntryID,
+    txid: TxID,
 ) -> Result<Json<Map<SequenceID, Sequence>>, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
 
     let sequences = sm.get_sequences(entry_id, txid).await?;
     Ok(Json(sequences))
 }
 
-#[get("/entries/<entry_id>/sensors")]
+#[get("/entries/<entry_id>/topics/tx/<txid>")]
+pub async fn get_topics(
+    state: &State<AppState>,
+    entry_id: EntryID,
+    txid: TxID,
+) -> Result<Json<Map<TopicID, Topic>>, Error> {
+    let sm = &state.storage_manager;
+
+    let topics = sm.get_topics(entry_id, txid).await?;
+    Ok(Json(topics))
+}
+
+#[get("/entries/<entry_id>/sensors/tx/<txid>")]
 pub async fn get_sensors(
     state: &State<AppState>,
     entry_id: EntryID,
+    txid: TxID,
 ) -> Result<Json<Map<SensorID, Sensor>>, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
 
     let sensors = sm.get_sensors(entry_id, txid).await?;
     Ok(Json(sensors))
 }
 
-#[post("/entries/<entry_id>/sensors", format = "json", data = "<sensor>")]
+#[post(
+    "/entries/<entry_id>/sensors/tx/<txid>",
+    format = "json",
+    data = "<sensor>"
+)]
 pub async fn add_sensor(
     state: &State<AppState>,
     entry_id: EntryID,
     sensor: Json<SensorWeb>,
+    txid: TxID,
 ) -> Result<status::Created<Json<SensorID>>, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
 
     let s = sensor.into_inner();
     let storage_sensor = Sensor {
@@ -209,7 +238,7 @@ pub async fn add_sensor(
 }
 
 #[put(
-    "/entries/<entry_id>/sensors/<sensor_id>",
+    "/entries/<entry_id>/sensors/<sensor_id>/tx/<txid>",
     format = "json",
     data = "<sensor>"
 )]
@@ -218,9 +247,9 @@ pub async fn update_sensor(
     entry_id: EntryID,
     sensor_id: SensorID,
     sensor: Json<SensorWeb>,
+    txid: TxID,
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
     let s = sensor.into_inner();
 
     let storage_sensor = Sensor {
@@ -237,38 +266,46 @@ pub async fn update_sensor(
     Ok(status::NoContent)
 }
 
-#[delete("/sensors/<sensor_id>", format = "json")]
+#[delete("/sensors/<sensor_id>/tx/<txid>", format = "json")]
 pub async fn remove_sensor(
     state: &State<AppState>,
     sensor_id: SensorID,
+    txid: TxID,
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
     sm.remove_sensor(sensor_id, txid).await?;
     Ok(status::NoContent)
 }
 
 #[post(
-    "/entries/<entry_id>/sequences/<txid>",
+    "/entries/<entry_id>/sequences/tx/<txid>",
     format = "json",
     data = "<sequence>"
 )]
 pub async fn add_sequence(
     state: &State<AppState>,
     entry_id: EntryID,
-    sequence: Json<Sequence>,
+    sequence: Json<SequenceWeb>,
     txid: TxID,
 ) -> Result<status::Created<Json<SequenceID>>, Error> {
     let sm = &state.storage_manager;
+    let s = sequence.into_inner();
+    let storage_sequence = Sequence {
+        id: 0,
+        entry_id,
+        description: s.description,
+        start_timestamp: s.start_timestamp,
+        end_timestamp: s.end_timestamp,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
 
-    let new_id = sm
-        .add_sequence(entry_id, sequence.into_inner(), txid)
-        .await?;
+    let new_id = sm.add_sequence(entry_id, storage_sequence, txid).await?;
     Ok(status::Created::new(format!("/entries/{entry_id}/sequences/{new_id}")).body(Json(new_id)))
 }
 
 #[put(
-    "/entries/<entry_id>/sequences/<sequence_id>",
+    "/entries/<entry_id>/sequences/<sequence_id>/tx/<txid>",
     format = "json",
     data = "<sequence>"
 )]
@@ -276,51 +313,59 @@ pub async fn update_sequence(
     state: &State<AppState>,
     entry_id: EntryID,
     sequence_id: SequenceID,
-    sequence: Json<Sequence>,
+    sequence: Json<SequenceWeb>,
+    txid: TxID,
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
+    let s = sequence.into_inner();
 
-    let mut seq = sequence.into_inner();
-    seq.id = sequence_id;
-    seq.entry_id = entry_id;
+    let storage_sequence = Sequence {
+        id: sequence_id,
+        entry_id,
+        description: s.description,
+        start_timestamp: s.start_timestamp,
+        end_timestamp: s.end_timestamp,
+        created_at: Utc::now(), // will not be updated
+        updated_at: Utc::now(),
+    };
 
-    sm.update_sequence(entry_id, sequence_id, seq, txid).await?;
+    sm.update_sequence(entry_id, sequence_id, storage_sequence, txid)
+        .await?;
     Ok(status::NoContent)
 }
 
-#[delete("/entries/<entry_id>/sequences/<sequence_id>")]
+#[delete("/entries/<entry_id>/sequences/<sequence_id>/tx/<txid>")]
 pub async fn remove_sequence(
     state: &State<AppState>,
     entry_id: EntryID,
     sequence_id: SequenceID,
+    txid: TxID,
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
     sm.remove_sequence(entry_id, sequence_id, txid).await?;
     Ok(status::NoContent)
 }
 
-#[put("/entries/<entry_id>/tags", format = "json", data = "<tag>")]
+#[put("/entries/<entry_id>/tags/tx/<txid>", format = "json", data = "<tag>")]
 pub async fn add_tag(
     state: &State<AppState>,
     entry_id: EntryID,
     tag: String,
+    txid: TxID,
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
     sm.add_tag(entry_id, tag, txid).await?;
     Ok(status::NoContent)
 }
 
-#[delete("/entries/<entry_id>/tags", format = "json", data = "<tag>")]
+#[delete("/entries/<entry_id>/tags/tx/<txid>", format = "json", data = "<tag>")]
 pub async fn remove_tag(
     state: &State<AppState>,
     entry_id: EntryID,
     tag: String,
+    txid: TxID,
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
-    let txid: TxID = 0;
     sm.remove_tag(entry_id, tag, txid).await?;
     Ok(status::NoContent)
 }
