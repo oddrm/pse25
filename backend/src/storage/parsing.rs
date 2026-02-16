@@ -1,4 +1,3 @@
-use std::io::Read;
 use std::path::Path;
 
 use crate::storage::storage_manager::StorageManager;
@@ -7,7 +6,6 @@ use crate::{
     storage::models::{Entry, Sensor, Sequence},
 };
 use chrono::{DateTime, Utc};
-use diesel::prelude::*;
 use serde_json;
 use serde_yaml;
 use tokio::io::AsyncReadExt;
@@ -56,7 +54,7 @@ async fn get_mcap_info(path: &Path) -> Result<McapInfo, StorageError> {
     }
     debug!("mcap stdout length: {}", output.stdout.len());
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-
+    debug!("mcap stdout: {}", stdout);
     let mut duration_seconds: Option<f64> = None;
     let mut start_time_ns: Option<i64> = None;
     let mut end_time_ns: Option<i64> = None;
@@ -181,6 +179,10 @@ pub async fn file_is_custom_metadata(path: &Path) -> Result<bool, StorageError> 
         }
         None => false,
     };
+    debug!(
+        "Checking custom metadata for {:?}, extension_ok={}",
+        path, correct_extension
+    );
     if correct_extension {
         let mut file = tokio::fs::File::open(path)
             .await
@@ -190,9 +192,16 @@ pub async fn file_is_custom_metadata(path: &Path) -> Result<bool, StorageError> 
             .read(&mut buffer)
             .await
             .map_err(|e| StorageError::IoError(e.into()))?;
+        debug!(
+            "Read {} bytes from metadata candidate {:?}",
+            read_bytes, path
+        );
         let content = String::from_utf8_lossy(&buffer[..read_bytes]);
         if content.contains(CUSTOM_METADATA_IDENTIFIER) {
+            debug!("Custom metadata identifier found in {:?}", path);
             return Ok(true);
+        } else {
+            debug!("Custom metadata identifier NOT found in {:?}", path);
         }
     }
     Ok(false)
@@ -245,12 +254,14 @@ pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
             break;
         }
     }
+    debug!("Metadata path for {:?}: {:?}", path, metadata_path);
 
     // parse metadata yaml if present (for optional metadata)
     let yaml: Option<serde_yaml::Value> = match metadata_path {
         Some(md) => parse_metadata_yaml(&md).await.unwrap_or(None),
         None => None,
     };
+    debug!("Parsed YAML present: {}", yaml.is_some());
 
     // determine sequence duration: prefer MCAP-derived duration, fall back to YAML
     let sequence_duration: Option<f64> = mcap_info.duration_seconds.or_else(|| {
@@ -278,6 +289,7 @@ pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
             })
         })
         .unwrap_or_else(|| vec![]);
+    debug!("Extracted tags: {:?}", tags);
 
     // file metadata
     let meta = tokio::fs::metadata(&path)
@@ -400,6 +412,13 @@ pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
         tags,
         // topics are stored in separate table now
     };
+    debug!(
+        "Constructed Entry: id=0 name={} path={} size={} tags_count={}",
+        entry.name,
+        entry.path,
+        entry.size,
+        entry.tags.len()
+    );
 
     Ok(entry)
 }
@@ -448,26 +467,73 @@ pub async fn insert_entry_into_db(
         None => None,
     };
 
-    // insert entry into DB and get new id
-    let pool = storage_manager.db_connection_pool();
-    let entry_clone = entry.clone();
-    let new_id = {
-        let conn = pool.get().await?;
-        conn.interact(move |conn| -> Result<i64, diesel::result::Error> {
-            let next_id: i64 = diesel::select(diesel::dsl::sql::<diesel::sql_types::BigInt>(
-                "COALESCE(MAX(id),0)+1",
-            ))
-            .get_result(conn)?;
-            let mut to_insert = entry_clone.clone();
-            to_insert.id = next_id;
-            diesel::insert_into(crate::schema::entries::dsl::entries)
-                .values(&to_insert)
-                .execute(conn)?;
-            Ok(next_id)
-        })
-        .await??
-    };
-    entry.id = new_id;
+    // insert entry into DB and get new id (idempotent)
+    let txid = storage_manager.get_transaction_id();
+
+    // Check if entry with same path already exists
+    if let Ok(Some(existing)) = storage_manager
+        .get_entry_by_path(entry.path.clone(), txid)
+        .await
+    {
+        debug!(
+            "Entry with same path already exists with id {}. Updating it.",
+            existing.id
+        );
+        debug!("Existing entry: {:?}", existing);
+        // update metadata for existing entry
+        entry.id = existing.id;
+        let md = crate::routes::database::MetadataWeb {
+            time_machine: entry.time_machine,
+            platform_name: entry.platform_name.clone(),
+            platform_image_link: entry.platform_image_link.clone(),
+            scenario_name: entry.scenario_name.clone(),
+            scenario_creation_time: entry.scenario_creation_time,
+            scenario_description: entry.scenario_description.clone(),
+            sequence_duration: entry.sequence_duration,
+            sequence_distance: entry.sequence_distance,
+            sequence_lat_starting_point_deg: entry.sequence_lat_starting_point_deg,
+            sequence_lon_starting_point_deg: entry.sequence_lon_starting_point_deg,
+            weather_cloudiness: entry.weather_cloudiness.clone(),
+            weather_precipitation: entry.weather_precipitation.clone(),
+            weather_precipitation_deposits: entry.weather_precipitation_deposits.clone(),
+            weather_wind_intensity: entry.weather_wind_intensity.clone(),
+            weather_road_humidity: entry.weather_road_humidity.clone(),
+            weather_fog: entry.weather_fog,
+            weather_snow: entry.weather_snow,
+            topics: None,
+        };
+        if let Err(e) = storage_manager.update_entry(entry.id, md, txid).await {
+            error!("Failed to update existing entry {}: {:?}", entry.id, e);
+        }
+        // also ensure tags are present
+        for tag in entry.tags.clone().into_iter() {
+            if let Err(e) = storage_manager.add_tag(entry.id, tag, txid).await {
+                error!("Failed to add tag for entry {}: {:?}", entry.id, e);
+            }
+        }
+    } else {
+        debug!(
+            "No existing entry with same path. Inserting new entry for path {:?}.",
+            entry.path
+        );
+        // insert new entry (keep previous insertion approach)
+        let entry_clone = entry.clone();
+        debug!(
+            "Inserting entry into DB: name={} path={} size={} tags_count={}",
+            entry.name,
+            entry.path,
+            entry.size,
+            entry.tags.len()
+        );
+        let new_id = storage_manager.add_entry(entry_clone, txid).await?;
+        entry.id = new_id;
+        // add tags for new entry
+        for tag in entry.tags.clone().into_iter() {
+            if let Err(e) = storage_manager.add_tag(entry.id, tag, txid).await {
+                error!("Failed to add tag for entry {}: {:?}", entry.id, e);
+            }
+        }
+    }
 
     // insert topics into topics table: run mcap info to get topics and duration
     let mcap_info = match get_mcap_info(path).await {
@@ -491,6 +557,8 @@ pub async fn insert_entry_into_db(
                 .and_then(|v| v.as_f64())
         })
     });
+    // upsert topics: update existing topics by name, add new ones
+    let existing_topics_map = storage_manager.get_topics(entry.id, txid).await.ok();
     for t in topics_list.iter() {
         let freq = sequence_duration.and_then(|d| {
             if d > 0.0 {
@@ -510,9 +578,29 @@ pub async fn insert_entry_into_db(
             created_at: now,
             updated_at: now,
         };
-        let _ = storage_manager
-            .add_topic(topic, storage_manager.get_transaction_id())
-            .await;
+        // try to find existing topic with same name
+        if let Some(map) = existing_topics_map.as_ref() {
+            let mut found: Option<crate::storage::models::Topic> = None;
+            for (_id, existing_topic) in map.iter() {
+                if existing_topic.topic_name == topic.topic_name {
+                    found = Some(existing_topic.clone());
+                    break;
+                }
+            }
+            if let Some(mut et) = found {
+                et.topic_type = topic.topic_type.clone();
+                et.message_count = topic.message_count;
+                et.frequency = topic.frequency;
+                et.updated_at = topic.updated_at;
+                if let Err(e) = storage_manager.update_topic(et, txid).await {
+                    error!("Failed to update topic for entry {}: {:?}", entry.id, e);
+                }
+                continue;
+            }
+        }
+        if let Err(e) = storage_manager.add_topic(topic, txid).await {
+            error!("Failed to add topic for entry {}: {:?}", entry.id, e);
+        }
     }
     // insert sequences from YAML: main sequence (if duration present) and subsequences
     if let Some(y) = yaml.as_ref() {
@@ -546,9 +634,33 @@ pub async fn insert_entry_into_db(
                 created_at: now,
                 updated_at: now,
             };
-            let _ = storage_manager
-                .add_sequence(entry.id, sequence, storage_manager.get_transaction_id())
-                .await;
+            // upsert main sequence: match by description + timestamps
+            let existing_seqs = storage_manager.get_sequences(entry.id, txid).await.ok();
+            let mut matched = false;
+            if let Some(map) = existing_seqs.as_ref() {
+                for (id, es) in map.iter() {
+                    if es.description == sequence.description
+                        && es.start_timestamp == sequence.start_timestamp
+                        && es.end_timestamp == sequence.end_timestamp
+                    {
+                        let mut seq_to_update = sequence.clone();
+                        seq_to_update.id = *id;
+                        if let Err(e) = storage_manager
+                            .update_sequence(entry.id, *id, seq_to_update, txid)
+                            .await
+                        {
+                            error!("Failed to update sequence for entry {}: {:?}", entry.id, e);
+                        }
+                        matched = true;
+                        break;
+                    }
+                }
+            }
+            if !matched {
+                if let Err(e) = storage_manager.add_sequence(entry.id, sequence, txid).await {
+                    error!("Failed to add sequence for entry {}: {:?}", entry.id, e);
+                }
+            }
         }
 
         // subsequences
@@ -575,9 +687,37 @@ pub async fn insert_entry_into_db(
                         created_at: now,
                         updated_at: now,
                     };
-                    let _ = storage_manager
-                        .add_sequence(entry.id, sequence, storage_manager.get_transaction_id())
-                        .await;
+                    // subsequence upsert: match by description + timestamps
+                    let existing_seqs = storage_manager.get_sequences(entry.id, txid).await.ok();
+                    let mut matched = false;
+                    if let Some(map) = existing_seqs.as_ref() {
+                        for (id, es) in map.iter() {
+                            if es.description == sequence.description
+                                && es.start_timestamp == sequence.start_timestamp
+                                && es.end_timestamp == sequence.end_timestamp
+                            {
+                                let mut seq_to_update = sequence.clone();
+                                seq_to_update.id = *id;
+                                if let Err(e) = storage_manager
+                                    .update_sequence(entry.id, *id, seq_to_update, txid)
+                                    .await
+                                {
+                                    error!(
+                                        "Failed to update subsequence for entry {}: {:?}",
+                                        entry.id, e
+                                    );
+                                }
+                                matched = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !matched {
+                        if let Err(e) = storage_manager.add_sequence(entry.id, sequence, txid).await
+                        {
+                            error!("Failed to add subsequence for entry {}: {:?}", entry.id, e);
+                        }
+                    }
                 }
             }
         }
@@ -634,9 +774,32 @@ pub async fn insert_entry_into_db(
                         ros_topics,
                         custom_parameters,
                     };
-                    let _ = storage_manager
-                        .add_sensor(sensor, storage_manager.get_transaction_id())
-                        .await;
+                    // upsert sensor by name
+                    let existing_sensors = storage_manager.get_sensors(entry.id, txid).await.ok();
+                    let mut matched = false;
+                    if let Some(map) = existing_sensors.as_ref() {
+                        for (id, es) in map.iter() {
+                            if es.sensor_name == sensor.sensor_name {
+                                let mut s_to_update = sensor.clone();
+                                s_to_update.id = *id;
+                                if let Err(e) =
+                                    storage_manager.update_sensor(s_to_update, txid).await
+                                {
+                                    error!(
+                                        "Failed to update sensor for entry {}: {:?}",
+                                        entry.id, e
+                                    );
+                                }
+                                matched = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !matched {
+                        if let Err(e) = storage_manager.add_sensor(sensor, txid).await {
+                            error!("Failed to add sensor for entry {}: {:?}", entry.id, e);
+                        }
+                    }
                 }
             }
         }

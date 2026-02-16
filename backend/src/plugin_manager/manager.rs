@@ -502,7 +502,10 @@ impl PluginManager {
             .map_err(|e| Error::CustomError(format!("{ERR_FAILED_KILL_PY_PREFIX}{e}")))?;
 
         // kurz warten
-        let _ = timeout(TIMEOUT_WAIT_EXIT_AFTER_KILL, entry.child.wait()).await;
+        match timeout(TIMEOUT_WAIT_EXIT_AFTER_KILL, entry.child.wait()).await {
+            Ok(_) => {}
+            Err(e) => warn!("Timeout waiting for process after kill: {:?}", e),
+        }
         Ok(())
     }
 

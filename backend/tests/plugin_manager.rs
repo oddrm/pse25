@@ -104,7 +104,9 @@ PLUGIN_TRIGGER = "manual"
         "plugin count must not increase on duplicate registration attempt"
     );
 
-    let _ = fs::remove_dir_all(&dir);
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
 }
 
 #[test]
@@ -136,7 +138,9 @@ plugins:
     pm.load_config_and_apply(cfg_path.to_string_lossy().as_ref())
         .expect("second load_config_and_apply should also succeed");
 
-    let _ = fs::remove_file(&cfg_path);
+    if let Err(e) = fs::remove_file(&cfg_path) {
+        eprintln!("cleanup failed removing {:?}: {}", cfg_path, e);
+    }
 
     let p = pm
         .get_registered_plugins()
@@ -206,7 +210,9 @@ PLUGIN_TRIGGER = "manual"
     );
 
     // Cleanup (best-effort)
-    let _ = fs::remove_dir_all(&dir);
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
 }
 
 #[test]
@@ -240,7 +246,9 @@ plugins:
         .load_config_and_apply(config_path.to_string_lossy().as_ref())
         .expect_err("expected error because does_not_exist is not registered");
 
-    let _ = fs::remove_file(&config_path);
+    if let Err(e) = fs::remove_file(&config_path) {
+        eprintln!("cleanup failed removing {:?}: {}", config_path, e);
+    }
 
     // Assert: error mentions not found
     assert!(
@@ -498,7 +506,9 @@ plugins:
         .expect("load_config_and_apply failed");
 
     // Cleanup (best-effort)
-    let _ = fs::remove_file(&config_path);
+    if let Err(e) = fs::remove_file(&config_path) {
+        eprintln!("cleanup failed removing {:?}: {}", config_path, e);
+    }
 
     // Assert
     let p = pm
@@ -532,7 +542,9 @@ plugins:
         .load_config_and_apply(config_path.to_string_lossy().as_ref())
         .expect_err("expected error for unknown plugin");
 
-    let _ = fs::remove_file(&config_path);
+    if let Err(e) = fs::remove_file(&config_path) {
+        eprintln!("cleanup failed removing {:?}: {}", config_path, e);
+    }
 
     let msg = format!("{err:?}");
     assert!(
@@ -643,7 +655,9 @@ async fn plugin_instance_lifecycle_start_pause_resume_stop() {
     );
 
     // Cleanup (best-effort)
-    let _ = fs::remove_dir_all(&temp_dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
+    }
 }
 
 /// Runtime-Integrationtest:
@@ -678,7 +692,9 @@ async fn start_fails_when_plugin_is_disabled() {
         "error should mention disabled plugin, got: {msg}"
     );
 
-    let _ = fs::remove_dir_all(&temp_dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
+    }
 }
 
 #[tokio::test]
@@ -709,7 +725,9 @@ async fn start_fails_for_unknown_plugin_name() {
         "error should mention not registered, got: {msg}"
     );
 
-    let _ = fs::remove_dir_all(&temp_dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
+    }
 }
 
 #[tokio::test]
@@ -755,7 +773,9 @@ async fn start_fails_for_duplicate_instance_id() {
         .await
         .expect("stop after duplicate-instance-id test failed");
 
-    let _ = fs::remove_dir_all(&temp_dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
+    }
 }
 
 #[tokio::test]
@@ -859,7 +879,9 @@ async fn pause_and_resume_are_idempotent() {
         .await
         .expect("stop_plugin_instance failed");
 
-    let _ = fs::remove_dir_all(&temp_dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
+    }
 }
 
 #[test]
@@ -881,7 +903,9 @@ fn plugin_manager_load_config_and_apply_errors_on_invalid_yaml() {
         .load_config_and_apply(config_path.to_string_lossy().as_ref())
         .expect_err("expected error for invalid YAML");
 
-    let _ = fs::remove_file(&config_path);
+    if let Err(e) = fs::remove_file(&config_path) {
+        eprintln!("cleanup failed removing {:?}: {}", config_path, e);
+    }
 
     assert!(
         format!("{err:?}").contains("Failed to parse config"),
@@ -956,7 +980,9 @@ plugins:
     let cfg_disable = common::create_yaml_config(yaml_disable);
     pm.load_config_and_apply(cfg_disable.to_string_lossy().as_ref())
         .expect("disabling config should apply");
-    let _ = fs::remove_file(&cfg_disable);
+    if let Err(e) = fs::remove_file(&cfg_disable) {
+        eprintln!("cleanup failed removing {:?}: {}", cfg_disable, e);
+    }
 
     let p = pm
         .get_registered_plugins()
@@ -977,7 +1003,9 @@ plugins:
     let cfg_enable = common::create_yaml_config(yaml_enable);
     pm.load_config_and_apply(cfg_enable.to_string_lossy().as_ref())
         .expect("enabling config should apply");
-    let _ = fs::remove_file(&cfg_enable);
+    if let Err(e) = fs::remove_file(&cfg_enable) {
+        eprintln!("cleanup failed removing {:?}: {}", cfg_enable, e);
+    }
 
     let p = pm
         .get_registered_plugins()
@@ -1044,7 +1072,9 @@ async fn plugin_manager_two_instances_run_independently() {
         "after stopping both, none should be running"
     );
 
-    let _ = fs::remove_dir_all(&temp_dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
+    }
 }
 
 #[test]
@@ -1121,7 +1151,9 @@ async fn plugin_manager_pause_then_stop_works() {
 
     assert_eq!(pm.get_running_instances().len(), 0);
 
-    let _ = fs::remove_dir_all(&temp_dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
+    }
 }
 
 #[test]
@@ -1169,7 +1201,9 @@ PLUGIN_TRIGGER = "manual"
     );
     assert_eq!(registered[0].name().as_str(), "only_this_one");
 
-    let _ = fs::remove_dir_all(&dir);
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
 }
 
 fn write_minimal_python_plugin_without_constants(dir: &PathBuf, file_name: &str) -> PathBuf {
@@ -1242,7 +1276,9 @@ async fn stop_is_not_idempotent_and_resume_after_stop_fails() {
         "resume-after-stop error should mention not running, got: {err:?}"
     );
 
-    let _ = fs::remove_dir_all(&temp_dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
+    }
 }
 
 #[tokio::test]
@@ -1299,7 +1335,9 @@ async fn pause_only_affects_target_instance() {
     pm.stop_plugin_instance(id1).await.expect("stop id1 failed");
     pm.stop_plugin_instance(id2).await.expect("stop id2 failed");
 
-    let _ = fs::remove_dir_all(&temp_dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
+    }
 }
 
 #[test]
@@ -1341,7 +1379,9 @@ fn register_plugin_uses_fallbacks_when_python_constants_are_missing() {
         "trigger should default to Manual when PLUGIN_TRIGGER is missing"
     );
 
-    let _ = fs::remove_dir_all(&dir);
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
 }
 
 fn write_minimal_python_plugin_with_trigger(
@@ -1499,7 +1539,9 @@ fn register_plugin_maps_all_supported_triggers_and_fallbacks() {
         "unknown trigger should fall back to Manual"
     );
 
-    let _ = fs::remove_dir_all(&dir);
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
 }
 
 #[test]
@@ -1539,7 +1581,9 @@ fn register_plugin_fails_validation_when_plugin_impl_missing_or_run_missing() {
         "error should mention run(), got: {err:?}"
     );
 
-    let _ = fs::remove_dir_all(&dir);
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
 }
 
 #[test]
@@ -1599,8 +1643,12 @@ plugins:
     pm.load_config_and_apply(cfg_path.to_string_lossy().as_ref())
         .expect("load_config_and_apply failed for multi-plugin config");
 
-    let _ = fs::remove_file(&cfg_path);
-    let _ = fs::remove_dir_all(&dir);
+    if let Err(e) = fs::remove_file(&cfg_path) {
+        eprintln!("cleanup failed removing {:?}: {}", cfg_path, e);
+    }
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
 
     // Assert: both are disabled
     let reg = pm.get_registered_plugins();
@@ -1689,7 +1737,9 @@ PLUGIN_TRIGGER = "manual"
         "expected exactly 3 plugins total (2 from dir + 1 single)"
     );
 
-    let _ = fs::remove_dir_all(&dir);
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
 }
 
 #[tokio::test]
@@ -1759,8 +1809,12 @@ PLUGIN_TRIGGER = "manual"
     pm.stop_plugin_instance(id1).await.expect("stop id1 failed");
     pm.stop_plugin_instance(id2).await.expect("stop id2 failed");
 
-    let _ = fs::remove_dir_all(&temp_dir);
-    let _ = fs::remove_dir_all(&dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
+    }
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
 }
 
 fn write_python_plugin_that_ignores_stop(
@@ -1874,7 +1928,9 @@ async fn start_actually_executes_run_function() {
     let marker_path = plugin_path.with_extension("ran");
 
     // Ensure clean start
-    let _ = fs::remove_file(&marker_path);
+    if let Err(e) = fs::remove_file(&marker_path) {
+        eprintln!("cleanup failed removing {:?}: {}", marker_path, e);
+    }
 
     pm.register_plugin(plugin_path.clone())
         .expect("register_plugin failed");
@@ -1905,8 +1961,12 @@ async fn start_actually_executes_run_function() {
     // Cleanup: even if run already exited, stop should cleanly remove instance/process
     pm.stop_plugin_instance(id).await.expect("stop failed");
 
-    let _ = fs::remove_dir_all(&temp_dir);
-    let _ = fs::remove_dir_all(&dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
+    }
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
 }
 
 fn write_python_plugin_that_writes_marker_and_exits(
@@ -1990,8 +2050,12 @@ async fn stop_kills_runner_when_soft_stop_does_not_exit() {
     // Assert: no running instances
     assert_eq!(pm.get_running_instances().len(), 0);
 
-    let _ = fs::remove_dir_all(&temp_dir);
-    let _ = fs::remove_dir_all(&dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
+    }
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
 }
 
 #[tokio::test]
@@ -2059,6 +2123,10 @@ async fn pause_times_out_when_runner_does_not_ack_in_time() {
     // Cleanup: stop instance (plugin respects stop)
     pm.stop_plugin_instance(id).await.expect("stop failed");
 
-    let _ = fs::remove_dir_all(&temp_dir);
-    let _ = fs::remove_dir_all(&dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
+    }
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
 }

@@ -270,23 +270,25 @@ impl StorageManager {
         let t = topic.clone();
         let topic_id = conn
             .interact(move |conn| -> Result<TopicID, diesel::result::Error> {
-                let next_id: i64 = diesel::select(diesel::dsl::sql::<diesel::sql_types::BigInt>(
-                    "COALESCE(MAX(id),0)+1",
-                ))
-                .get_result(conn)?;
-
-                let mut to_insert = t.clone();
-                to_insert.id = next_id;
-                diesel::insert_into(schema::topics::dsl::topics)
-                    .values(&to_insert)
-                    .returning(schema::topics::dsl::id)
+                use crate::schema::topics::dsl as topics_dsl;
+                diesel::insert_into(topics_dsl::topics)
+                    .values((
+                        topics_dsl::entry_id.eq(t.entry_id),
+                        topics_dsl::topic_name.eq(t.topic_name),
+                        topics_dsl::topic_type.eq(t.topic_type),
+                        topics_dsl::message_count.eq(t.message_count),
+                        topics_dsl::frequency.eq(t.frequency),
+                        topics_dsl::created_at.eq(t.created_at),
+                        topics_dsl::updated_at.eq(t.updated_at),
+                    ))
+                    .returning(topics_dsl::id)
                     .get_result::<TopicID>(conn)
             })
             .await??;
-        debug!(
-            "Added topic for entry_id {} with new topic_id {}",
-            topic.entry_id, topic_id
-        );
+        // debug!(
+        //     "Added topic for entry_id {} with new topic_id {}",
+        //     topic.entry_id, topic_id
+        // );
         Ok(topic_id)
     }
 
@@ -332,16 +334,17 @@ impl StorageManager {
         let s = sensor.clone();
         let sensor_id = conn
             .interact(move |conn| -> Result<SensorID, diesel::result::Error> {
-                let next_id: i64 = diesel::select(diesel::dsl::sql::<diesel::sql_types::BigInt>(
-                    "COALESCE(MAX(id),0)+1",
-                ))
-                .get_result(conn)?;
-
-                let mut to_insert = s.clone();
-                to_insert.id = next_id;
-                diesel::insert_into(schema::sensors::dsl::sensors)
-                    .values(&to_insert)
-                    .returning(schema::sensors::dsl::id)
+                use crate::schema::sensors::dsl as sensors_dsl;
+                diesel::insert_into(sensors_dsl::sensors)
+                    .values((
+                        sensors_dsl::entry_id.eq(s.entry_id),
+                        sensors_dsl::sensor_name.eq(s.sensor_name),
+                        sensors_dsl::manufacturer.eq(s.manufacturer),
+                        sensors_dsl::sensor_type.eq(s.sensor_type),
+                        sensors_dsl::ros_topics.eq(s.ros_topics),
+                        sensors_dsl::custom_parameters.eq(s.custom_parameters),
+                    ))
+                    .returning(sensors_dsl::id)
                     .get_result::<SensorID>(conn)
             })
             .await??;
@@ -350,6 +353,52 @@ impl StorageManager {
             sensor.entry_id, sensor_id
         );
         Ok(sensor_id)
+    }
+
+    #[instrument]
+    pub async fn add_entry(&self, entry: Entry, txid: TxID) -> Result<EntryID, StorageError> {
+        let pool = self.db_connection_pool();
+        let e = entry.clone();
+        let entry_id_ = {
+            let conn = pool.get().await?;
+            conn.interact(move |conn| -> Result<EntryID, diesel::result::Error> {
+                use crate::schema::entries::dsl as entries_dsl;
+                diesel::insert_into(entries_dsl::entries)
+                    .values((
+                        entries_dsl::name.eq(e.name),
+                        entries_dsl::path.eq(e.path),
+                        entries_dsl::size.eq(e.size),
+                        entries_dsl::created_at.eq(e.created_at),
+                        entries_dsl::updated_at.eq(e.updated_at),
+                        entries_dsl::time_machine.eq(e.time_machine),
+                        entries_dsl::platform_name.eq(e.platform_name),
+                        entries_dsl::platform_image_link.eq(e.platform_image_link),
+                        entries_dsl::scenario_name.eq(e.scenario_name),
+                        entries_dsl::scenario_creation_time.eq(e.scenario_creation_time),
+                        entries_dsl::scenario_description.eq(e.scenario_description),
+                        entries_dsl::sequence_duration.eq(e.sequence_duration),
+                        entries_dsl::sequence_distance.eq(e.sequence_distance),
+                        entries_dsl::sequence_lat_starting_point_deg
+                            .eq(e.sequence_lat_starting_point_deg),
+                        entries_dsl::sequence_lon_starting_point_deg
+                            .eq(e.sequence_lon_starting_point_deg),
+                        entries_dsl::weather_cloudiness.eq(e.weather_cloudiness),
+                        entries_dsl::weather_precipitation.eq(e.weather_precipitation),
+                        entries_dsl::weather_precipitation_deposits
+                            .eq(e.weather_precipitation_deposits),
+                        entries_dsl::weather_wind_intensity.eq(e.weather_wind_intensity),
+                        entries_dsl::weather_road_humidity.eq(e.weather_road_humidity),
+                        entries_dsl::weather_fog.eq(e.weather_fog),
+                        entries_dsl::weather_snow.eq(e.weather_snow),
+                        entries_dsl::tags.eq(e.tags),
+                    ))
+                    .returning(entries_dsl::id)
+                    .get_result::<EntryID>(conn)
+            })
+            .await??
+        };
+        debug!("Added entry with id {}", entry_id_);
+        Ok(entry_id_)
     }
 
     #[instrument]
