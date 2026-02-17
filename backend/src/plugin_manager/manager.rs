@@ -532,7 +532,10 @@ impl PluginManager {
         // Duplikate verhindern: gleicher Plugin-Pfad darf nicht zweimal registriert werden.
         // Canonicalize macht es robuster gegen ./foo.py vs foo.py vs absolute Pfade.
         let canonical_path = path.canonicalize().unwrap_or_else(|_| path.clone());
-
+        if canonical_path.ends_with("plugin_base.py") {
+            debug!("Skipping registration of 'plugin_base.py'");
+            return Ok(());
+        }
         if self.registered.iter().any(|p| p.path() == &canonical_path) {
             return Err(Error::CustomError(format!(
                 "Plugin at path '{:?}' is already registered",

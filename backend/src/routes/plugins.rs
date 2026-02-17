@@ -7,7 +7,7 @@ use rocket::serde::json::Json;
 use rocket::{State, delete, get, post, put, response::status};
 use tracing::debug;
 
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 const PM_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -51,17 +51,15 @@ pub async fn start_plugin_instance(
     }; // <- pm DROPPED hier, bevor wir irgendwas .await-en
 
     // Phase 2: langsame Arbeit ohne globalen lock
-    let inst = timeout(
-        ROUTE_OP_TIMEOUT,
-        async {
-            // build braucht &PluginManager, aber hält keinen Mutex
-            let pm = lock_plugin_manager(state).await?; // nur um &self zu bekommen
-            // WICHTIG: wir rufen hier NUR die "build" Methode auf, die keine Map mutiert.
-            pm.build_started_instance(plugin_index, &plugin_path, instance_id).await
-        },
-    )
-        .await
-        .map_err(|_| Error::CustomError(format!("start timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+    let inst = timeout(ROUTE_OP_TIMEOUT, async {
+        // build braucht &PluginManager, aber hält keinen Mutex
+        let pm = lock_plugin_manager(state).await?; // nur um &self zu bekommen
+        // WICHTIG: wir rufen hier NUR die "build" Methode auf, die keine Map mutiert.
+        pm.build_started_instance(plugin_index, &plugin_path, instance_id)
+            .await
+    })
+    .await
+    .map_err(|_| Error::CustomError(format!("start timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
 
     // Phase 3: commit wieder kurz unter globalem lock
     {
@@ -100,9 +98,12 @@ pub async fn stop_plugin_instance(
         pm.take_instance_handle(instance_id)?
     };
 
-    timeout(ROUTE_OP_TIMEOUT, crate::plugin_manager::manager::PluginManager::stop_instance_handle(handle, instance_id))
-        .await
-        .map_err(|_| Error::CustomError(format!("stop timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+    timeout(
+        ROUTE_OP_TIMEOUT,
+        crate::plugin_manager::manager::PluginManager::stop_instance_handle(handle, instance_id),
+    )
+    .await
+    .map_err(|_| Error::CustomError(format!("stop timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
 
     Ok(status::NoContent)
 }
@@ -118,9 +119,12 @@ pub async fn pause_plugin_instance(
         pm.get_instance_handle(instance_id)?
     };
 
-    timeout(ROUTE_OP_TIMEOUT, crate::plugin_manager::manager::PluginManager::pause_instance_handle(handle, instance_id))
-        .await
-        .map_err(|_| Error::CustomError(format!("pause timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+    timeout(
+        ROUTE_OP_TIMEOUT,
+        crate::plugin_manager::manager::PluginManager::pause_instance_handle(handle, instance_id),
+    )
+    .await
+    .map_err(|_| Error::CustomError(format!("pause timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
 
     Ok(status::NoContent)
 }
@@ -135,9 +139,12 @@ pub async fn resume_plugin_instance(
         pm.get_instance_handle(instance_id)?
     };
 
-    timeout(ROUTE_OP_TIMEOUT, crate::plugin_manager::manager::PluginManager::resume_instance_handle(handle, instance_id))
-        .await
-        .map_err(|_| Error::CustomError(format!("resume timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+    timeout(
+        ROUTE_OP_TIMEOUT,
+        crate::plugin_manager::manager::PluginManager::resume_instance_handle(handle, instance_id),
+    )
+    .await
+    .map_err(|_| Error::CustomError(format!("resume timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
 
     Ok(status::NoContent)
 }
