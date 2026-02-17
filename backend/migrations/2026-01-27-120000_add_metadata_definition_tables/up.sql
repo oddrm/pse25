@@ -52,7 +52,7 @@ CREATE TABLE metadata_dataset_sequence (
     lat_starting_point_deg DOUBLE PRECISION,
     lon_starting_point_deg DOUBLE PRECISION,
     name VARCHAR,
-    weather JSONB,
+    weather JSONB, --ist das JSON????
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

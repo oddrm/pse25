@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use deadpool_diesel::{postgres::PoolError, InteractError};
+use deadpool_diesel::{InteractError, postgres::PoolError};
 use diesel::ConnectionError;
 use rocket::http::Status;
 use rocket::response::{self, Responder};
@@ -60,13 +60,14 @@ impl Error {
                     "Database temporarily unavailable".to_string(),
                 ),
 
-                StorageError::IoError(_) => (
-                    Status::InternalServerError,
-                    "I/O error".to_string(),
-                ),
+                StorageError::IoError(_) => (Status::InternalServerError, "I/O error".to_string()),
 
-                StorageError::EventProcessingError(msg)
-                | StorageError::CustomError(msg) => (Status::InternalServerError, msg.clone()),
+                StorageError::EventProcessingError(msg) | StorageError::CustomError(msg) => {
+                    (Status::InternalServerError, msg.clone())
+                }
+                StorageError::McapError(_) => {
+                    (Status::InternalServerError, "Mcap error".to_string())
+                }
             },
 
             Error::PollingError(_) => (
@@ -74,20 +75,38 @@ impl Error {
                 "Watcher/polling error".to_string(),
             ),
 
-            Error::IoError(_) => (
-                Status::InternalServerError,
-                "I/O error".to_string(),
-            ),
+            Error::IoError(_) => (Status::InternalServerError, "I/O error".to_string()),
         }
     }
 }
 
 impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
     fn respond_to(self, req: &'r rocket::Request<'_>) -> response::Result<'o> {
-        let (status, message) = self.to_status_and_message();
-
-        // Einheitliche JSON-Fehlerform fürs Frontend
-        response::status::Custom(status, Json(ErrorResponse { error: message })).respond_to(req)
+        let (status, message) = match self {
+            Error::StorageError(e) => (
+                rocket::http::Status::InternalServerError,
+                format!("Storage error: {:?}", e),
+            ),
+            Error::ParsingError(msg) => (
+                rocket::http::Status::BadRequest,
+                format!("Parsing error: {}", msg),
+            ),
+            Error::PollingError(e) => (
+                rocket::http::Status::InternalServerError,
+                format!("Polling error: {:?}", e),
+            ),
+            Error::CustomError(msg) => (
+                rocket::http::Status::InternalServerError,
+                format!("Error: {}", msg),
+            ),
+            Error::IoError(e) => (
+                rocket::http::Status::InternalServerError,
+                format!("IO error: {:?}", e),
+            ),
+        };
+        response::Response::build_from(message.respond_to(req)?)
+            .status(status)
+            .ok()
     }
 }
 
@@ -100,6 +119,7 @@ pub enum StorageError {
     ConnectionError(ConnectionError),
     PoolError(PoolError),
     EventProcessingError(String),
+    McapError(mcap::McapError),
     CustomError(String),
 }
 
@@ -130,5 +150,11 @@ impl From<InteractError> for StorageError {
 impl From<diesel::result::Error> for StorageError {
     fn from(err: diesel::result::Error) -> Self {
         StorageError::CustomError(format!("Diesel error: {:?}", err))
+    }
+}
+
+impl From<mcap::McapError> for StorageError {
+    fn from(err: mcap::McapError) -> Self {
+        StorageError::McapError(err)
     }
 }

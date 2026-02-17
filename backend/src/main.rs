@@ -5,20 +5,23 @@ use std::{env, time::Duration};
 use backend::AppState;
 use backend::plugin_manager::manager::PluginManager;
 use backend::routes::database::*;
-use backend::routes::health_check::*;
+use backend::routes::health_check::health;
+use backend::routes::logs::*;
 use backend::routes::plugins::*;
 use backend::storage::file_watcher;
 use backend::storage::storage_manager::StorageManager;
-use tracing::{Subscriber, instrument};
-use tracing_subscriber::fmt::writer::{BoxMakeWriter, MakeWriterExt};
+use tracing::instrument;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::Layer;
+use tracing_subscriber::filter::filter_fn;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
 #[macro_use]
 extern crate rocket;
 
 #[instrument]
 #[rocket::main]
 async fn main() {
-    let log_to_file = env::var("LOG_TO_FILE").is_ok_and(|v| v == "true");
-    let log_level = match env::var("LOG_LEVEL")
+    let stdout_level = match env::var("LOG_LEVEL")
         .unwrap_or("debug".to_string())
         .as_str()
     {
@@ -28,36 +31,37 @@ async fn main() {
         "debug" => tracing::Level::DEBUG,
         _ => tracing::Level::INFO,
     };
-    // this needs to be boxed because the subscribers have very specific types
-    let log_subscriber: Box<dyn Subscriber + Send + Sync + 'static> = if log_to_file {
-        let file_appender = tracing_appender::rolling::daily("/logs", 
-                                                             "backend.log");
-        // non blocking so writing to file runs in a separate thread
-        // this has to be kept in the main function and not in an if clause because otherwise the 
-        // guard gets dropped
-        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-        // if logging to file, log both to file and stdout
-        Box::new(
-            tracing_subscriber::fmt()
-                .with_writer(
-                    BoxMakeWriter::new(non_blocking).and(BoxMakeWriter::new(std::io::stdout)),
-                )
-                .with_ansi(false)
-                .with_max_level(log_level)
-                .finish(),
-        )
-    } else {
-        // otherwise log to stdout but in pretty format
-        Box::new(
-            tracing_subscriber::fmt()
-                .with_writer(BoxMakeWriter::new(std::io::stdout))
-                .pretty()
-                .compact()
-                .with_max_level(log_level)
-                .finish(),
-        )
-    };
-    tracing::subscriber::set_global_default(log_subscriber).unwrap();
+
+    let file_appender = tracing_appender::rolling::daily("/logs", "backend.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    let noise_filter = filter_fn(|metadata| {
+        if metadata.target().contains("rocket::server") || metadata.target().contains("hyper") {
+            return *metadata.level() <= tracing::Level::WARN;
+        }
+        true
+    });
+
+    let file_layer = fmt::layer()
+        .with_writer(non_blocking)
+        .with_ansi(false)
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_file(true)
+        .with_line_number(true)
+        .with_filter(LevelFilter::DEBUG)
+        .with_filter(noise_filter);
+
+    let stdout_layer = fmt::layer()
+        .with_writer(std::io::stdout)
+        .pretty()
+        .with_filter(LevelFilter::from_level(stdout_level));
+
+    tracing_subscriber::registry()
+        .with(file_layer)
+        .with(stdout_layer)
+        .init();
+
     tracing::info!("Logging initialized.");
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
@@ -70,7 +74,6 @@ async fn main() {
     let mut plugin_manager = PluginManager::new();
 
     // check if /plugins exists and list all files
-    let plugin_dir = Path::new("/plugins");
 
     plugin_manager
         .register_plugins(PathBuf::from("/plugins"))
@@ -87,7 +90,15 @@ async fn main() {
             routes![
                 health,
                 get_entries,
+                get_entry_by_path,
+                get_entry,
+                get_sensors,
+                get_all_sensors,
+                add_sensor,
+                update_sensor,
+                remove_sensor,
                 get_sequences,
+                get_topics,
                 get_metadata,
                 update_metadata,
                 add_sequence,
@@ -95,6 +106,9 @@ async fn main() {
                 update_sequence,
                 add_tag,
                 remove_tag,
+                get_logs,
+                start_transaction,
+                commit_transaction,
                 register_plugins,
                 register_plugin,
                 start_plugin_instance,
