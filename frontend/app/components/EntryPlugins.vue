@@ -77,7 +77,7 @@ const isPluginRunningForThisEntry = (pluginName: string) => {
   return pluginsStore.runningPlugins.some(
     (r) => r.pluginName === pluginName && r.entryName === props.entry.name
   )
-}
+};
 
 // Plugin auf einzelnen Entry ausführen
 const runPluginOnEntry = async (plugin: PluginItem) => {

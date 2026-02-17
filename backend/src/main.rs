@@ -87,7 +87,22 @@ async fn main() {
         .load_config_and_apply("/plugins/config/plugins.yaml")
         .unwrap();
 
-    // TODO check all methods used
+    // Spawn background watchdog to reap finished/unresponsive instances
+    let plugin_manager_arc = Arc::new(tokio::sync::Mutex::new(plugin_manager));
+    {
+        let pm_clone = plugin_manager_arc.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                if let Ok(mut guard) =
+                    tokio::time::timeout(Duration::from_secs(1), pm_clone.lock()).await
+                {
+                    guard.reap_dead_and_unresponsive().await;
+                }
+            }
+        });
+    }
+
     // web server
     rocket::build()
         .mount(
@@ -128,7 +143,7 @@ async fn main() {
         )
         .manage(AppState {
             storage_manager,
-            plugin_manager: Arc::new(tokio::sync::Mutex::new(plugin_manager)),
+            plugin_manager: plugin_manager_arc,
         })
         .launch()
         .await

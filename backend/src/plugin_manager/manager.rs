@@ -137,6 +137,8 @@ pub enum InstanceState {
     Stopped,
     Completed,
     Failed,
+    /// Instance did not respond to liveness checks and was forcefully terminated
+    Unresponsive,
 }
 
 #[derive(Debug, Deserialize)]
@@ -185,10 +187,10 @@ pub struct PluginHandle {
 
 #[derive(Debug)]
 pub struct PluginManager {
-    registered: Vec<Plugin>,
-    running: HashMap<InstanceID, PluginHandle>,
+    pub registered: Vec<Plugin>,
+    pub running: HashMap<InstanceID, PluginHandle>,
     // history of stopped/finished instances: maps instance_id -> (plugin_index, state)
-    history: HashMap<InstanceID, (usize, InstanceState)>,
+    pub history: HashMap<InstanceID, (usize, InstanceState)>,
 }
 
 impl PluginManager {
@@ -694,6 +696,65 @@ impl PluginManager {
             .iter()
             .map(|(instance_id, handle)| (*instance_id, handle.clone()))
             .collect()
+    }
+
+    /// Reap finished instances and detect unresponsive instances.
+    ///
+    /// - Moves instances in final states (Completed/Failed/Stopped) to history.
+    /// - For instances that do not respond to a liveness check, attempts to stop them
+    ///   and records them as `Unresponsive` in history.
+    pub async fn reap_dead_and_unresponsive(&mut self) {
+        let handles = self.get_running_handles();
+
+        for (instance_id, handle) in handles {
+            let state = *handle.status_rx.borrow();
+
+            // If the actor already reports a final state, move to history.
+            if matches!(
+                state,
+                InstanceState::Completed | InstanceState::Failed | InstanceState::Stopped
+            ) {
+                if let Ok(h) = self.take_instance_handle(instance_id) {
+                    self.record_history(instance_id, h.plugin_index, state);
+                    info!("Reaped finished instance {}", instance_id);
+                }
+                continue;
+            }
+
+            // Otherwise, perform a liveness probe by sending CheckLiveness directly to the actor.
+            let (tx, rx) = oneshot::channel();
+            let send_res = handle.command_tx.try_send(PluginCommand::CheckLiveness(tx));
+            let unresponsive = match send_res {
+                Ok(()) => match timeout(Duration::from_secs(2), rx).await {
+                    Ok(Ok(Ok(_json))) => false,
+                    _ => true,
+                },
+                Err(_) => true,
+            };
+
+            if unresponsive {
+                warn!(
+                    "Instance {} is unresponsive; attempting to stop",
+                    instance_id
+                );
+                // Try to stop gracefully (best-effort)
+                let _ = Self::stop_instance_handle(handle.clone(), instance_id).await;
+
+                // Ensure the instance is removed and recorded as Unresponsive
+                if let Ok(h) = self.take_instance_handle(instance_id) {
+                    self.record_history(instance_id, h.plugin_index, InstanceState::Unresponsive);
+                    info!(
+                        "Marked instance {} as Unresponsive and recorded history",
+                        instance_id
+                    );
+                } else {
+                    warn!(
+                        "Instance {} could not be removed after unresponsive handling",
+                        instance_id
+                    );
+                }
+            }
+        }
     }
 
     // Ausgabe aller registrierten Plugins als Liste von &Plugin
