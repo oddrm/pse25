@@ -29,9 +29,9 @@ const ascending = ref(true);
 
 const { data: entries, refresh: refreshEntries, error: entriesFetchError, status: entriesStatus } = await useAsyncData("entries", async () => fetchEntries(searchString.value, sortBy.value, ascending.value, 1, 50));
 
-// watchEffect(() => {
-//   console.log("searchString", searchString.value);
-//   refreshEntries()
-// });
+watchEffect(() => {
+  // console.log("searchString", searchString.value);
+  refreshEntries()
+});
 
 </script>

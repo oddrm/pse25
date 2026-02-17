@@ -192,7 +192,7 @@ impl StorageManager {
                     .load::<Entry>(conn)
             })
             .await??;
-        debug!("Queried entries: {}", entries.len());
+        // debug!("Queried entries: {}", entries.len());
         // --- Search logic (only when search_string is provided) ---
         // 1. Split the search string by whitespace into "words", lowercased.
         //    Example: "  Rain  Highway  " → ["rain", "highway"]

@@ -39,14 +39,14 @@ services:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
-      - LOG_LEVEL=debug
+      - LOG_LEVEL=warn
       # - LOG_TO_FILE=true
     working_dir: /app
     volumes:
       - ./backend:/app:cached
       - backend-target-dev:/app/target
       - ./logs:/logs
-      - ./test_data:/data
+      - /run/media/daniel/data/rosbags:/data
       - ./plugins_dir:/plugins
 
   frontend:
