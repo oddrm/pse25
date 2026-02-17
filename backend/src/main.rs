@@ -1,9 +1,14 @@
 // use std::os::unix::fs::MetadataExt; -> unnötig und Windows Problem
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::{env, time::Duration};
+use std::sync::Arc;
+use std::{
+    env,
+    time::{Duration, Instant},
+};
 
 use backend::AppState;
-use backend::plugin_manager::manager::PluginManager;
+use backend::plugin_manager::manager::{InstanceState, PluginCommand, PluginManager};
 use backend::routes::database::*;
 use backend::routes::health_check::health;
 use backend::routes::logs::*;
@@ -115,7 +120,7 @@ async fn main() {
                 stop_plugin_instance,
                 pause_plugin_instance,
                 resume_plugin_instance,
-                get_running_instances,
+                get_plugin_instances,
                 get_registered_plugins,
                 enable_plugin,
                 disable_plugin,
@@ -123,7 +128,7 @@ async fn main() {
         )
         .manage(AppState {
             storage_manager,
-            plugin_manager: tokio::sync::Mutex::new(plugin_manager),
+            plugin_manager: Arc::new(tokio::sync::Mutex::new(plugin_manager)),
         })
         .launch()
         .await

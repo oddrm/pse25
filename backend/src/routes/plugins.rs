@@ -90,9 +90,10 @@ pub async fn stop_plugin_instance(
     state: &State<AppState>,
     instance_id: u64,
 ) -> Result<status::NoContent, Error> {
+    // Acquire a clone of the handle so we can call the async stop without holding the lock.
     let handle = {
-        let mut pm = lock_plugin_manager(state).await?;
-        pm.take_instance_handle(instance_id)?
+        let pm = lock_plugin_manager(state).await?;
+        pm.get_instance_handle(instance_id)?
     };
 
     timeout(
@@ -101,6 +102,19 @@ pub async fn stop_plugin_instance(
     )
     .await
     .map_err(|_| Error::CustomError(format!("stop timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+
+    // Record stopped instance in history and remove running handle under lock
+    {
+        let mut pm = lock_plugin_manager(state).await?;
+        if let Ok(handle) = pm.take_instance_handle(instance_id) {
+            // store plugin_index and Stopped state in history
+            pm.record_history(
+                instance_id,
+                handle.plugin_index,
+                crate::plugin_manager::manager::InstanceState::Stopped,
+            );
+        }
+    }
 
     Ok(status::NoContent)
 }
@@ -145,16 +159,15 @@ pub async fn resume_plugin_instance(
     Ok(status::NoContent)
 }
 
-#[get("/plugins/running")]
-pub async fn get_running_instances(
-    state: &State<AppState>,
-) -> Result<Json<Vec<PluginInfo>>, Error> {
+#[get("/plugin/instances")]
+pub async fn get_plugin_instances(state: &State<AppState>) -> Result<Json<Vec<PluginInfo>>, Error> {
     let pm = lock_plugin_manager(state).await?;
 
-    let plugins = pm
-        .get_running_instances()
-        .into_iter()
-        .map(|(p, instance_id, status)| PluginInfo {
+    let mut results: Vec<PluginInfo> = Vec::new();
+
+    // currently running (including Paused/Completed/Failed)
+    for (p, instance_id, status) in pm.get_running_instances() {
+        results.push(PluginInfo {
             name: p.name().clone(),
             description: p.description().clone(),
             trigger: p.trigger().to_string(),
@@ -163,10 +176,24 @@ pub async fn get_running_instances(
             valid: p.valid(),
             instance_id: Some(instance_id),
             state: Some(status),
-        })
-        .collect();
+        });
+    }
 
-    Ok(Json(plugins))
+    // include stopped/recorded instances from history
+    for (p, instance_id, status) in pm.get_history_instances() {
+        results.push(PluginInfo {
+            name: p.name().clone(),
+            description: p.description().clone(),
+            trigger: p.trigger().to_string(),
+            path: p.path().to_string_lossy().into_owned(),
+            enabled: p.enabled(),
+            valid: p.valid(),
+            instance_id: Some(instance_id),
+            state: Some(status),
+        });
+    }
+
+    Ok(Json(results))
 }
 
 // Die GETs bleiben ok: sie locken kurz und awaiten nichts "Langsames".

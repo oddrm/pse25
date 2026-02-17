@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { usePluginsStore } from '../../stores/plugins'
+import { usePluginsStore } from '../../stores/pluginStore'
 
 const pluginsStore = usePluginsStore()
 
 onMounted(() => {
-  pluginsStore.loadTestPlugins()
+  pluginsStore.loadPlugins()
 })
 
 // Nur den Store aufrufen, keine lokale Simulation!
@@ -38,7 +38,7 @@ const runGlobal = (id: number) => {
                 <span class="text-xs font-mono font-bold text-success">{{ plugin.globalProgress }}%</span>
               </div>
             </div>
-            <span v-else class="text-base-content/40 text-xs italic italic">Bereit</span>
+            <span v-else class="text-base-content/40 text-xs italic">Bereit</span>
           </td>
 
           <td class="p-4 text-right">

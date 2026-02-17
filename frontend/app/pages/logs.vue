@@ -99,8 +99,7 @@ let interval: any = null
 
 onMounted(() => {
   fetchLogs()
-  // Auto-refresh every 5 seconds
-  interval = setInterval(fetchLogs, 5000)
+  interval = setInterval(fetchLogs, 1000)
 })
 
 onUnmounted(() => {
