@@ -12,6 +12,8 @@ use std::{
     time::Duration,
 };
 
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+
 use crate::schema::files;
 // use crate::schema::metadata::dsl::{entry_id as metadata_entry_id, metadata};
 use crate::storage::models::*;
@@ -51,10 +53,86 @@ fn opt_contains(opt: &Option<String>, part: &str) -> bool {
         .map(|s| contains_part(s, part))
         .unwrap_or(false)
 }
+
+/// Returns true only when the string clearly looks like a date/timestamp format.
+/// This way normal words or numbers (e.g. "123", "rain") are never treated as dates.
+fn looks_like_date(part: &str) -> bool {
+    let part = part.trim();
+    if part.is_empty() {
+        return false;
+    }
+    // YYYY-MM-DD (exactly 10 chars, hyphens at 4 and 7, digits elsewhere)
+    if part.len() == 10 && part.as_bytes().get(4) == Some(&b'-') && part.as_bytes().get(7) == Some(&b'-') {
+        return part
+            .chars()
+            .enumerate()
+            .all(|(i, c)| (i != 4 && i != 7 && c.is_ascii_digit()) || ((i == 4 || i == 7) && c == '-'));
+    }
+    // ISO-style datetime: contains 'T'
+    if part.contains('T') {
+        return true;
+    }
+    // Unix timestamp: all digits, at least 10 digits (so "123" is not a date)
+    if part.len() >= 10 && part.chars().all(|c| c.is_ascii_digit()) {
+        return true;
+    }
+    false
+}
+
+/// Parses a search term as a date/timestamp only when it looks like one. Supports:
+/// - Unix timestamp (10+ digits, e.g. "1705315800")
+/// - Date only YYYY-MM-DD (e.g. "2024-01-15")
+/// - ISO 8601 datetime (e.g. "2024-01-15T10:30:00Z")
+fn parse_search_date(part: &str) -> Option<DateTime<Utc>> {
+    if !looks_like_date(part) {
+        return None;
+    }
+    if let Ok(secs) = part.parse::<i64>() {
+        if let Some(dt) = Utc.timestamp_opt(secs, 0).single() {
+            return Some(dt);
+        }
+    }
+    if part.len() == 10 && part.as_bytes().get(4) == Some(&b'-') && part.as_bytes().get(7) == Some(&b'-') {
+        if let Ok(d) = NaiveDate::parse_from_str(part, "%Y-%m-%d") {
+            if let Some(ndt) = d.and_hms_opt(0, 0, 0) {
+                return Some(Utc.from_utc_datetime(&ndt));
+            }
+        }
+    }
+    if part.contains('T') {
+        if let Ok(dt) = DateTime::parse_from_rfc3339(part) {
+            return Some(dt.with_timezone(&Utc));
+        }
+        if let Ok(ndt) = chrono::NaiveDateTime::parse_from_str(part, "%Y-%m-%dT%H:%M:%S") {
+            return Some(Utc.from_utc_datetime(&ndt));
+        }
+    }
+    None
+}
+
+/// Returns true if the entry has any timestamp on the same calendar day as `dt`.
+fn entry_has_date(entry: &Entry, dt: &DateTime<Utc>) -> bool {
+    let search_date = dt.date_naive();
+    entry.created_at.date_naive() == search_date
+        || entry.updated_at.date_naive() == search_date
+        || entry
+            .scenario_creation_time
+            .as_ref()
+            .map(|t| t.date_naive() == search_date)
+            .unwrap_or(false)
+}
+
 /// Returns true if this entry matches the search: every word in `search_parts` must appear
-/// in at least one of the entry's string fields (name, path, tags, scenario_name, etc.).
+/// in at least one of the entry's string fields, or (if the word is a valid date) match
+/// one of the entry's date fields (created_at, updated_at, scenario_creation_time).
 fn entry_matches_search(entry: &Entry, search_parts: &[String]) -> bool {
     for part in search_parts {
+        if let Some(search_dt) = parse_search_date(part) {
+            if !entry_has_date(entry, &search_dt) {
+                return false;
+            }
+            continue;
+        }
         let matches = contains_part(&entry.name, part)
             || contains_part(&entry.path, part)
             || opt_contains(&entry.platform_name, part)
