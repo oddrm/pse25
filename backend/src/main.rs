@@ -1,9 +1,14 @@
 // use std::os::unix::fs::MetadataExt; -> unnötig und Windows Problem
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::{env, time::Duration};
+use std::sync::Arc;
+use std::{
+    env,
+    time::{Duration, Instant},
+};
 
 use backend::AppState;
-use backend::plugin_manager::manager::PluginManager;
+use backend::plugin_manager::manager::{InstanceState, PluginCommand, PluginManager};
 use backend::routes::database::*;
 use backend::routes::health_check::health;
 use backend::routes::logs::*;
@@ -82,7 +87,22 @@ async fn main() {
         .load_config_and_apply("/plugins/config/plugins.yaml")
         .unwrap();
 
-    // TODO check all methods used
+    // Spawn background watchdog to reap finished/unresponsive instances
+    let plugin_manager_arc = Arc::new(tokio::sync::Mutex::new(plugin_manager));
+    {
+        let pm_clone = plugin_manager_arc.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                if let Ok(mut guard) =
+                    tokio::time::timeout(Duration::from_secs(1), pm_clone.lock()).await
+                {
+                    guard.reap_dead_and_unresponsive().await;
+                }
+            }
+        });
+    }
+
     // web server
     rocket::build()
         .mount(
@@ -115,7 +135,7 @@ async fn main() {
                 stop_plugin_instance,
                 pause_plugin_instance,
                 resume_plugin_instance,
-                get_running_instances,
+                get_plugin_instances,
                 get_registered_plugins,
                 enable_plugin,
                 disable_plugin,
@@ -123,7 +143,7 @@ async fn main() {
         )
         .manage(AppState {
             storage_manager,
-            plugin_manager: tokio::sync::Mutex::new(plugin_manager),
+            plugin_manager: plugin_manager_arc,
         })
         .launch()
         .await

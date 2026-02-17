@@ -42,7 +42,7 @@ pub async fn start_plugin_instance(
     state: &State<AppState>,
     plugin_name: &str,
 ) -> Result<Json<u64>, Error> {
-    let instance_id = chrono::Utc::now().timestamp_millis().max(0) as u64;
+    let instance_id = chrono::Utc::now().timestamp_micros().max(0) as u64;
 
     // Phase 1: global lock kurz halten
     let (plugin_index, plugin_path) = {
@@ -70,8 +70,47 @@ pub async fn start_plugin_instance(
 
 #[put("/plugins/register")]
 pub async fn register_plugins(state: &State<AppState>) -> Result<status::NoContent, Error> {
-    let mut pm = lock_plugin_manager(state).await?;
-    pm.register_plugins(std::path::PathBuf::from("/plugins"))?;
+    // First: grab running handles under lock so we can stop them without holding the global lock
+    let running_handles = {
+        let pm = lock_plugin_manager(state).await?;
+        pm.get_running_handles()
+    };
+
+    // Attempt to stop each running instance (best-effort, without holding the lock)
+    for (instance_id, handle) in running_handles {
+        let stop_res = timeout(
+            ROUTE_OP_TIMEOUT,
+            crate::plugin_manager::manager::PluginManager::stop_instance_handle(
+                handle.clone(),
+                instance_id,
+            ),
+        )
+        .await;
+
+        if let Err(_) = stop_res {
+            tracing::warn!(
+                "stop timed out for instance {} while rescanning plugins",
+                instance_id
+            );
+        } else if let Ok(Err(e)) = stop_res {
+            tracing::warn!(
+                "stop failed for instance {} while rescanning plugins: {:?}",
+                instance_id,
+                e
+            );
+        }
+    }
+
+    // Now acquire lock and clear registered plugins, running map and history before re-registering
+    {
+        let mut pm = lock_plugin_manager(state).await?;
+        pm.running.clear();
+        pm.history.clear();
+        pm.registered.clear();
+        // perform registration into the now-empty manager
+        pm.register_plugins(std::path::PathBuf::from("/plugins"))?;
+    }
+
     Ok(status::NoContent)
 }
 
@@ -90,9 +129,10 @@ pub async fn stop_plugin_instance(
     state: &State<AppState>,
     instance_id: u64,
 ) -> Result<status::NoContent, Error> {
+    // Acquire a clone of the handle so we can call the async stop without holding the lock.
     let handle = {
-        let mut pm = lock_plugin_manager(state).await?;
-        pm.take_instance_handle(instance_id)?
+        let pm = lock_plugin_manager(state).await?;
+        pm.get_instance_handle(instance_id)?
     };
 
     timeout(
@@ -101,6 +141,19 @@ pub async fn stop_plugin_instance(
     )
     .await
     .map_err(|_| Error::CustomError(format!("stop timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+
+    // Record stopped instance in history and remove running handle under lock
+    {
+        let mut pm = lock_plugin_manager(state).await?;
+        if let Ok(handle) = pm.take_instance_handle(instance_id) {
+            // store plugin_index and Stopped state in history
+            pm.record_history(
+                instance_id,
+                handle.plugin_index,
+                crate::plugin_manager::manager::InstanceState::Stopped,
+            );
+        }
+    }
 
     Ok(status::NoContent)
 }
@@ -145,16 +198,19 @@ pub async fn resume_plugin_instance(
     Ok(status::NoContent)
 }
 
-#[get("/plugins/running")]
-pub async fn get_running_instances(
-    state: &State<AppState>,
-) -> Result<Json<Vec<PluginInfo>>, Error> {
+#[get("/plugin/instances")]
+pub async fn get_plugin_instances(state: &State<AppState>) -> Result<Json<Vec<PluginInfo>>, Error> {
     let pm = lock_plugin_manager(state).await?;
 
-    let plugins = pm
-        .get_running_instances()
-        .into_iter()
-        .map(|(p, instance_id, status)| PluginInfo {
+    let mut results: Vec<PluginInfo> = Vec::new();
+
+    // currently running (including Paused/Completed/Failed)
+    for (p, instance_id, status) in pm.get_running_instances() {
+        // treat disabled plugins as non-registered => skip their instances
+        if !p.enabled() {
+            continue;
+        }
+        results.push(PluginInfo {
             name: p.name().clone(),
             description: p.description().clone(),
             trigger: p.trigger().to_string(),
@@ -163,10 +219,28 @@ pub async fn get_running_instances(
             valid: p.valid(),
             instance_id: Some(instance_id),
             state: Some(status),
-        })
-        .collect();
+        });
+    }
 
-    Ok(Json(plugins))
+    // include stopped/recorded instances from history
+    for (p, instance_id, status) in pm.get_history_instances() {
+        // skip instances for disabled plugins as well
+        if !p.enabled() {
+            continue;
+        }
+        results.push(PluginInfo {
+            name: p.name().clone(),
+            description: p.description().clone(),
+            trigger: p.trigger().to_string(),
+            path: p.path().to_string_lossy().into_owned(),
+            enabled: p.enabled(),
+            valid: p.valid(),
+            instance_id: Some(instance_id),
+            state: Some(status),
+        });
+    }
+
+    Ok(Json(results))
 }
 
 // Die GETs bleiben ok: sie locken kurz und awaiten nichts "Langsames".
@@ -179,6 +253,7 @@ pub async fn get_registered_plugins(
     let plugins = pm
         .get_registered_plugins()
         .into_iter()
+        .filter(|p| p.enabled())
         .map(|p| PluginInfo {
             name: p.name().clone(),
             description: p.description().clone(),

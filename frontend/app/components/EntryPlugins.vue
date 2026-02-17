@@ -4,8 +4,8 @@ import { useNuxtApp } from '#app'
 import type { Pinia } from 'pinia'
 import { onClickOutside } from '@vueuse/core'
 
-import { usePluginsStore } from '../../stores/plugins'
-import type { PluginItem } from '../../stores/plugins'
+import { usePluginsStore } from '../../stores/pluginStore'
+import type { PluginItem } from '../../stores/pluginStore'
 import { useLogsStore } from '../../stores/logsStore'
 
 // Pinia Stores initialisieren
@@ -36,7 +36,7 @@ const dropdownStyle = ref({
 onMounted(() => {
   isMounted.value = true
   if (pluginsStore.plugins.length === 0) {
-    pluginsStore.loadTestPlugins()
+    pluginsStore.loadPlugins()
   }
 
   // Klick außerhalb → Dropdown schließen
@@ -65,7 +65,7 @@ const toggleDropdown = async () => {
   }
 
   open.value = true
-  
+
   // Position berechnen
   await nextTick()
   requestAnimationFrame(() => {
@@ -77,12 +77,12 @@ const isPluginRunningForThisEntry = (pluginName: string) => {
   return pluginsStore.runningPlugins.some(
     (r) => r.pluginName === pluginName && r.entryName === props.entry.name
   )
-}
+};
 
 // Plugin auf einzelnen Entry ausführen
 const runPluginOnEntry = async (plugin: PluginItem) => {
   if (plugin.isRunning) return
-  open.value = false 
+  open.value = false
 
   // NUR den Store aufrufen. Der Store kümmert sich um:
   // 1. isRunning = true
@@ -95,37 +95,28 @@ const runPluginOnEntry = async (plugin: PluginItem) => {
 
 <template>
   <div class="relative inline-block">
-    <button
-  ref="buttonRef"
-  type="button"
-  class="inline-flex items-center gap-2 bg-blue-800 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700 transition-all duration-200 text-sm font-medium"
-  @click="toggleDropdown"
->
-  Plugins
-  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-  </svg>
-</button>
+    <button ref="buttonRef" type="button"
+      class="inline-flex items-center gap-2 bg-blue-800 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700 transition-all duration-200 text-sm font-medium"
+      @click="toggleDropdown">
+      Plugins
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+      </svg>
+    </button>
 
   </div>
 
   <Teleport to="body">
-    <div
-      v-if="isMounted && open"
-      ref="dropdownRef"
-      class="fixed bg-base-100 border border-base-300 rounded shadow-md z-[9999] w-64 flex flex-col overflow-hidden text-sm"
-      :style="dropdownStyle"
-    >
+    <div v-if="isMounted && open" ref="dropdownRef"
+      class="fixed bg-base-100 border border-base-300 rounded shadow-md z-100 w-64 flex flex-col overflow-hidden text-sm"
+      :style="dropdownStyle">
       <div v-if="pluginsStore.plugins && pluginsStore.plugins.length > 0" class="py-1">
-        <button
-          v-for="plugin in pluginsStore.plugins"
-          :key="plugin.id"
+        <button v-for="plugin in pluginsStore.plugins" :key="plugin.id"
           class="w-full text-left px-4 py-2 hover:bg-base-200 disabled:opacity-50 border-b last:border-b-0 border-base-300 flex flex-col"
-          :disabled="isPluginRunningForThisEntry(plugin.name)"
-          @click="runPluginOnEntry(plugin)"
-        >
+          :disabled="isPluginRunningForThisEntry(plugin.name)" @click="runPluginOnEntry(plugin)">
           <span class="font-normal text-base-content">{{ plugin.name }}</span>
-          <span v-if="isPluginRunningForThisEntry(plugin.name)" class="text-[10px] text-blue-500 uppercase font-bold mt-1">Verarbeite...</span>
+          <span v-if="isPluginRunningForThisEntry(plugin.name)"
+            class="text-[10px] text-blue-500 uppercase font-bold mt-1">Verarbeite...</span>
         </button>
       </div>
       <div v-else class="p-3 text-xs text-base-content/60 text-center">
@@ -134,4 +125,3 @@ const runPluginOnEntry = async (plugin: PluginItem) => {
     </div>
   </Teleport>
 </template>
-

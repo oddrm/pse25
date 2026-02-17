@@ -63,6 +63,7 @@ const CMD_START: &str = "start";
 const CMD_STOP: &str = "stop";
 const CMD_PAUSE: &str = "pause";
 const CMD_RESUME: &str = "resume";
+const CMD_STATUS: &str = "status";
 
 const LOG_PY_STDERR_PREFIX: &str = "python stderr: {}";
 const LOG_PY_STDOUT_NON_JSON: &str = "python stdout (non-json): {} (parse err: {})";
@@ -133,8 +134,11 @@ fn build_cmd_request(instance_id: InstanceID, request_id: &str, cmd: &str) -> se
 pub enum InstanceState {
     Running,
     Paused,
+    Stopped,
     Completed,
     Failed,
+    /// Instance did not respond to liveness checks and was forcefully terminated
+    Unresponsive,
 }
 
 #[derive(Debug, Deserialize)]
@@ -170,6 +174,8 @@ pub enum PluginCommand {
     Stop(oneshot::Sender<Result<(), Error>>),
     Pause(oneshot::Sender<Result<(), Error>>),
     Resume(oneshot::Sender<Result<(), Error>>),
+    /// Send a status request to the runner and return the JSON result
+    CheckLiveness(oneshot::Sender<Result<serde_json::Value, Error>>),
 }
 
 #[derive(Debug, Clone)]
@@ -181,8 +187,10 @@ pub struct PluginHandle {
 
 #[derive(Debug)]
 pub struct PluginManager {
-    registered: Vec<Plugin>,
-    running: HashMap<InstanceID, PluginHandle>,
+    pub registered: Vec<Plugin>,
+    pub running: HashMap<InstanceID, PluginHandle>,
+    // history of stopped/finished instances: maps instance_id -> (plugin_index, state)
+    pub history: HashMap<InstanceID, (usize, InstanceState)>,
 }
 
 impl PluginManager {
@@ -192,6 +200,7 @@ impl PluginManager {
         Self {
             registered: Vec::new(),
             running: HashMap::new(),
+            history: HashMap::new(),
         }
     }
 
@@ -237,6 +246,31 @@ impl PluginManager {
                 instance_id
             ))
         })
+    }
+
+    /// Check whether an instance responds to status requests.
+    #[instrument]
+    pub async fn is_instance_responsive(&self, instance_id: InstanceID) -> Result<bool, Error> {
+        let handle = self.get_instance_handle(instance_id)?;
+        let (tx, rx) = oneshot::channel();
+        handle
+            .command_tx
+            .send(PluginCommand::CheckLiveness(tx))
+            .await
+            .map_err(|_| Error::CustomError("Actor dead".to_string()))?;
+
+        match timeout(Duration::from_secs(2), rx).await {
+            Ok(Ok(Ok(json_val))) => {
+                if let Some(b) = json_val.get("running").and_then(|v| v.as_bool()) {
+                    Ok(b)
+                } else {
+                    // If no explicit running flag, consider responsive when we got a reply
+                    Ok(true)
+                }
+            }
+            Ok(Ok(Err(e))) => Err(e),
+            _ => Ok(false),
+        }
     }
 
     /// Entfernt die Instanz aus der Map und gibt den Handle zurück.
@@ -399,8 +433,10 @@ impl PluginManager {
             ))
         })??;
 
+        let plugin_name = self.registered[plugin_index].name().clone();
         tokio::spawn(run_instance_actor(
             instance_id,
+            plugin_name.clone(),
             child,
             child_stdin,
             stdout_rx,
@@ -632,6 +668,95 @@ impl PluginManager {
             .collect()
     }
 
+    /// Return instances from history (stopped/removed)
+    pub fn get_history_instances(&self) -> Vec<(&Plugin, InstanceID, InstanceState)> {
+        self.history
+            .iter()
+            .filter_map(|(instance_id, (plugin_index, state))| {
+                self.registered
+                    .get(*plugin_index)
+                    .map(|p| (p, *instance_id, *state))
+            })
+            .collect()
+    }
+
+    /// Record an instance into history (e.g., after a stop)
+    pub fn record_history(
+        &mut self,
+        instance_id: InstanceID,
+        plugin_index: usize,
+        state: InstanceState,
+    ) {
+        self.history.insert(instance_id, (plugin_index, state));
+    }
+
+    /// Return a clone of the running handles so callers can operate on them
+    pub fn get_running_handles(&self) -> Vec<(InstanceID, PluginHandle)> {
+        self.running
+            .iter()
+            .map(|(instance_id, handle)| (*instance_id, handle.clone()))
+            .collect()
+    }
+
+    /// Reap finished instances and detect unresponsive instances.
+    ///
+    /// - Moves instances in final states (Completed/Failed/Stopped) to history.
+    /// - For instances that do not respond to a liveness check, attempts to stop them
+    ///   and records them as `Unresponsive` in history.
+    pub async fn reap_dead_and_unresponsive(&mut self) {
+        let handles = self.get_running_handles();
+
+        for (instance_id, handle) in handles {
+            let state = *handle.status_rx.borrow();
+
+            // If the actor already reports a final state, move to history.
+            if matches!(
+                state,
+                InstanceState::Completed | InstanceState::Failed | InstanceState::Stopped
+            ) {
+                if let Ok(h) = self.take_instance_handle(instance_id) {
+                    self.record_history(instance_id, h.plugin_index, state);
+                    info!("Reaped finished instance {}", instance_id);
+                }
+                continue;
+            }
+
+            // Otherwise, perform a liveness probe by sending CheckLiveness directly to the actor.
+            let (tx, rx) = oneshot::channel();
+            let send_res = handle.command_tx.try_send(PluginCommand::CheckLiveness(tx));
+            let unresponsive = match send_res {
+                Ok(()) => match timeout(Duration::from_secs(2), rx).await {
+                    Ok(Ok(Ok(_json))) => false,
+                    _ => true,
+                },
+                Err(_) => true,
+            };
+
+            if unresponsive {
+                warn!(
+                    "Instance {} is unresponsive; attempting to stop",
+                    instance_id
+                );
+                // Try to stop gracefully (best-effort)
+                let _ = Self::stop_instance_handle(handle.clone(), instance_id).await;
+
+                // Ensure the instance is removed and recorded as Unresponsive
+                if let Ok(h) = self.take_instance_handle(instance_id) {
+                    self.record_history(instance_id, h.plugin_index, InstanceState::Unresponsive);
+                    info!(
+                        "Marked instance {} as Unresponsive and recorded history",
+                        instance_id
+                    );
+                } else {
+                    warn!(
+                        "Instance {} could not be removed after unresponsive handling",
+                        instance_id
+                    );
+                }
+            }
+        }
+    }
+
     // Ausgabe aller registrierten Plugins als Liste von &Plugin
     #[instrument]
     pub fn get_registered_plugins(&self) -> Vec<&Plugin> {
@@ -696,13 +821,19 @@ async fn send_runner_cmd(
 #[instrument(skip(child, child_stdin, stdout_rx, command_rx, status_tx))]
 async fn run_instance_actor(
     instance_id: InstanceID,
+    plugin_name: String,
     mut child: Child,
     mut child_stdin: ChildStdin,
     mut stdout_rx: mpsc::Receiver<RunnerMsg>,
     mut command_rx: mpsc::Receiver<PluginCommand>,
     status_tx: watch::Sender<InstanceState>,
 ) {
-    let mut pending_acks: HashMap<String, oneshot::Sender<Result<(), Error>>> = HashMap::new();
+    enum PendingReply {
+        Unit(oneshot::Sender<Result<(), Error>>, String),
+        Json(oneshot::Sender<Result<serde_json::Value, Error>>),
+    }
+
+    let mut pending_acks: HashMap<String, PendingReply> = HashMap::new();
     let mut next_request_seq = 1u64;
 
     loop {
@@ -715,7 +846,7 @@ async fn run_instance_actor(
                         if let Err(e) = send_runner_cmd(instance_id, &mut child_stdin, CMD_STOP, &request_id).await {
                             let _ = reply.send(Err(e));
                         } else {
-                            pending_acks.insert(request_id, reply);
+                            pending_acks.insert(request_id, PendingReply::Unit(reply, CMD_STOP.to_string()));
                         }
                     }
                     Some(PluginCommand::Pause(reply)) => {
@@ -724,7 +855,7 @@ async fn run_instance_actor(
                         if let Err(e) = send_runner_cmd(instance_id, &mut child_stdin, CMD_PAUSE, &request_id).await {
                             let _ = reply.send(Err(e));
                         } else {
-                            pending_acks.insert(request_id, reply);
+                            pending_acks.insert(request_id, PendingReply::Unit(reply, CMD_PAUSE.to_string()));
                         }
                     }
                     Some(PluginCommand::Resume(reply)) => {
@@ -733,29 +864,57 @@ async fn run_instance_actor(
                         if let Err(e) = send_runner_cmd(instance_id, &mut child_stdin, CMD_RESUME, &request_id).await {
                             let _ = reply.send(Err(e));
                         } else {
-                            pending_acks.insert(request_id, reply);
+                            pending_acks.insert(request_id, PendingReply::Unit(reply, CMD_RESUME.to_string()));
+                        }
+                    }
+                    Some(PluginCommand::CheckLiveness(reply)) => {
+                        let request_id = format!("{}-{}", instance_id, next_request_seq);
+                        next_request_seq += 1;
+                        if let Err(e) = send_runner_cmd(instance_id, &mut child_stdin, CMD_STATUS, &request_id).await {
+                            let _ = reply.send(Err(e));
+                        } else {
+                            pending_acks.insert(request_id, PendingReply::Json(reply));
                         }
                     }
                     None => break,
                 }
             }
             msg = stdout_rx.recv() => {
+                debug!("Received message from runner for instance {}: {:?}", instance_id, msg);
                 match msg {
                     Some(msg) => {
                         if msg.instance_id != instance_id { continue; }
                         if let Some(request_id) = msg.request_id {
-                            if let Some(reply) = pending_acks.remove(&request_id) {
-                                if msg.ok.unwrap_or(false) {
-                                    let _ = reply.send(Ok(()));
-                                    // Update state if it was a pause/resume command
-                                    if request_id.contains(CMD_PAUSE) {
-                                        status_tx.send(InstanceState::Paused).ok();
-                                    } else if request_id.contains(CMD_RESUME) {
-                                        status_tx.send(InstanceState::Running).ok();
+                            if let Some(pending) = pending_acks.remove(&request_id) {
+                                match pending {
+                                    PendingReply::Unit(reply, cmd) => {
+                                        if msg.ok.unwrap_or(false) {
+                                            // Update state for pause/resume/stop acknowledgements
+                                            match cmd.as_str() {
+                                                CMD_PAUSE => { status_tx.send(InstanceState::Paused).ok(); }
+                                                CMD_RESUME => { status_tx.send(InstanceState::Running).ok(); }
+                                                CMD_STOP => { status_tx.send(InstanceState::Stopped).ok(); }
+                                                _ => {}
+                                            }
+                                            let _ = reply.send(Ok(()));
+                                        } else {
+                                            let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+                                            let _ = reply.send(Err(Error::CustomError(err)));
+                                        }
                                     }
-                                } else {
-                                    let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
-                                    let _ = reply.send(Err(Error::CustomError(err)));
+                                    PendingReply::Json(reply) => {
+                                        if msg.ok.unwrap_or(false) {
+                                            if let Some(result) = &msg.result {
+                                                let _ = reply.send(Ok(result.clone()));
+                                            } else {
+                                                // send empty object if no result present
+                                                let _ = reply.send(Ok(serde_json::Value::Null));
+                                            }
+                                        } else {
+                                            let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+                                            let _ = reply.send(Err(Error::CustomError(err)));
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -781,7 +940,9 @@ async fn run_instance_actor(
 
                             debug!(LOG_RUNNER_EVENT, instance_id, ev);
                             if ev == "exited" {
-                                status_tx.send(if msg.ok.unwrap_or(false) { InstanceState::Completed } else { InstanceState::Failed }).ok();
+                                let final_state = if msg.ok.unwrap_or(false) { InstanceState::Completed } else { InstanceState::Failed };
+                                status_tx.send(final_state).ok();
+                                info!("plugin instance {} ('{}') exited with state {:?}", instance_id, plugin_name, final_state);
                                 break;
                             }
                         }
@@ -795,6 +956,7 @@ async fn run_instance_actor(
                     _ => InstanceState::Failed,
                 };
                 status_tx.send(s).ok();
+                info!("python runner process for instance {} ('{}') exited with state {:?}", instance_id, plugin_name, s);
                 break;
             }
         }

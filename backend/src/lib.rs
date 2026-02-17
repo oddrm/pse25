@@ -7,8 +7,9 @@ pub mod storage;
 use storage::storage_manager::StorageManager;
 
 use crate::plugin_manager::manager::PluginManager;
+use std::sync::Arc;
 
 pub struct AppState {
     pub storage_manager: StorageManager,
-    pub plugin_manager: tokio::sync::Mutex<PluginManager>,
+    pub plugin_manager: Arc<tokio::sync::Mutex<PluginManager>>,
 }

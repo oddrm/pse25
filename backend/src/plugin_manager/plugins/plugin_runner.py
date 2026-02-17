@@ -217,8 +217,8 @@ def main() -> int:
         finally:
             # stoppen
             run_done.set()
-            # an Rust zurück
-            emit_exited(instance_id, run_result)
+            # worker finished; main thread will emit final exited message
+            pass
 
     # Historie laden
     worker_thread: threading.Thread | None = None
@@ -279,7 +279,20 @@ def main() -> int:
 
         # sauberes Ende
         if run_done.is_set():
+            # worker signalled completion; emit final exited message from main thread
+            try:
+                emit_exited(instance_id, run_result)
+            except Exception:
+                # best-effort: do not raise from main loop
+                pass
             return 0
+
+    # If stdin closed but worker finished, ensure we emit exited
+    if run_done.is_set():
+        try:
+            emit_exited(instance_id, run_result)
+        except Exception:
+            pass
 
     return 0
 
