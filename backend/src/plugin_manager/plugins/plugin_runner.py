@@ -8,6 +8,8 @@ import threading
 import traceback
 from pathlib import Path
 from typing import Any, Final, Literal, NotRequired, TypedDict
+import logging
+
 
 MAIN__ = "__main__"
 
@@ -45,8 +47,11 @@ RESULT_STARTED = "started"
 STATUS_RUNNING = "running"
 STATUS_STOPPED = "stopped"
 
+
 # Rückgabe Status
-def build_status(worker_thread: threading.Thread | None, run_done: threading.Event) -> dict:
+def build_status(
+    worker_thread: threading.Thread | None, run_done: threading.Event
+) -> dict:
     return {
         STATUS_RUNNING: worker_thread is not None and worker_thread.is_alive(),
         STATUS_STOPPED: run_done.is_set(),
@@ -65,6 +70,7 @@ def emit_exited(instance_id: int, run_result: "RunResult") -> None:
             TRACE: run_result.get(TRACE),
         }
     )
+
 
 def load_plugin(plugin_path: str):
     plugin_file = Path(plugin_path).resolve()
@@ -117,6 +123,7 @@ def write_ack(
             msg[TRACE] = trace
     write_msg(msg)
 
+
 # welche Keys in run_result -> Strukturierung
 class RunResult(TypedDict):
     instance_id: int
@@ -142,6 +149,33 @@ def main() -> int:
     try:
         # läd Modul aus Datei
         module = load_plugin(args.plugin_path)
+
+        # Install JSON logging handler so plugin logs are forwarded to manager
+        class JsonHandler(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                try:
+                    write_msg(
+                        {
+                            INSTANCE_ID: instance_id,
+                            EVENT: "log",
+                            RESULT: {
+                                "level": record.levelname,
+                                "msg": self.format(record),
+                                "logger": record.name,
+                            },
+                        }
+                    )
+                except Exception:
+                    # never raise from logging
+                    pass
+
+        # Configure root logger to use our handler (avoid duplicate handlers)
+        root_logger = logging.getLogger()
+        root_logger.handlers.clear()
+        json_handler = JsonHandler()
+        json_handler.setFormatter(logging.Formatter("%(message)s"))
+        root_logger.addHandler(json_handler)
+        root_logger.setLevel(logging.DEBUG)
         # bekommt Faktory/ Klase
         plugin_impl = getattr(module, PLUGIN_IMPL)
         # Instanz erzeugen
@@ -248,6 +282,7 @@ def main() -> int:
             return 0
 
     return 0
+
 
 # wenn Skript direkt ausgeführt wird -> start main()
 if __name__ == MAIN__:

@@ -32,7 +32,7 @@ async fn main() {
         _ => tracing::Level::INFO,
     };
 
-    let file_appender = tracing_appender::rolling::daily("/logs", "backend.log");
+    let file_appender = tracing_appender::rolling::hourly("/logs", "backend.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     let noise_filter = filter_fn(|metadata| {

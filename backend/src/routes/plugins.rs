@@ -1,13 +1,10 @@
 use crate::AppState;
-use crate::error::{Error, StorageError};
-use crate::plugin_manager::plugin::Plugin;
-use crate::storage::models::{Entry, EntryID, Sequence, SequenceID};
-use crate::storage::storage_manager::{Map, TxID};
+use crate::error::Error;
 use rocket::serde::json::Json;
-use rocket::{State, delete, get, post, put, response::status};
-use tracing::debug;
+use rocket::{State, get, post, put, response::status};
 
 use tokio::time::{Duration, timeout};
+use tracing::{debug, instrument};
 
 const PM_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -27,6 +24,7 @@ async fn lock_plugin_manager(
             ))
         })
 }
+
 #[derive(serde::Serialize)]
 pub struct PluginInfo {
     name: String,
@@ -42,21 +40,19 @@ pub struct PluginInfo {
 #[post("/plugins/<plugin_name>/start")]
 pub async fn start_plugin_instance(
     state: &State<AppState>,
-    plugin_name: String,
+    plugin_name: &str,
 ) -> Result<Json<u64>, Error> {
     let instance_id = chrono::Utc::now().timestamp_millis().max(0) as u64;
 
-    // Phase 1: global lock kurz halten (prüfen + Daten holen)
+    // Phase 1: global lock kurz halten
     let (plugin_index, plugin_path) = {
         let pm = lock_plugin_manager(state).await?;
-        pm.prepare_start(&plugin_name)?
-    }; // <- pm DROPPED hier, bevor wir irgendwas .await-en
+        pm.prepare_start(plugin_name)?
+    };
 
     // Phase 2: langsame Arbeit ohne globalen lock
-    let inst = timeout(ROUTE_OP_TIMEOUT, async {
-        // build braucht &PluginManager, aber hält keinen Mutex
-        let pm = lock_plugin_manager(state).await?; // nur um &self zu bekommen
-        // WICHTIG: wir rufen hier NUR die "build" Methode auf, die keine Map mutiert.
+    let handle = timeout(ROUTE_OP_TIMEOUT, async {
+        let pm = lock_plugin_manager(state).await?;
         pm.build_started_instance(plugin_index, &plugin_path, instance_id)
             .await
     })
@@ -66,7 +62,7 @@ pub async fn start_plugin_instance(
     // Phase 3: commit wieder kurz unter globalem lock
     {
         let mut pm = lock_plugin_manager(state).await?;
-        pm.commit_started_instance(instance_id, inst)?;
+        pm.commit_started_instance(instance_id, handle)?;
     }
 
     Ok(Json(instance_id))
@@ -79,13 +75,13 @@ pub async fn register_plugins(state: &State<AppState>) -> Result<status::NoConte
     Ok(status::NoContent)
 }
 
-#[put("/plugins/<plugin_id>/register")]
+#[put("/plugins/<plugin_name>/register")]
 pub async fn register_plugin(
     state: &State<AppState>,
-    plugin_id: String,
+    plugin_name: &str,
 ) -> Result<status::NoContent, Error> {
     let mut pm = lock_plugin_manager(state).await?;
-    pm.register_plugin(std::path::PathBuf::from(plugin_id))?;
+    pm.register_plugin(std::path::PathBuf::from(plugin_name))?;
     Ok(status::NoContent)
 }
 
@@ -94,7 +90,6 @@ pub async fn stop_plugin_instance(
     state: &State<AppState>,
     instance_id: u64,
 ) -> Result<status::NoContent, Error> {
-    // take() entfernt die Instanz sofort aus running => UI blockiert nicht auf "running"-Liste
     let handle = {
         let mut pm = lock_plugin_manager(state).await?;
         pm.take_instance_handle(instance_id)?
@@ -115,7 +110,6 @@ pub async fn pause_plugin_instance(
     state: &State<AppState>,
     instance_id: u64,
 ) -> Result<status::NoContent, Error> {
-    // Handle unter globalem lock holen, dann lock droppen
     let handle = {
         let pm = lock_plugin_manager(state).await?;
         pm.get_instance_handle(instance_id)?
@@ -213,9 +207,9 @@ pub async fn enable_plugin(
 #[put("/plugins/<plugin_name>/disable")]
 pub async fn disable_plugin(
     state: &State<AppState>,
-    plugin_name: String,
+    plugin_name: &str,
 ) -> Result<status::NoContent, Error> {
     let mut pm = lock_plugin_manager(state).await?;
-    pm.disable_plugin(&plugin_name)?;
+    pm.disable_plugin(plugin_name)?;
     Ok(status::NoContent)
 }

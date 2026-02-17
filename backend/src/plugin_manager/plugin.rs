@@ -1,4 +1,5 @@
 use cron::Schedule;
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub struct Plugin {
@@ -21,6 +22,8 @@ impl Plugin {
         trigger: Trigger,
         path: std::path::PathBuf,
     ) -> Self {
+        debug!("Creating plugin '{}' trigger={}", name, trigger.to_string());
+
         Self {
             name,
             description,
@@ -54,6 +57,7 @@ impl Plugin {
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
+        debug!("Set enabled={} for plugin '{}'", enabled, self.name);
         self.enabled = enabled;
     }
 
@@ -62,6 +66,7 @@ impl Plugin {
     }
 
     pub fn set_valid(&mut self, valid: bool) {
+        debug!("Set valid={} for plugin '{}'", valid, self.name);
         self.valid = valid;
     }
 
@@ -70,6 +75,11 @@ impl Plugin {
     }
 
     pub fn set_validation_warnings(&mut self, warnings: Vec<String>) {
+        debug!(
+            "Set validation warnings for plugin '{}' => {} warnings",
+            self.name,
+            warnings.len()
+        );
         self.validation_warnings = warnings;
     }
 }

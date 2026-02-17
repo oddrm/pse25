@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 use std::path::Path;
+use tracing::{debug, error, warn};
 
 use crate::error::Error;
 
@@ -34,8 +35,7 @@ const ERR_PLUGIN_IMPL_HAS_NO_RUN_PREFIX: &str = "Plugin '";
 const ERR_PLUGIN_IMPL_HAS_NO_RUN_MID: &str = "': PluginImpl has no run() method: ";
 
 const ERR_PLUGIN_RUN_NOT_CALLABLE_PREFIX: &str = "Plugin '";
-const ERR_PLUGIN_RUN_NOT_CALLABLE_SUFFIX: &str =
-    "': PluginImpl.run exists but is not callable";
+const ERR_PLUGIN_RUN_NOT_CALLABLE_SUFFIX: &str = "': PluginImpl.run exists but is not callable";
 
 const WARN_MISSING_PLUGIN_NAME_PREFIX: &str = "Plugin '";
 const WARN_MISSING_PLUGIN_NAME_SUFFIX: &str =
@@ -66,6 +66,12 @@ fn prepare_module_import<'py>(
         .ok_or_else(|| Error::CustomError(ERR_INVALID_PLUGIN_FILENAME.to_string()))?
         .to_string();
 
+    debug!(
+        "prepare_module_import: module_name='{}' parent='{}'",
+        module_name,
+        parent.display()
+    );
+
     // Modul sys
     let sys = py
         .import(PY_MOD_SYS)
@@ -88,6 +94,8 @@ fn prepare_module_import<'py>(
         ))
     })?;
 
+    debug!("Imported python module '{}' successfully", module_name);
+
     Ok((module, module_name))
 }
 
@@ -97,7 +105,7 @@ pub fn read_module_constants(
     // im Wesentlichen Aktion in Python (Closure)
     Python::attach(|py| {
         // Vorbereitung Plugin-Import in Rust
-        let (module, _module_name) = prepare_module_import(py, plugin_file)?;
+        let (module, module_name) = prepare_module_import(py, plugin_file)?;
 
         // bei allen: wenn nicht funktioniert -> None
         let name = module
@@ -115,6 +123,11 @@ pub fn read_module_constants(
             .ok()
             .and_then(|v| v.extract::<String>().ok());
 
+        debug!(
+            "read_module_constants {}: name={:?} description={:?} trigger={:?}",
+            module_name, name, description, trigger
+        );
+
         Ok((name, description, trigger))
     })
 }
@@ -122,6 +135,8 @@ pub fn read_module_constants(
 pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> {
     // wieder in Python (Closure)
     Python::attach(|py| {
+        debug!("validate_plugin_module: validating {:?}", plugin_file);
+
         // Liste der Warnings
         let mut warnings: Vec<String> = Vec::new();
 
@@ -170,6 +185,18 @@ pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> 
                 "{WARN_MISSING_PLUGIN_TRIGGER_PREFIX}{module_name}{WARN_MISSING_PLUGIN_TRIGGER_SUFFIX}"
             ));
         }
+
+        if !warnings.is_empty() {
+            for w in &warnings {
+                warn!("{}", w);
+            }
+        }
+
+        debug!(
+            "validate_plugin_module {}: returning {} warnings",
+            module_name,
+            warnings.len()
+        );
 
         Ok(warnings)
     })
