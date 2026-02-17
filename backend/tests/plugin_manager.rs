@@ -1759,7 +1759,7 @@ PLUGIN_TRIGGER = "manual"
     let mut running: Vec<(String, u64)> = pm
         .get_running_instances()
         .into_iter()
-        .map(|(p, id)| (p.name().clone(), id))
+        .map(|(p, id, _)| (p.name().clone(), id))
         .collect();
 
     running.sort_by_key(|(_, id)| *id);

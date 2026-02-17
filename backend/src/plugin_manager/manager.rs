@@ -141,10 +141,12 @@ fn build_cmd_request(instance_id: InstanceID, request_id: &str, cmd: &str) -> se
     serde_json::Value::Object(req)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum InstanceState {
     Running,
     Paused,
+    Completed,
+    Failed,
 }
 
 #[derive(Debug, Deserialize)]
@@ -177,29 +179,29 @@ pub struct PluginsConfig {
 
 #[derive(Debug)]
 pub struct RunningInstance {
-    pub plugin_index: usize,              // welches Plugin auf Liste
-    pub state: InstanceState,             // Running/Paused
-    child: Child,                         // Handle auf gestarteten Python Prozess
-    child_stdin: ChildStdin,              // Schreibkanal zum Python Prozess
-    stdout_rx: mpsc::Receiver<RunnerMsg>, // Empfangschannel vom Python Prozess
-    next_request_seq: u64,                // Zähler für eindeutige Request-IDs
+    pub plugin_index: usize,  // welches Plugin auf Liste
+    pub state: InstanceState, // Running/Paused
+    child: Child,             // Handle auf gestarteten Python Prozess
+    child_stdin: ChildStdin,  // Schreibkanal zum Python Prozess
+    pending_acks: HashMap<String, tokio::sync::oneshot::Sender<RunnerMsg>>,
+    next_request_seq: u64, // Zähler für eindeutige Request-IDs
 }
 
 impl RunningInstance {
-    async fn cmd_start(&mut self, id: InstanceID) -> Result<RunnerMsg, Error> {
-        PluginManager::send_cmd_ack(self, id, CMD_START, TIMEOUT_START_ACK).await
+    async fn cmd_start(this: Arc<Mutex<Self>>, id: InstanceID) -> Result<RunnerMsg, Error> {
+        PluginManager::send_cmd_ack(this, id, CMD_START, TIMEOUT_START_ACK).await
     }
 
-    async fn cmd_stop(&mut self, id: InstanceID) -> Result<RunnerMsg, Error> {
-        PluginManager::send_cmd_ack(self, id, CMD_STOP, TIMEOUT_SOFT_STOP_ACK).await
+    async fn cmd_stop(this: Arc<Mutex<Self>>, id: InstanceID) -> Result<RunnerMsg, Error> {
+        PluginManager::send_cmd_ack(this, id, CMD_STOP, TIMEOUT_SOFT_STOP_ACK).await
     }
 
-    async fn cmd_pause(&mut self, id: InstanceID) -> Result<RunnerMsg, Error> {
-        PluginManager::send_cmd_ack(self, id, CMD_PAUSE, TIMEOUT_PAUSE_ACK).await
+    async fn cmd_pause(this: Arc<Mutex<Self>>, id: InstanceID) -> Result<RunnerMsg, Error> {
+        PluginManager::send_cmd_ack(this, id, CMD_PAUSE, TIMEOUT_PAUSE_ACK).await
     }
 
-    async fn cmd_resume(&mut self, id: InstanceID) -> Result<RunnerMsg, Error> {
-        PluginManager::send_cmd_ack(self, id, CMD_RESUME, TIMEOUT_RESUME_ACK).await
+    async fn cmd_resume(this: Arc<Mutex<Self>>, id: InstanceID) -> Result<RunnerMsg, Error> {
+        PluginManager::send_cmd_ack(this, id, CMD_RESUME, TIMEOUT_RESUME_ACK).await
     }
 }
 
@@ -250,16 +252,28 @@ impl PluginManager {
     }
 
     // async Wrapper der Befehle an Python Prozess
-    async fn cmd_start(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
+    async fn cmd_start(
+        inst: Arc<Mutex<RunningInstance>>,
+        id: InstanceID,
+    ) -> Result<RunnerMsg, Error> {
         Self::send_cmd_ack(inst, id, CMD_START, TIMEOUT_START_ACK).await
     }
-    async fn cmd_stop(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
+    async fn cmd_stop(
+        inst: Arc<Mutex<RunningInstance>>,
+        id: InstanceID,
+    ) -> Result<RunnerMsg, Error> {
         Self::send_cmd_ack(inst, id, CMD_STOP, TIMEOUT_SOFT_STOP_ACK).await
     }
-    async fn cmd_pause(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
+    async fn cmd_pause(
+        inst: Arc<Mutex<RunningInstance>>,
+        id: InstanceID,
+    ) -> Result<RunnerMsg, Error> {
         Self::send_cmd_ack(inst, id, CMD_PAUSE, TIMEOUT_PAUSE_ACK).await
     }
-    async fn cmd_resume(inst: &mut RunningInstance, id: InstanceID) -> Result<RunnerMsg, Error> {
+    async fn cmd_resume(
+        inst: Arc<Mutex<RunningInstance>>,
+        id: InstanceID,
+    ) -> Result<RunnerMsg, Error> {
         Self::send_cmd_ack(inst, id, CMD_RESUME, TIMEOUT_RESUME_ACK).await
     }
 
@@ -330,7 +344,7 @@ impl PluginManager {
     pub fn commit_started_instance(
         &mut self,
         instance_id: InstanceID,
-        inst: RunningInstance,
+        handle: Arc<Mutex<RunningInstance>>,
     ) -> Result<(), Error> {
         if self.running.contains_key(&instance_id) {
             return Err(Error::CustomError(format!(
@@ -339,7 +353,7 @@ impl PluginManager {
             )));
         }
 
-        self.running.insert(instance_id, Arc::new(Mutex::new(inst)));
+        self.running.insert(instance_id, handle);
         Ok(())
     }
 
@@ -405,13 +419,17 @@ impl PluginManager {
 
     // Herz der Kommunikation
     async fn send_cmd_ack(
-        inst: &mut RunningInstance,
+        instance_handle: Arc<Mutex<RunningInstance>>,
         instance_id: InstanceID,
         cmd: &str,
         wait: Duration,
     ) -> Result<RunnerMsg, Error> {
-        let request_id = format!("{}-{}", instance_id, inst.next_request_seq);
-        inst.next_request_seq += 1;
+        let (request_id, next_seq) = {
+            let mut inst = instance_handle.lock().await;
+            let rid = format!("{}-{}", instance_id, inst.next_request_seq);
+            inst.next_request_seq += 1;
+            (rid, inst.next_request_seq)
+        };
 
         let mut req = serde_json::Map::new();
         req.insert(
@@ -425,57 +443,89 @@ impl PluginManager {
         req.insert(JSON_KEY_CMD.to_string(), serde_json::Value::from(cmd));
 
         let req = serde_json::Value::Object(req);
-
         let line = req.to_string() + "\n";
-        inst.child_stdin
-            .write_all(line.as_bytes())
-            .await
-            .map_err(|e| Error::CustomError(format!("{ERR_FAILED_SEND_CMD_PREFIX}{e}")))?;
-        inst.child_stdin
-            .flush()
-            .await
-            .map_err(|e| Error::CustomError(format!("{ERR_FAILED_FLUSH_CMD_PREFIX}{e}")))?;
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        {
+            let mut inst = instance_handle.lock().await;
+            inst.pending_acks.insert(request_id.clone(), tx);
+
+            inst.child_stdin
+                .write_all(line.as_bytes())
+                .await
+                .map_err(|e| Error::CustomError(format!("{ERR_FAILED_SEND_CMD_PREFIX}{e}")))?;
+            inst.child_stdin
+                .flush()
+                .await
+                .map_err(|e| Error::CustomError(format!("{ERR_FAILED_FLUSH_CMD_PREFIX}{e}")))?;
+        }
 
         let fut = async {
-            loop {
-                let msg = inst
-                    .stdout_rx
-                    .recv()
-                    .await
-                    .ok_or_else(|| Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))?;
+            let msg = rx
+                .await
+                .map_err(|_| Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))?;
 
+            if msg.ok.unwrap_or(false) {
+                return Ok(msg);
+            }
+
+            let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+            let trace = msg.trace.unwrap_or_default();
+
+            if trace.is_empty() {
+                return Err(Error::CustomError(format!(
+                    "Runner cmd '{cmd}' failed: {err}"
+                )));
+            }
+
+            Err(Error::CustomError(format!(
+                "Runner cmd '{cmd}' failed: {err}\nPython traceback:\n{trace}"
+            )))
+        };
+
+        timeout(wait, fut).await.map_err(|_| {
+            // Cleanup pending ACK on timeout
+            tokio::spawn(async move {
+                let mut inst = instance_handle.lock().await;
+                inst.pending_acks.remove(&request_id);
+            });
+            Error::CustomError(format!("Runner cmd '{cmd}' timed out after {:?}", wait))
+        })?
+    }
+
+    fn start_background_listener(
+        instance_handle: Arc<Mutex<RunningInstance>>,
+        mut rx: mpsc::Receiver<RunnerMsg>,
+        instance_id: InstanceID,
+    ) {
+        tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
                 if msg.instance_id != instance_id {
                     continue;
                 }
 
-                if msg.request_id.as_deref() == Some(req[JSON_KEY_REQUEST_ID].as_str().unwrap()) {
-                    if msg.ok.unwrap_or(false) {
-                        return Ok(msg);
+                if let Some(request_id) = &msg.request_id {
+                    let mut guard = instance_handle.lock().await;
+                    if let Some(tx) = guard.pending_acks.remove(request_id) {
+                        let _ = tx.send(msg);
+                        continue;
                     }
-
-                    let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
-                    let trace = msg.trace.unwrap_or_default();
-
-                    if trace.is_empty() {
-                        return Err(Error::CustomError(format!(
-                            "Runner cmd '{cmd}' failed: {err}"
-                        )));
-                    }
-
-                    return Err(Error::CustomError(format!(
-                        "Runner cmd '{cmd}' failed: {err}\nPython traceback:\n{trace}"
-                    )));
                 }
 
                 if let Some(ev) = &msg.event {
                     debug!(LOG_RUNNER_EVENT, instance_id, ev);
+                    if ev == "exited" {
+                        let mut guard = instance_handle.lock().await;
+                        guard.state = if msg.ok.unwrap_or(false) {
+                            InstanceState::Completed
+                        } else {
+                            InstanceState::Failed
+                        };
+                    }
                 }
             }
-        };
-
-        timeout(wait, fut).await.map_err(|_| {
-            Error::CustomError(format!("Runner cmd '{cmd}' timed out after {:?}", wait))
-        })?
+        });
     }
 
     /// Ausführung: Runner starten + start-ACK abwarten.
@@ -485,20 +535,23 @@ impl PluginManager {
         plugin_index: usize,
         plugin_path: &PathBuf,
         instance_id: InstanceID,
-    ) -> Result<RunningInstance, Error> {
+    ) -> Result<Arc<Mutex<RunningInstance>>, Error> {
         let (child, child_stdin, stdout_rx) = self.spawn_runner(plugin_path, instance_id).await?;
 
-        let mut inst = RunningInstance {
+        let inst = RunningInstance {
             plugin_index,
-            state: Running,
+            state: InstanceState::Running,
             child,
             child_stdin,
-            stdout_rx,
+            pending_acks: HashMap::new(),
             next_request_seq: 1,
         };
 
-        inst.cmd_start(instance_id).await?;
-        Ok(inst)
+        let handle = Arc::new(Mutex::new(inst));
+        Self::start_background_listener(handle.clone(), stdout_rx, instance_id);
+
+        RunningInstance::cmd_start(handle.clone(), instance_id).await?;
+        Ok(handle)
     }
 
     pub fn register_plugins(&mut self, directory: PathBuf) -> Result<(), Error> {
@@ -618,24 +671,10 @@ impl PluginManager {
             )));
         }
 
-        // Python-Prozess starten
-        let (child, child_stdin, stdout_rx) =
-            self.spawn_runner(reg_plugin.path(), instance_id).await?;
-
-        // Instanz erstellen
-        let mut inst = RunningInstance {
-            plugin_index,
-            state: Running,
-            child,
-            child_stdin,
-            stdout_rx,
-            next_request_seq: 1,
-        };
-
-        // Sendet start an Python-Runner
-        let _ = Self::send_cmd_ack(&mut inst, instance_id, CMD_START, TIMEOUT_START_ACK).await?;
-        // Eintrag in running speichern
-        self.running.insert(instance_id, Arc::new(Mutex::new(inst)));
+        let handle = self
+            .build_started_instance(plugin_index, reg_plugin.path(), instance_id)
+            .await?;
+        self.running.insert(instance_id, handle);
         Ok(())
     }
 
@@ -648,64 +687,17 @@ impl PluginManager {
             ))
         })?;
 
-        // 1) Soft stop mit Bestätigung (damit es nicht "ignoriert" wird)
-        let mut inst = handle.lock().await;
-
-        let soft =
-            Self::send_cmd_ack(&mut *inst, instance_id, CMD_STOP, TIMEOUT_SOFT_STOP_ACK).await;
-
-        if soft.is_ok() {
-            if timeout(TIMEOUT_WAIT_EXIT_AFTER_SOFT_STOP, inst.child.wait())
-                .await
-                .is_ok()
-            {
-                return Ok(());
-            }
-            warn!(LOG_SOFT_STOP_FORCE_KILL);
-        } else {
-            warn!(error = ?soft.err(), "{LOG_SOFT_STOP_FAILED_FORCE_KILL}");
-        }
-
-        // kill
-        inst.child
-            .kill()
-            .await
-            .map_err(|e| Error::CustomError(format!("{ERR_FAILED_KILL_PY_PREFIX}{e}")))?;
-
-        // kurz warten
-        match timeout(TIMEOUT_WAIT_EXIT_AFTER_KILL, inst.child.wait()).await {
-            Ok(_) => {}
-            Err(e) => warn!("Timeout waiting for process after kill: {:?}", e),
-        }
-        Ok(())
+        Self::stop_instance_handle(handle, instance_id).await
     }
 
     pub async fn pause_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
         let handle = self.get_instance_handle(instance_id)?;
-        let mut entry = handle.lock().await;
-
-        // schon pausiert
-        if entry.state == InstanceState::Paused {
-            return Ok(());
-        }
-
-        // sendet pause, wartet ack
-        let _ = Self::send_cmd_ack(&mut entry, instance_id, CMD_PAUSE, TIMEOUT_PAUSE_ACK).await?;
-        entry.state = InstanceState::Paused;
-        Ok(())
+        Self::pause_instance_handle(handle, instance_id).await
     }
 
     pub async fn resume_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
         let handle = self.get_instance_handle(instance_id)?;
-        let mut entry = handle.lock().await;
-        // schon running?
-        if &entry.state == &Running {
-            return Ok(());
-        }
-
-        let _ = Self::send_cmd_ack(&mut entry, instance_id, CMD_RESUME, TIMEOUT_RESUME_ACK).await?;
-        entry.state = Running;
-        Ok(())
+        Self::resume_instance_handle(handle, instance_id).await
     }
 
     /// Stop-Logik auf Instance-Ebene (wird typischerweise über einen Instance-Mutex ausgeführt).
@@ -713,10 +705,16 @@ impl PluginManager {
         instance: Arc<Mutex<RunningInstance>>,
         instance_id: InstanceID,
     ) -> Result<(), Error> {
+        {
+            let entry = instance.lock().await;
+            if entry.state == InstanceState::Completed || entry.state == InstanceState::Failed {
+                return Ok(());
+            }
+        }
+
+        let soft = RunningInstance::cmd_stop(instance.clone(), instance_id).await;
+
         let mut entry = instance.lock().await;
-
-        let soft = entry.cmd_stop(instance_id).await;
-
         if soft.is_ok() {
             if timeout(TIMEOUT_WAIT_EXIT_AFTER_SOFT_STOP, entry.child.wait())
                 .await
@@ -743,13 +741,23 @@ impl PluginManager {
         instance: Arc<Mutex<RunningInstance>>,
         instance_id: InstanceID,
     ) -> Result<(), Error> {
-        let mut entry = instance.lock().await;
-
-        if entry.state == InstanceState::Paused {
-            return Ok(());
+        {
+            let entry = instance.lock().await;
+            match entry.state {
+                InstanceState::Paused => return Ok(()),
+                InstanceState::Completed | InstanceState::Failed => {
+                    return Err(Error::CustomError(format!(
+                        "Cannot pause instance {} as it has already finished ({:?})",
+                        instance_id, entry.state
+                    )));
+                }
+                InstanceState::Running => {}
+            }
         }
 
-        entry.cmd_pause(instance_id).await?;
+        RunningInstance::cmd_pause(instance.clone(), instance_id).await?;
+
+        let mut entry = instance.lock().await;
         entry.state = InstanceState::Paused;
         Ok(())
     }
@@ -758,19 +766,29 @@ impl PluginManager {
         instance: Arc<Mutex<RunningInstance>>,
         instance_id: InstanceID,
     ) -> Result<(), Error> {
-        let mut entry = instance.lock().await;
-
-        if entry.state == Running {
-            return Ok(());
+        {
+            let entry = instance.lock().await;
+            match entry.state {
+                InstanceState::Running => return Ok(()),
+                InstanceState::Completed | InstanceState::Failed => {
+                    return Err(Error::CustomError(format!(
+                        "Cannot resume instance {} as it has already finished ({:?})",
+                        instance_id, entry.state
+                    )));
+                }
+                InstanceState::Paused => {}
+            }
         }
 
-        entry.cmd_resume(instance_id).await?;
-        entry.state = Running;
+        RunningInstance::cmd_resume(instance.clone(), instance_id).await?;
+
+        let mut entry = instance.lock().await;
+        entry.state = InstanceState::Running;
         Ok(())
     }
 
-    // Ausgabe running Instanzen als Liste von (&Plugin, InstanceID)
-    pub fn get_running_instances(&self) -> Vec<(&Plugin, InstanceID)> {
+    // Ausgabe running Instanzen als Liste von (&Plugin, InstanceID, InstanceState)
+    pub fn get_running_instances(&self) -> Vec<(&Plugin, InstanceID, InstanceState)> {
         // Best-effort ohne awaits: wenn Instance gerade gelockt ist (stop/pause), skippen wir sie.
         // Das verhindert, dass "Übersicht" wegen einer einzelnen langsamen Instanz hängen bleibt.
         self.running
@@ -780,12 +798,8 @@ impl PluginManager {
                     return None;
                 };
 
-                if guard.state == Running {
-                    let plugin = &self.registered[guard.plugin_index];
-                    Some((plugin, *instance_id))
-                } else {
-                    None
-                }
+                let plugin = &self.registered[guard.plugin_index];
+                Some((plugin, *instance_id, guard.state))
             })
             .collect()
     }

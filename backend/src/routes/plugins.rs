@@ -35,9 +35,11 @@ pub struct PluginInfo {
     path: String,
     enabled: bool,
     valid: bool,
+    instance_id: Option<u64>,
+    state: Option<crate::plugin_manager::manager::InstanceState>,
 }
 
-#[put("/plugins/<plugin_name>/start")]
+#[post("/plugins/<plugin_name>/start")]
 pub async fn start_plugin_instance(
     state: &State<AppState>,
     plugin_name: String,
@@ -70,14 +72,14 @@ pub async fn start_plugin_instance(
     Ok(Json(instance_id))
 }
 
-#[post("/plugins/register")]
+#[put("/plugins/register")]
 pub async fn register_plugins(state: &State<AppState>) -> Result<status::NoContent, Error> {
     let mut pm = lock_plugin_manager(state).await?;
     pm.register_plugins(std::path::PathBuf::from("/plugins"))?;
     Ok(status::NoContent)
 }
 
-#[post("/plugins/<plugin_id>/register")]
+#[put("/plugins/<plugin_id>/register")]
 pub async fn register_plugin(
     state: &State<AppState>,
     plugin_id: String,
@@ -158,13 +160,15 @@ pub async fn get_running_instances(
     let plugins = pm
         .get_running_instances()
         .into_iter()
-        .map(|(p, _instance_id)| PluginInfo {
+        .map(|(p, instance_id, status)| PluginInfo {
             name: p.name().clone(),
             description: p.description().clone(),
             trigger: p.trigger().to_string(),
             path: p.path().to_string_lossy().into_owned(),
             enabled: p.enabled(),
             valid: p.valid(),
+            instance_id: Some(instance_id),
+            state: Some(status),
         })
         .collect();
 
@@ -188,6 +192,8 @@ pub async fn get_registered_plugins(
             path: p.path().to_string_lossy().into_owned(),
             enabled: p.enabled(),
             valid: p.valid(),
+            instance_id: None,
+            state: None,
         })
         .collect();
 
