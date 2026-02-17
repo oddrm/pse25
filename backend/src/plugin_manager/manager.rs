@@ -1,25 +1,24 @@
 #![allow(unused)]
 
+use cron::Schedule;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Stdio;
-
-use serde::Deserialize;
+use std::str::FromStr;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio::time::{Duration, timeout};
 use tracing::{debug, error, warn};
 
 use crate::plugin_manager::manager::InstanceState::Running;
 use crate::plugin_manager::plugin::Trigger;
 use crate::plugin_manager::python_bridge;
-use crate::{
-    error::Error, plugin_manager::plugin::Plugin,
-};
-use std::sync::Arc;
+use crate::{error::Error, plugin_manager::plugin::Plugin};
 use rocket::futures::TryFutureExt;
+use std::sync::Arc;
 // -------------------- constants --------------------
 
 const TRIGGER_MANUAL: &str = "manual";
@@ -87,20 +86,32 @@ const TIMEOUT_WAIT_EXIT_AFTER_KILL: Duration = Duration::from_secs(2);
 type InstanceID = u64;
 
 // ---------- helpers (module-internal) ----------
-fn parse_trigger(py_trigger: Option<&str>) -> Trigger {
+fn parse_trigger(py_trigger: Option<&str>) -> Result<Trigger, String> {
     match py_trigger {
         // Trigger extrahieren
-        Some(TRIGGER_MANUAL) | None => Trigger::Manual,
-        Some(TRIGGER_ON_ENTRY_CREATE) => Trigger::OnEntryCreate,
-        Some(TRIGGER_ON_ENTRY_UPDATE) => Trigger::OnEntryUpdate,
-        Some(TRIGGER_ON_ENTRY_DELETE) => Trigger::OnEntryDelete,
-        Some(other) if other.starts_with(TRIGGER_ON_SCHEDULE_PREFIX) => Trigger::OnSchedule(
-            other
-                .trim_start_matches(TRIGGER_ON_SCHEDULE_PREFIX)
-                .trim()
-                .to_string(),
-        ),
-        _ => Trigger::Manual,
+        Some(TRIGGER_MANUAL) | None => Ok(Trigger::Manual),
+        Some(TRIGGER_ON_ENTRY_CREATE) => Ok(Trigger::OnEntryCreate),
+        Some(TRIGGER_ON_ENTRY_UPDATE) => Ok(Trigger::OnEntryUpdate),
+        Some(TRIGGER_ON_ENTRY_DELETE) => Ok(Trigger::OnEntryDelete),
+        Some(other) if other.starts_with(TRIGGER_ON_SCHEDULE_PREFIX) => {
+            let raw = other.trim_start_matches(TRIGGER_ON_SCHEDULE_PREFIX).trim();
+
+            // Unterstütze sowohl 5-Feld (min hour day mon dow) als auch 6-Feld
+            // (sec min hour day mon dow).
+            // Wenn 5 Felder angegeben sind, interpretieren wir das als "sekunden=0".
+            let field_count = raw.split_whitespace().count();
+            let cron_expr = match field_count {
+                5 => format!("0 {raw}"),
+                _ => raw.to_string(),
+            };
+
+            let schedule = Schedule::from_str(&cron_expr).map_err(|e| {
+                format!("Invalid cron expression '{raw}' (parsed as '{cron_expr}'): {e}")
+            })?;
+
+            Ok(Trigger::OnSchedule(schedule))
+        }
+        _ => Ok(Trigger::Manual),
     }
 }
 // Rückgabe ob pausiert
@@ -163,7 +174,7 @@ pub struct PluginsConfig {
 }
 
 #[derive(Debug)]
-struct RunningInstance {
+pub struct RunningInstance {
     plugin_index: usize,                  // welches Plugin auf Liste
     state: InstanceState,                 // Running/Paused
     child: Child,                         // Handle auf gestarteten Python Prozess
@@ -216,7 +227,7 @@ impl PluginManager {
         // Parsen zu PluginsConfig
         let config: PluginsConfig = serde_yaml::from_str(&content)
             .map_err(|e| Error::CustomError(format!("{ERR_FAILED_PARSE_CONFIG_PREFIX}{e}")))?;
-
+        // TODO what about disabled plugins?
         // suche entsprechende Plugins und setze enabled-Flag
         for plugin_cfg in config.plugins {
             let plugin = self
@@ -473,8 +484,7 @@ impl PluginManager {
         plugin_path: &PathBuf,
         instance_id: InstanceID,
     ) -> Result<RunningInstance, Error> {
-        let (child, child_stdin, stdout_rx)
-            = self.spawn_runner(plugin_path, instance_id).await?;
+        let (child, child_stdin, stdout_rx) = self.spawn_runner(plugin_path, instance_id).await?;
 
         let mut inst = RunningInstance {
             plugin_index,
@@ -491,8 +501,7 @@ impl PluginManager {
 
     pub fn register_plugins(&mut self, directory: PathBuf) -> Result<(), Error> {
         // iterieren
-        for entry in fs::read_dir(&directory).map_err(|e|
-            Error::CustomError(e.to_string()))? {
+        for entry in fs::read_dir(&directory).map_err(|e| Error::CustomError(e.to_string()))? {
             let entry = entry.map_err(|e| Error::CustomError(e.to_string()))?;
             let path = entry.path();
 
@@ -563,7 +572,6 @@ impl PluginManager {
         self.registered.push(plugin);
         Ok(())
     }
-
 
     pub async fn start_plugin_instance(
         &mut self,
@@ -663,12 +671,16 @@ impl PluginManager {
             .map_err(|e| Error::CustomError(format!("{ERR_FAILED_KILL_PY_PREFIX}{e}")))?;
 
         // kurz warten
-        let _ = timeout(TIMEOUT_WAIT_EXIT_AFTER_KILL, inst.child.wait()).await;
+        match timeout(TIMEOUT_WAIT_EXIT_AFTER_KILL, inst.child.wait()).await {
+            Ok(_) => {}
+            Err(e) => warn!("Timeout waiting for process after kill: {:?}", e),
+        }
         Ok(())
     }
 
     pub async fn pause_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
-        let entry = self.get_running_instance_mut(instance_id)?;
+        let handle = self.get_instance_handle(instance_id)?;
+        let mut entry = handle.lock().await;
 
         // schon pausiert
         if entry.state == InstanceState::Paused {
@@ -676,19 +688,20 @@ impl PluginManager {
         }
 
         // sendet pause, wartet ack
-        let _ = Self::send_cmd_ack(entry, instance_id, CMD_PAUSE, TIMEOUT_PAUSE_ACK).await?;
+        let _ = Self::send_cmd_ack(&mut entry, instance_id, CMD_PAUSE, TIMEOUT_PAUSE_ACK).await?;
         entry.state = InstanceState::Paused;
         Ok(())
     }
 
     pub async fn resume_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
-        let entry = self.get_running_instance_mut(instance_id)?;
+        let handle = self.get_instance_handle(instance_id)?;
+        let mut entry = handle.lock().await;
         // schon running?
-        if entry.state == Running {
+        if &entry.state == &Running {
             return Ok(());
         }
 
-        let _ = Self::send_cmd_ack(entry, instance_id, CMD_RESUME, TIMEOUT_RESUME_ACK).await?;
+        let _ = Self::send_cmd_ack(&mut entry, instance_id, CMD_RESUME, TIMEOUT_RESUME_ACK).await?;
         entry.state = Running;
         Ok(())
     }

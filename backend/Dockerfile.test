@@ -1,8 +1,31 @@
-FROM docker.io/rust:1-slim-bookworm
-
+FROM rust:latest AS builder
 WORKDIR /app
 
-# Install build and runtime dependencies
+# Install build deps
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    curl \
+    jq \
+    gcc \
+    python3 \
+    libpython3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy manifest to cache dependency layer and build a dummy binary
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir -p src && echo 'fn main() { println!("dummy"); }' > src/main.rs \
+    && echo 'pub fn _dummy_lib() {}' > src/lib.rs \
+    && cargo fetch || true \
+    && cargo build --bins || true \
+        && mkdir -p /usr/local/cargo/bin /usr/local/bin \
+        && curl -fsSL -o /usr/local/bin/mcap "https://github.com/foxglove/mcap/releases/download/releases/mcap-cli/v0.0.61/mcap-linux-amd64" \
+        && chmod +x /usr/local/bin/mcap \
+        && ln -sf /usr/local/bin/mcap /usr/local/cargo/bin/mcap
+
+FROM rust:latest
+WORKDIR /app
+
+# Runtime build deps (same as builder to allow building native deps)
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
@@ -10,10 +33,23 @@ RUN apt-get update && apt-get install -y \
     libpython3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Set environment variables for testing
+# Copy cached target from builder
+COPY --from=builder /app/target ./target
+# Copy cargo cache (registry/git) from builder so the runtime image has dependencies cached
+COPY --from=builder /usr/local/cargo /usr/local/cargo
+COPY --from=builder /usr/local/bin/mcap /usr/local/bin/mcap
+ENV PATH="/usr/local/cargo/bin:/usr/local/bin:${PATH}"
+
+# debug: (removed) diagnostic listing
+
+# Copy source into image (docker-compose usually mounts in development/test setups)
+COPY . .
+
+# Use the same target dir so cached artifacts are reused
+ENV CARGO_TARGET_DIR=/app/target
 ENV RUST_BACKTRACE=1
 ENV DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
 ENV RUSTFLAGS="-A warnings"
 
-# Run tests (source will be mounted)
+# Run tests once and exit (no cargo-watch)
 CMD ["cargo", "test", "--no-fail-fast", "-j", "1", "--", "--nocapture"]

@@ -33,40 +33,39 @@ export const usePluginsStore = defineStore('plugins', {
     },
 
     async startPlugin(pluginId: number, entryName?: string) {
-  const logsStore = useLogsStore()
-  const plugin = this.plugins.find(p => p.id === pluginId)
-  if (!plugin) return
+      const logsStore = useLogsStore()
+      const plugin = this.plugins.find(p => p.id === pluginId)
+      if (!plugin) return
 
-  if (entryName) {
-    // Prüfen, ob exakt dieser Lauf schon existiert (Doppelklick-Schutz)
-    if (this.runningPlugins.some(r => r.pluginName === plugin.name && r.entryName === entryName)) return
-    
-    const currentRunId = `${pluginId}-${entryName}-${Date.now()}`
-    const running: RunningPlugin = { 
-      runId: currentRunId, 
-      pluginName: plugin.name, 
-      entryName, 
-      progress: 0 
-    }
-    
-    this.runningPlugins.push(running)
+      if (entryName) {
+        // Prüfen, ob exakt dieser Lauf schon existiert (Doppelklick-Schutz)
+        if (this.runningPlugins.some(r => r.pluginName === plugin.name && r.entryName === entryName)) return
 
-    const interval = setInterval(() => {
-      const item = this.runningPlugins.find(r => r.runId === currentRunId)
-      if (item) {
-        if (item.progress < 100) {
-          item.progress += 5
-        } else {
-          clearInterval(interval)
-          setTimeout(() => {
-            this.runningPlugins = this.runningPlugins.filter(r => r.runId !== currentRunId)
-            logsStore.addLog('info', `Plugin "${plugin.name}" auf "${entryName}" beendet.`)
-          }, 500)
+        const currentRunId = `${pluginId}-${entryName}-${Date.now()}`
+        const running: RunningPlugin = {
+          runId: currentRunId,
+          pluginName: plugin.name,
+          entryName,
+          progress: 0
         }
-      } else {
-        clearInterval(interval)
-      }
-    }, 150)
+
+        this.runningPlugins.push(running)
+
+        const interval = setInterval(() => {
+          const item = this.runningPlugins.find(r => r.runId === currentRunId)
+          if (item) {
+            if (item.progress < 100) {
+              item.progress += 5
+            } else {
+              clearInterval(interval)
+              setTimeout(() => {
+                this.runningPlugins = this.runningPlugins.filter(r => r.runId !== currentRunId)
+              }, 500)
+            }
+          } else {
+            clearInterval(interval)
+          }
+        }, 150)
 
       } else {
         // --- GLOBALER MODUS (Tabelle) ---
@@ -82,7 +81,6 @@ export const usePluginsStore = defineStore('plugins', {
             setTimeout(() => {
               plugin.isGlobalRunning = false
               plugin.globalProgress = 0
-              logsStore.addLog('info', `Plugin "${plugin.name}" global abgeschlossen.`)
             }, 500)
           }
         }, 150)

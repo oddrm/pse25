@@ -16,6 +16,99 @@ use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, error, instrument, warn};
 use walkdir::WalkDir;
 
+async fn sync_file_added_or_modified(
+    storage_manager: &StorageManager,
+    path: &Path,
+) -> Result<(), StorageError> {
+    let is_mcap = parsing::file_is_mcap(path).await;
+    let is_custom_metadata = parsing::file_is_custom_metadata(path).await?;
+
+    // If this is an MCAP, insert/update the entry in the DB
+    if is_mcap {
+        if let Err(e) = parsing::insert_entry_into_db(storage_manager, path).await {
+            error!("Failed to insert/update entry from scan: {:?}", e);
+        }
+    }
+
+    // If custom metadata file, rescan directory for MCAPs
+    if is_custom_metadata {
+        if let Some(parent) = path.parent() {
+            if let Ok(mut dir) = tokio::fs::read_dir(parent).await {
+                while let Ok(Some(ent)) = dir.next_entry().await {
+                    let p = ent.path();
+                    if parsing::file_is_mcap(&p).await {
+                        if let Err(e) = parsing::insert_entry_into_db(storage_manager, &p).await {
+                            error!("Failed to insert/update entry from metadata scan: {:?}", e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn sync_file_removed(storage_manager: &StorageManager, path: &Path) {
+    let removed_path = path.to_string_lossy().to_string();
+    // check if an entry exists for this path
+    if let Ok(Some(entry)) = storage_manager
+        .get_entry_by_path(removed_path.clone(), storage_manager.start_transaction())
+        .await
+    {
+        let txid = storage_manager.start_transaction();
+        // remove topics
+        if let Ok(topics_map) = storage_manager.get_topics(entry.id, txid).await {
+            for (tid, _t) in topics_map.into_iter() {
+                if let Err(e) = storage_manager.remove_topic(tid, txid).await {
+                    error!(
+                        "Failed to remove topic {} for entry {}: {:?}",
+                        tid, entry.id, e
+                    );
+                }
+            }
+        }
+        // remove sensors
+        if let Ok(sensors_map) = storage_manager.get_sensors(entry.id, txid).await {
+            for (sid, _s) in sensors_map.into_iter() {
+                if let Err(e) = storage_manager.remove_sensor(sid, txid).await {
+                    error!(
+                        "Failed to remove sensor {} for entry {}: {:?}",
+                        sid, entry.id, e
+                    );
+                }
+            }
+        }
+        // remove sequences
+        if let Ok(seqs_map) = storage_manager.get_sequences(entry.id, txid).await {
+            for (seqid, _s) in seqs_map.into_iter() {
+                if let Err(e) = storage_manager.remove_sequence(entry.id, seqid, txid).await {
+                    error!(
+                        "Failed to remove sequence {} for entry {}: {:?}",
+                        seqid, entry.id, e
+                    );
+                }
+            }
+        }
+        // finally remove entry row
+        let pool = storage_manager.db_connection_pool();
+        let entry_id = entry.id;
+        if let Ok(conn2) = pool.get().await {
+            if let Err(e) = conn2
+                .interact(move |conn| {
+                    diesel::delete(
+                        crate::schema::entries::dsl::entries
+                            .filter(crate::schema::entries::dsl::id.eq(entry_id)),
+                    )
+                    .execute(conn)
+                })
+                .await
+            {
+                error!("Failed to remove entry {} from DB: {:?}", entry_id, e);
+            }
+        }
+    }
+}
+
 #[instrument]
 async fn process_event(
     storage_manager: &StorageManager,
@@ -38,7 +131,11 @@ async fn process_event(
                     .execute(conn)
             })
             .await??;
-            // TODO trigger file scan
+            let sm = storage_manager.clone();
+            let p = event.paths[0].clone();
+            if let Err(e) = sync_file_added_or_modified(&sm, &p).await {
+                error!("Failed to sync added file {:?}: {:?}", p, e);
+            }
         }
         notify::event::EventKind::Access(_) => {}
         notify::event::EventKind::Modify(_) => {
@@ -53,7 +150,11 @@ async fn process_event(
                     .execute(conn)
             })
             .await??;
-            // TODO trigger file re-scan
+            let sm = storage_manager.clone();
+            let p = event.paths[0].clone();
+            if let Err(e) = sync_file_added_or_modified(&sm, &p).await {
+                error!("Failed to sync modified file {:?}: {:?}", p, e);
+            }
         }
 
         notify::event::EventKind::Remove(_) => {
@@ -61,10 +162,15 @@ async fn process_event(
             // event still shows up these have to be ignored and can't be distinguished from file events
             // in general there are no rename/move events, just create/ deletes.
             if !Path::new(&path).is_dir() {
+                // remove from files table
                 conn.interact(move |conn| {
                     diesel::delete(files::table.filter(files::path.eq(path))).execute(conn)
                 })
                 .await??;
+
+                let sm = storage_manager.clone();
+                let p = event.paths[0].clone();
+                sync_file_removed(&sm, &p).await;
             }
         }
         _ => {
@@ -113,7 +219,9 @@ pub async fn start_scanning(
             if event.paths.iter().any(|p| p.is_dir()) {
                 return;
             }
-            let _ = fs_event_tx.blocking_send(event);
+            if let Err(e) = fs_event_tx.blocking_send(event) {
+                error!("Failed to enqueue fs event: {:?}", e);
+            }
         }
     };
 
@@ -188,6 +296,14 @@ pub async fn scan_once(storage_manager: &StorageManager) -> Result<(), StorageEr
         "Files to add: {:?}, files to remove: {:?}",
         to_add, to_remove
     );
+
+    // prepare list of MCAP paths to sync after DB insert
+    let mcap_paths: Vec<std::path::PathBuf> = to_add
+        .iter()
+        .filter(|f| f.is_mcap)
+        .map(|f| std::path::PathBuf::from(&f.path))
+        .collect();
+
     conn.interact(move |conn| {
         for file in to_add {
             diesel::insert_into(files::table)
@@ -200,6 +316,14 @@ pub async fn scan_once(storage_manager: &StorageManager) -> Result<(), StorageEr
         Ok::<(), diesel::result::Error>(())
     })
     .await??;
+
+    // sync newly added MCAP files into entries/topics/etc.
+    for p in mcap_paths.into_iter() {
+        let sm = storage_manager.clone();
+        if let Err(e) = sync_file_added_or_modified(&sm, &p).await {
+            error!("Failed to sync discovered MCAP {:?}: {:?}", p, e);
+        }
+    }
     // TODO think about when/which files to parse
     Ok(())
 }

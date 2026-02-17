@@ -98,7 +98,7 @@ const runPluginOnEntry = async (plugin: PluginItem) => {
     <button
   ref="buttonRef"
   type="button"
-  class="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700 transition-all duration-200 text-sm font-medium"
+  class="inline-flex items-center gap-2 bg-blue-800 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700 transition-all duration-200 text-sm font-medium"
   @click="toggleDropdown"
 >
   Plugins
@@ -113,22 +113,22 @@ const runPluginOnEntry = async (plugin: PluginItem) => {
     <div
       v-if="isMounted && open"
       ref="dropdownRef"
-      class="fixed bg-white border border-gray-300 rounded shadow-md z-[9999] w-64 flex flex-col overflow-hidden text-sm"
+      class="fixed bg-base-100 border border-base-300 rounded shadow-md z-[9999] w-64 flex flex-col overflow-hidden text-sm"
       :style="dropdownStyle"
     >
       <div v-if="pluginsStore.plugins && pluginsStore.plugins.length > 0" class="py-1">
         <button
           v-for="plugin in pluginsStore.plugins"
           :key="plugin.id"
-          class="w-full text-left px-4 py-2 hover:bg-gray-50 disabled:opacity-50 border-b last:border-b-0 border-gray-200 flex flex-col"
+          class="w-full text-left px-4 py-2 hover:bg-base-200 disabled:opacity-50 border-b last:border-b-0 border-base-300 flex flex-col"
           :disabled="isPluginRunningForThisEntry(plugin.name)"
           @click="runPluginOnEntry(plugin)"
         >
-          <span class="font-normal text-gray-800">{{ plugin.name }}</span>
+          <span class="font-normal text-base-content">{{ plugin.name }}</span>
           <span v-if="isPluginRunningForThisEntry(plugin.name)" class="text-[10px] text-blue-500 uppercase font-bold mt-1">Verarbeite...</span>
         </button>
       </div>
-      <div v-else class="p-3 text-xs text-gray-500 text-center">
+      <div v-else class="p-3 text-xs text-base-content/60 text-center">
         Keine Plugins verfügbar
       </div>
     </div>

@@ -1,4 +1,4 @@
-FROM rust:latest as builder
+FROM rust:latest AS builder
 WORKDIR /app
 
 
@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
     gcc \
     python3 \
     libpython3-dev \
+    curl \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install cargo-watch for fast in-container rebuilds
@@ -15,7 +17,11 @@ RUN cargo install cargo-watch
 
 # Copy manifest to cache dependencies layer
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo 'fn main() { println!("dummy"); }' > src/main.rs && cargo build --release || true
+RUN mkdir src && echo 'fn main() { println!("dummy"); }' > src/main.rs && cargo build --bins || true
+RUN mkdir -p /usr/local/cargo/bin /usr/local/bin && \
+    curl -fsSL -o /usr/local/bin/mcap "https://github.com/foxglove/mcap/releases/download/releases/mcap-cli/v0.0.61/mcap-linux-amd64" && \
+    chmod +x /usr/local/bin/mcap && \
+    ln -sf /usr/local/bin/mcap /usr/local/cargo/bin/mcap
 
 FROM rust:latest
 WORKDIR /app
@@ -31,7 +37,8 @@ RUN apt-get update && apt-get install -y \
 # Copy cached target from builder and cargo-installed binaries (cargo-watch)
 COPY --from=builder /app/target ./target
 COPY --from=builder /usr/local/cargo/bin /usr/local/cargo/bin
-ENV PATH="/usr/local/cargo/bin:${PATH}"
+COPY --from=builder /usr/local/bin/mcap /usr/local/bin/mcap
+ENV PATH="/usr/local/cargo/bin:/usr/local/bin:${PATH}"
 
 # Copy source into image (compose.dev will usually mount the source for live edits)
 COPY . .
