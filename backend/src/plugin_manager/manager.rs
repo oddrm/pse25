@@ -163,9 +163,9 @@ pub struct PluginsConfig {
 }
 
 #[derive(Debug)]
-struct RunningInstance {
-    plugin_index: usize,                  // welches Plugin auf Liste
-    state: InstanceState,                 // Running/Paused
+pub struct RunningInstance {
+    pub plugin_index: usize,                  // welches Plugin auf Liste
+    pub state: InstanceState,                 // Running/Paused
     child: Child,                         // Handle auf gestarteten Python Prozess
     child_stdin: ChildStdin,              // Schreibkanal zum Python Prozess
     stdout_rx: mpsc::Receiver<RunnerMsg>, // Empfangschannel vom Python Prozess
@@ -312,8 +312,8 @@ impl PluginManager {
         Ok((plugin_index, reg_plugin.path().clone()))
     }
 
-    /// Finalisiert den Start: trägt die Instanz in `running` ein.
-    /// Sollte erst aufgerufen werden, nachdem der Runner erfolgreich gestartet wurde.
+    // finalisiert den Start: trägt die Instanz in `running` ein.
+    // Sollte erst aufgerufen werden, nachdem der Runner erfolgreich gestartet wurde.
     pub fn commit_started_instance(
         &mut self,
         instance_id: InstanceID,
@@ -551,10 +551,7 @@ impl PluginManager {
         let name = py_name.unwrap_or(fallback_name);
         let description = py_description.unwrap_or(fallback_description);
 
-        let trigger = parse_trigger(py_trigger.as_deref()).unwrap_or_else(|e| {
-            log::warn!("Invalid trigger, falling back to Manual: {}", e);
-            Trigger::Manual
-        });
+        let trigger = parse_trigger(py_trigger.as_deref());
 
         let mut plugin = Plugin::new(name, description, trigger, canonical_path);
         plugin.set_valid(true);
@@ -668,29 +665,13 @@ impl PluginManager {
     }
 
     pub async fn pause_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
-        let entry = self.get_running_instance_mut(instance_id)?;
-
-        // schon pausiert
-        if entry.state == InstanceState::Paused {
-            return Ok(());
-        }
-
-        // sendet pause, wartet ack
-        let _ = Self::send_cmd_ack(entry, instance_id, CMD_PAUSE, TIMEOUT_PAUSE_ACK).await?;
-        entry.state = InstanceState::Paused;
-        Ok(())
+        let handle = self.get_instance_handle(instance_id)?;
+        Self::pause_instance_handle(handle, instance_id).await
     }
 
     pub async fn resume_plugin_instance(&mut self, instance_id: InstanceID) -> Result<(), Error> {
-        let entry = self.get_running_instance_mut(instance_id)?;
-        // schon running?
-        if entry.state == Running {
-            return Ok(());
-        }
-
-        let _ = Self::send_cmd_ack(entry, instance_id, CMD_RESUME, TIMEOUT_RESUME_ACK).await?;
-        entry.state = Running;
-        Ok(())
+        let handle = self.get_instance_handle(instance_id)?;
+        Self::resume_instance_handle(handle, instance_id).await
     }
 
     /// Stop-Logik auf Instance-Ebene (wird typischerweise über einen Instance-Mutex ausgeführt).

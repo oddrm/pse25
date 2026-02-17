@@ -5,7 +5,7 @@ use std::{env, time::Duration};
 use backend::AppState;
 use backend::plugin_manager::manager::PluginManager;
 use backend::routes::database::*;
-use backend::routes::health_check::health;
+use backend::routes::health_check::*;
 use backend::routes::plugins::*;
 use backend::storage::file_watcher;
 use backend::storage::storage_manager::StorageManager;
