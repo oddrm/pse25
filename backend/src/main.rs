@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+// use std::os::unix::fs::MetadataExt; -> unnötig und Windows Problem
+use std::path::{Path, PathBuf};
 use std::{env, time::Duration};
 
 use backend::AppState;
@@ -31,7 +32,7 @@ async fn main() {
         _ => tracing::Level::INFO,
     };
 
-    let file_appender = tracing_appender::rolling::daily("/logs", "backend.log");
+    let file_appender = tracing_appender::rolling::hourly("/logs", "backend.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     let noise_filter = filter_fn(|metadata| {
@@ -70,7 +71,8 @@ async fn main() {
     file_watcher::start_scanning(&storage_manager, Duration::from_secs(1))
         .await
         .unwrap();
-    let mut plugin_manager = PluginManager::new(storage_manager.clone());
+    let mut plugin_manager = PluginManager::new();
+
     // check if /plugins exists and list all files
 
     plugin_manager
@@ -104,15 +106,24 @@ async fn main() {
                 update_sequence,
                 add_tag,
                 remove_tag,
-                list_plugins,
                 get_logs,
                 start_transaction,
-                commit_transaction
+                commit_transaction,
+                register_plugins,
+                register_plugin,
+                start_plugin_instance,
+                stop_plugin_instance,
+                pause_plugin_instance,
+                resume_plugin_instance,
+                get_running_instances,
+                get_registered_plugins,
+                enable_plugin,
+                disable_plugin,
             ],
         )
         .manage(AppState {
             storage_manager,
-            plugin_manager,
+            plugin_manager: tokio::sync::Mutex::new(plugin_manager),
         })
         .launch()
         .await

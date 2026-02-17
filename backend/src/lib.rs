@@ -10,5 +10,5 @@ use crate::plugin_manager::manager::PluginManager;
 
 pub struct AppState {
     pub storage_manager: StorageManager,
-    pub plugin_manager: PluginManager,
+    pub plugin_manager: tokio::sync::Mutex<PluginManager>,
 }

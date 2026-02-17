@@ -1,5 +1,5 @@
 mod common;
-
+// docker compose -f compose.backend.containerized.yaml up --build
 use backend::plugin_manager::manager::PluginManager;
 use backend::plugin_manager::plugin::{Plugin, Trigger};
 use backend::storage::storage_manager::StorageManager;
@@ -42,235 +42,6 @@ class PluginImpl:
 
     fs::write(&path, content).expect("failed to write minimal python plugin file");
     path
-}
-
-#[test]
-fn register_plugins_called_twice_on_same_directory_returns_error_and_does_not_duplicate() {
-    // Goal:
-    // - Calling register_plugins(dir) twice should not duplicate plugins.
-    // - Second call should return Err due to duplicate path prevention.
-    // - Registered plugin count must remain stable.
-
-    common::init_test_logging();
-
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
-
-    let dir = unique_temp_plugins_dir("register_plugins_twice");
-    fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
-
-    let _p1 = write_minimal_python_plugin(
-        &dir,
-        "dup_a.py",
-        r#"PLUGIN_NAME = "dup_a"
-PLUGIN_DESCRIPTION = "dup a"
-PLUGIN_TRIGGER = "manual"
-"#,
-    );
-    let _p2 = write_minimal_python_plugin(
-        &dir,
-        "dup_b.py",
-        r#"PLUGIN_NAME = "dup_b"
-PLUGIN_DESCRIPTION = "dup b"
-PLUGIN_TRIGGER = "manual"
-"#,
-    );
-
-    pm.register_plugins(dir.clone())
-        .expect("first register_plugins should succeed");
-
-    let count_after_first = pm.get_registered_plugins().len();
-    assert_eq!(
-        count_after_first, 2,
-        "expected two plugins after first registration"
-    );
-
-    let err = pm
-        .register_plugins(dir.clone())
-        .expect_err("second register_plugins should fail due to duplicate registration");
-    let msg = format!("{err:?}");
-    assert!(
-        msg.contains("already registered"),
-        "error should mention already registered, got: {msg}"
-    );
-
-    let count_after_second = pm.get_registered_plugins().len();
-    assert_eq!(
-        count_after_second, count_after_first,
-        "plugin count must not increase on duplicate registration attempt"
-    );
-
-    if let Err(e) = fs::remove_dir_all(&dir) {
-        eprintln!("cleanup failed removing {:?}: {}", dir, e);
-    }
-}
-
-#[test]
-fn load_config_and_apply_is_idempotent_for_same_config() {
-    // Goal:
-    // - Applying the same config twice should produce the same final state without errors.
-
-    common::init_test_logging();
-
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
-    pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
-        .expect("register_plugin failed");
-
-    let yaml = r#"
-plugins:
-  - name: example_plugin
-    enabled: false
-"#;
-    let cfg_path = common::create_yaml_config(yaml);
-
-    pm.load_config_and_apply(cfg_path.to_string_lossy().as_ref())
-        .expect("first load_config_and_apply failed");
-
-    pm.load_config_and_apply(cfg_path.to_string_lossy().as_ref())
-        .expect("second load_config_and_apply should also succeed");
-
-    if let Err(e) = fs::remove_file(&cfg_path) {
-        eprintln!("cleanup failed removing {:?}: {}", cfg_path, e);
-    }
-
-    let p = pm
-        .get_registered_plugins()
-        .into_iter()
-        .find(|p| p.name().as_str() == "example_plugin")
-        .expect("example_plugin should exist");
-    assert!(
-        !p.enabled(),
-        "example_plugin should remain disabled after applying config twice"
-    );
-}
-
-#[test]
-fn register_plugins_registers_all_plugins_in_directory() {
-    // Goal:
-    // - PluginManager::register_plugins(directory) iterates directory entries
-    // - registers every plugin file in that directory
-    // - and makes them visible via get_registered_plugins().
-
-    common::init_test_logging();
-
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
-
-    // Arrange: temp plugin directory with 2 valid plugins
-    let dir = unique_temp_plugins_dir("register_plugins");
-    fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
-
-    // Use unique module names to avoid Python import caching collisions.
-    let _p1 = write_minimal_python_plugin(
-        &dir,
-        "test_plugin_one.py",
-        r#"PLUGIN_NAME = "plugin_one"
-PLUGIN_DESCRIPTION = "test plugin one"
-PLUGIN_TRIGGER = "manual"
-"#,
-    );
-    let _p2 = write_minimal_python_plugin(
-        &dir,
-        "test_plugin_two.py",
-        r#"PLUGIN_NAME = "plugin_two"
-PLUGIN_DESCRIPTION = "test plugin two"
-PLUGIN_TRIGGER = "manual"
-"#,
-    );
-
-    // Act
-    pm.register_plugins(dir.clone())
-        .expect("register_plugins failed");
-
-    // Assert
-    let registered = pm.get_registered_plugins();
-    assert_eq!(registered.len(), 2, "should register exactly 2 plugins");
-
-    let names: Vec<&str> = registered.iter().map(|p| p.name().as_str()).collect();
-    assert!(
-        names.contains(&"plugin_one"),
-        "plugin_one should be registered, got: {names:?}"
-    );
-    assert!(
-        names.contains(&"plugin_two"),
-        "plugin_two should be registered, got: {names:?}"
-    );
-
-    // Cleanup (best-effort)
-    if let Err(e) = fs::remove_dir_all(&dir) {
-        eprintln!("cleanup failed removing {:?}: {}", dir, e);
-    }
-}
-
-#[test]
-fn load_config_and_apply_is_partially_applied_before_error_is_returned() {
-    // Goal:
-    // - Document current behavior:
-    //   If config has multiple entries and one is unknown,
-    //   the function returns Err, but earlier entries may already have been applied.
-
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
-    pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
-        .expect("register_plugin failed");
-
-    // Arrange: first entry exists, second one does not
-    let yaml = r#"
-plugins:
-  - name: example_plugin
-    enabled: false
-  - name: does_not_exist
-    enabled: true
-"#;
-    let config_path = common::create_yaml_config(yaml);
-
-    // Act: should error due to does_not_exist
-    let err = pm
-        .load_config_and_apply(config_path.to_string_lossy().as_ref())
-        .expect_err("expected error because does_not_exist is not registered");
-
-    if let Err(e) = fs::remove_file(&config_path) {
-        eprintln!("cleanup failed removing {:?}: {}", config_path, e);
-    }
-
-    // Assert: error mentions not found
-    assert!(
-        format!("{err:?}").contains("not found"),
-        "error should mention not found"
-    );
-
-    // Assert: example_plugin was already applied (disabled)
-    let p = pm
-        .get_registered_plugins()
-        .into_iter()
-        .find(|p| p.name().as_str() == "example_plugin")
-        .expect("example_plugin should still be registered");
-    assert!(
-        !p.enabled(),
-        "example_plugin should already be disabled (partial application behavior)"
-    );
-}
-
-fn try_storage_manager_from_env() -> Option<StorageManager> {
-    let db_url = std::env::var("DATABASE_URL").ok()?;
-    StorageManager::new(&db_url).ok()
 }
 
 #[test]
@@ -342,17 +113,425 @@ fn plugin_enable_disable_and_valid_flags_work() {
     assert_eq!(p.validation_warnings()[1], "w2");
 }
 
+fn write_minimal_python_plugin_without_constants(dir: &PathBuf, file_name: &str) -> PathBuf {
+    let path = dir.join(file_name);
+
+    // Minimal plugin that is VALID for validation, but provides NO PLUGIN_* constants.
+    // Expected behavior:
+    // - name falls back to filename stem
+    // - description falls back to "Plugin loaded from ..."
+    // - trigger defaults to Manual
+    let content = r#"
+class PluginImpl:
+    def __init__(self, path: str):
+        self.path = path
+
+    def run(self, data: str) -> str:
+        return "ok"
+"#;
+
+    fs::write(&path, content).expect("failed to write minimal python plugin file (no constants)");
+    path
+}
+
+fn write_minimal_python_plugin_with_trigger(
+    dir: &PathBuf,
+    file_name: &str,
+    plugin_name: &str,
+    plugin_trigger: &str,
+) -> PathBuf {
+    let path = dir.join(file_name);
+
+    // Valid plugin + explicit constants so we can test trigger mapping deterministically.
+    let content = format!(
+        r#"
+PLUGIN_NAME = "{plugin_name}"
+PLUGIN_DESCRIPTION = "test plugin"
+PLUGIN_TRIGGER = "{plugin_trigger}"
+
+class PluginImpl:
+    def __init__(self, path: str):
+        self.path = path
+
+    def run(self, data: str) -> str:
+        return "ok"
+"#,
+    );
+
+    fs::write(&path, content).expect("failed to write python plugin file (with trigger)");
+    path
+}
+
+fn write_invalid_python_plugin_missing_plugin_impl(dir: &PathBuf, file_name: &str) -> PathBuf {
+    let path = dir.join(file_name);
+
+    // No PluginImpl -> should fail validation in register_plugin().
+    let content = r#"
+PLUGIN_NAME = "invalid_missing_plugin_impl"
+
+def something_else():
+    return "nope"
+"#;
+
+    fs::write(&path, content).expect("failed to write invalid python plugin file");
+    path
+}
+
+fn write_invalid_python_plugin_missing_run(dir: &PathBuf, file_name: &str) -> PathBuf {
+    let path = dir.join(file_name);
+
+    // PluginImpl exists, but no run() -> should fail validation in register_plugin().
+    let content = r#"
+PLUGIN_NAME = "invalid_missing_run"
+
+class PluginImpl:
+    def __init__(self, path: str):
+        self.path = path
+"#;
+
+    fs::write(&path, content).expect("failed to write invalid python plugin file");
+    path
+}
+
+fn write_python_plugin_that_ignores_stop(
+    dir: &PathBuf,
+    file_name: &str,
+    plugin_name: &str,
+) -> PathBuf {
+    // This plugin ACKs stop(), but run() never ends -> forces PluginManager stop_plugin_instance()
+    // into the kill path after the soft-stop wait timeout.
+    let path = dir.join(file_name);
+
+    let content = format!(
+        r#"
+PLUGIN_NAME = "{plugin_name}"
+PLUGIN_DESCRIPTION = "ignores stop; used for kill-path test"
+PLUGIN_TRIGGER = "manual"
+
+import time
+
+class PluginImpl:
+    def __init__(self, path: str):
+        self.path = path
+
+    def run(self, data: str) -> str:
+        # Never returns, never checks a stop flag.
+        while True:
+            time.sleep(0.1)
+
+    def stop(self) -> str:
+        # Pretend we are stopping, but do not affect run().
+        return "stopping"
+
+    def pause(self) -> str:
+        return "paused"
+
+    def resume(self) -> str:
+        return "resumed"
+"#,
+    );
+
+    fs::write(&path, content).expect("failed to write ignore-stop python plugin");
+    path
+}
+
+fn write_python_plugin_with_slow_pause(
+    dir: &PathBuf,
+    file_name: &str,
+    plugin_name: &str,
+) -> PathBuf {
+    // This plugin makes pause() block longer than TIMEOUT_PAUSE_ACK (2s),
+    // so PluginManager::pause_plugin_instance should time out.
+    let path = dir.join(file_name);
+
+    let content = format!(
+        r#"
+PLUGIN_NAME = "{plugin_name}"
+PLUGIN_DESCRIPTION = "slow pause; used for timeout test"
+PLUGIN_TRIGGER = "manual"
+
+import time
+import threading
+
+class PluginImpl:
+    def __init__(self, path: str):
+        self.path = path
+        self._stop = threading.Event()
+
+    def run(self, data: str) -> str:
+        while not self._stop.is_set():
+            time.sleep(0.1)
+        return "stopped"
+
+    def stop(self) -> str:
+        self._stop.set()
+        return "stopping"
+
+    def pause(self) -> str:
+        # Block longer than the manager's TIMEOUT_PAUSE_ACK (2s)
+        time.sleep(5)
+        return "paused"
+
+    def resume(self) -> str:
+        return "resumed"
+"#,
+    );
+
+    fs::write(&path, content).expect("failed to write slow-pause python plugin");
+    path
+}
+
+fn write_python_plugin_that_writes_marker_and_exits(
+    dir: &PathBuf,
+    file_name: &str,
+    plugin_name: &str,
+) -> PathBuf {
+    let path = dir.join(file_name);
+
+    // run() writes a marker file next to the plugin file and then exits.
+    // This gives us a deterministic proof that run() executed.
+    let content = format!(
+        r#"
+PLUGIN_NAME = "{plugin_name}"
+PLUGIN_DESCRIPTION = "writes marker and exits"
+PLUGIN_TRIGGER = "manual"
+
+from pathlib import Path
+
+class PluginImpl:
+    def __init__(self, path: str):
+        self.path = Path(path)
+
+    def run(self, data: str) -> str:
+        marker = self.path.with_suffix(".ran")
+        marker.write_text("ran", encoding="utf-8")
+        return "done"
+
+    def stop(self) -> str:
+        return "stopping"
+
+    def pause(self) -> str:
+        return "paused"
+
+    def resume(self) -> str:
+        return "resumed"
+"#,
+    );
+
+    fs::write(&path, content).expect("failed to write marker python plugin");
+    path
+}
+
+#[test]
+fn register_plugins_called_twice_on_same_directory_returns_error_and_does_not_duplicate() {
+    // Goal:
+    // - Calling register_plugins(dir) twice should not duplicate plugins.
+    // - Second call should return Err due to duplicate path prevention.
+    // - Registered plugin count must remain stable.
+
+    common::init_test_logging();
+
+    let mut pm = PluginManager::new();
+
+    let dir = unique_temp_plugins_dir("register_plugins_twice");
+    fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
+
+    let _p1 = write_minimal_python_plugin(
+        &dir,
+        "dup_a.py",
+        r#"PLUGIN_NAME = "dup_a"
+PLUGIN_DESCRIPTION = "dup a"
+PLUGIN_TRIGGER = "manual"
+"#,
+    );
+    let _p2 = write_minimal_python_plugin(
+        &dir,
+        "dup_b.py",
+        r#"PLUGIN_NAME = "dup_b"
+PLUGIN_DESCRIPTION = "dup b"
+PLUGIN_TRIGGER = "manual"
+"#,
+    );
+
+    pm.register_plugins(dir.clone())
+        .expect("first register_plugins should succeed");
+
+    let count_after_first = pm.get_registered_plugins().len();
+    assert_eq!(
+        count_after_first, 2,
+        "expected two plugins after first registration"
+    );
+
+    let err = pm
+        .register_plugins(dir.clone())
+        .expect_err("second register_plugins should fail due to duplicate registration");
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("already registered"),
+        "error should mention already registered, got: {msg}"
+    );
+
+    let count_after_second = pm.get_registered_plugins().len();
+    assert_eq!(
+        count_after_second, count_after_first,
+        "plugin count must not increase on duplicate registration attempt"
+    );
+
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
+}
+
+#[test]
+fn load_config_and_apply_is_idempotent_for_same_config() {
+    // Goal:
+    // - Applying the same config twice should produce the same final state without errors.
+
+    common::init_test_logging();
+
+    let mut pm = PluginManager::new();
+    pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
+        .expect("register_plugin failed");
+
+    let yaml = r#"
+plugins:
+  - name: example_plugin
+    enabled: false
+"#;
+    let cfg_path = common::create_yaml_config(yaml);
+
+    pm.load_config_and_apply(cfg_path.to_string_lossy().as_ref())
+        .expect("first load_config_and_apply failed");
+
+    pm.load_config_and_apply(cfg_path.to_string_lossy().as_ref())
+        .expect("second load_config_and_apply should also succeed");
+
+    if let Err(e) = fs::remove_file(&cfg_path) {
+        eprintln!("cleanup failed removing {:?}: {}", cfg_path, e);
+    }
+
+    let p = pm
+        .get_registered_plugins()
+        .into_iter()
+        .find(|p| p.name().as_str() == "example_plugin")
+        .expect("example_plugin should exist");
+    assert!(
+        !p.enabled(),
+        "example_plugin should remain disabled after applying config twice"
+    );
+}
+
+#[test]
+fn register_plugins_registers_all_plugins_in_directory() {
+    // Goal:
+    // - PluginManager::register_plugins(directory) iterates directory entries
+    // - registers every plugin file in that directory
+    // - and makes them visible via get_registered_plugins().
+
+    common::init_test_logging();
+
+    let mut pm = PluginManager::new();
+
+    // Arrange: temp plugin directory with 2 valid plugins
+    let dir = unique_temp_plugins_dir("register_plugins");
+    fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
+
+    // Use unique module names to avoid Python import caching collisions.
+    let _p1 = write_minimal_python_plugin(
+        &dir,
+        "test_plugin_one.py",
+        r#"PLUGIN_NAME = "plugin_one"
+PLUGIN_DESCRIPTION = "test plugin one"
+PLUGIN_TRIGGER = "manual"
+"#,
+    );
+    let _p2 = write_minimal_python_plugin(
+        &dir,
+        "test_plugin_two.py",
+        r#"PLUGIN_NAME = "plugin_two"
+PLUGIN_DESCRIPTION = "test plugin two"
+PLUGIN_TRIGGER = "manual"
+"#,
+    );
+
+    // Act
+    pm.register_plugins(dir.clone())
+        .expect("register_plugins failed");
+
+    // Assert
+    let registered = pm.get_registered_plugins();
+    assert_eq!(registered.len(), 2, "should register exactly 2 plugins");
+
+    let names: Vec<&str> = registered.iter().map(|p| p.name().as_str()).collect();
+    assert!(
+        names.contains(&"plugin_one"),
+        "plugin_one should be registered, got: {names:?}"
+    );
+    assert!(
+        names.contains(&"plugin_two"),
+        "plugin_two should be registered, got: {names:?}"
+    );
+
+    // Cleanup (best-effort)
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        eprintln!("cleanup failed removing {:?}: {}", dir, e);
+    }
+}
+
+#[test]
+fn load_config_and_apply_is_partially_applied_before_error_is_returned() {
+    // Goal:
+    // - Document current behavior:
+    //   If config has multiple entries and one is unknown,
+    //   the function returns Err, but earlier entries may already have been applied.
+
+    let mut pm = PluginManager::new();
+    pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
+        .expect("register_plugin failed");
+
+    // Arrange: first entry exists, second one does not
+    let yaml = r#"
+plugins:
+  - name: example_plugin
+    enabled: false
+  - name: does_not_exist
+    enabled: true
+"#;
+    let config_path = common::create_yaml_config(yaml);
+
+    // Act: should error due to does_not_exist
+    let err = pm
+        .load_config_and_apply(config_path.to_string_lossy().as_ref())
+        .expect_err("expected error because does_not_exist is not registered");
+
+    if let Err(e) = fs::remove_file(&config_path) {
+        eprintln!("cleanup failed removing {:?}: {}", config_path, e);
+    }
+
+    // Assert: error mentions not found
+    assert!(
+        format!("{err:?}").contains("not found"),
+        "error should mention not found"
+    );
+
+    // Assert: example_plugin was already applied (disabled)
+    let p = pm
+        .get_registered_plugins()
+        .into_iter()
+        .find(|p| p.name().as_str() == "example_plugin")
+        .expect("example_plugin should still be registered");
+    assert!(
+        !p.enabled(),
+        "example_plugin should already be disabled (partial application behavior)"
+    );
+}
+
 #[test]
 fn plugin_manager_new_starts_empty() {
     // Goal:
     // - a fresh manager has no registered plugins and no running instances.
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let pm = PluginManager::new(storage_manager);
+    let pm = PluginManager::new();
 
     assert_eq!(pm.get_registered_plugins().len(), 0);
     assert_eq!(pm.get_running_instances().len(), 0);
@@ -367,13 +546,8 @@ fn plugin_manager_register_plugin_registers_builtin_python_plugin() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
     // Arrange
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
     let plugin_path = PathBuf::from("src/plugin_manager/plugins/plugin.py");
 
     // Act
@@ -413,13 +587,8 @@ fn plugin_manager_enable_disable_by_name() {
     // Goal:
     // - enable_plugin/disable_plugin toggle only the targeted plugin by name.
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
     // Arrange
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
     pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
         .expect("register_plugin failed");
 
@@ -453,12 +622,7 @@ fn plugin_manager_enable_disable_unknown_plugin_returns_error() {
     // Goal:
     // - calling enable/disable for an unknown name returns an error (no silent success).
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     let err = pm
         .disable_plugin("does_not_exist")
@@ -484,13 +648,8 @@ fn plugin_manager_load_config_and_apply_toggles_enabled_flag() {
     // - matching plugin is found
     // - enabled flag is applied.
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
     // Arrange
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
     pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
         .expect("register_plugin failed");
 
@@ -524,12 +683,7 @@ fn plugin_manager_load_config_and_apply_errors_on_unknown_plugin() {
     // Goal:
     // - config referring to a plugin name that isn't registered must error.
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     let yaml = r#"
 plugins:
@@ -558,12 +712,7 @@ fn plugin_manager_load_config_and_apply_errors_on_missing_file() {
     // Goal:
     // - missing config path should be a readable error, not a panic.
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     let missing_path = common::unique_temp_file_path("this_file_should_not_exist.yaml");
     let err = pm
@@ -583,13 +732,8 @@ fn plugin_manager_load_config_and_apply_errors_on_missing_file() {
 async fn plugin_instance_lifecycle_start_pause_resume_stop() {
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
     // Arrange: PluginManager + Plugin registrieren
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
     pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
         .expect("register_plugin failed");
 
@@ -600,7 +744,7 @@ async fn plugin_instance_lifecycle_start_pause_resume_stop() {
     let instance_id = 1_u64;
 
     // Act: Start
-    pm.start_plugin_instance("example_plugin", vec![], temp_dir.clone(), instance_id)
+    pm.start_plugin_instance("example_plugin", temp_dir.clone(), instance_id)
         .await
         .expect("start_plugin_instance failed");
 
@@ -666,12 +810,7 @@ async fn plugin_instance_lifecycle_start_pause_resume_stop() {
 async fn start_fails_when_plugin_is_disabled() {
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
     pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
         .expect("register_plugin failed");
 
@@ -682,7 +821,7 @@ async fn start_fails_when_plugin_is_disabled() {
     fs::create_dir_all(&temp_dir).expect("failed to create temp dir");
 
     let err = pm
-        .start_plugin_instance("example_plugin", vec![], temp_dir.clone(), 42)
+        .start_plugin_instance("example_plugin", temp_dir.clone(), 42)
         .await
         .expect_err("expected start_plugin_instance to fail for disabled plugin");
 
@@ -704,18 +843,13 @@ async fn start_fails_for_unknown_plugin_name() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     let temp_dir = unique_temp_plugins_dir("start_unknown_plugin");
     fs::create_dir_all(&temp_dir).expect("failed to create temp dir");
 
     let err = pm
-        .start_plugin_instance("does_not_exist", vec![], temp_dir.clone(), 100)
+        .start_plugin_instance("does_not_exist", temp_dir.clone(), 100)
         .await
         .expect_err("expected error when starting unknown plugin");
 
@@ -737,12 +871,7 @@ async fn start_fails_for_duplicate_instance_id() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
     pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
         .expect("register_plugin failed");
 
@@ -752,13 +881,13 @@ async fn start_fails_for_duplicate_instance_id() {
     let instance_id = 777_u64;
 
     // First start should succeed
-    pm.start_plugin_instance("example_plugin", vec![], temp_dir.clone(), instance_id)
+    pm.start_plugin_instance("example_plugin", temp_dir.clone(), instance_id)
         .await
         .expect("first start should succeed");
 
     // Second start with same instance_id should fail
     let err = pm
-        .start_plugin_instance("example_plugin", vec![], temp_dir.clone(), instance_id)
+        .start_plugin_instance("example_plugin", temp_dir.clone(), instance_id)
         .await
         .expect_err("expected error on duplicate instance_id");
 
@@ -785,12 +914,7 @@ async fn stop_pause_resume_fail_for_non_running_instance() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     let err = pm
         .stop_plugin_instance(9999)
@@ -829,12 +953,7 @@ async fn pause_and_resume_are_idempotent() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
     pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
         .expect("register_plugin failed");
 
@@ -843,7 +962,7 @@ async fn pause_and_resume_are_idempotent() {
 
     let instance_id = 778_u64;
 
-    pm.start_plugin_instance("example_plugin", vec![], temp_dir.clone(), instance_id)
+    pm.start_plugin_instance("example_plugin", temp_dir.clone(), instance_id)
         .await
         .expect("start_plugin_instance failed");
 
@@ -889,12 +1008,7 @@ fn plugin_manager_load_config_and_apply_errors_on_invalid_yaml() {
     // Goal:
     // - invalid YAML must return Err with parse prefix.
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     let yaml = "plugins: [ this is : not valid yaml";
     let config_path = common::create_yaml_config(yaml);
@@ -923,12 +1037,7 @@ fn register_plugin_prevents_duplicates_even_with_different_path_forms() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     let rel = PathBuf::from("src/plugin_manager/plugins/plugin.py");
     pm.register_plugin(rel.clone())
@@ -962,12 +1071,7 @@ fn load_config_and_apply_can_reenable_plugin_after_disabling() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
     pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
         .expect("register_plugin failed");
 
@@ -1026,12 +1130,7 @@ async fn plugin_manager_two_instances_run_independently() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
     pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
         .expect("register_plugin failed");
 
@@ -1041,10 +1140,10 @@ async fn plugin_manager_two_instances_run_independently() {
     let id1 = 1001_u64;
     let id2 = 1002_u64;
 
-    pm.start_plugin_instance("example_plugin", vec![], temp_dir.clone(), id1)
+    pm.start_plugin_instance("example_plugin", temp_dir.clone(), id1)
         .await
         .expect("start instance 1 failed");
-    pm.start_plugin_instance("example_plugin", vec![], temp_dir.clone(), id2)
+    pm.start_plugin_instance("example_plugin", temp_dir.clone(), id2)
         .await
         .expect("start instance 2 failed");
 
@@ -1086,12 +1185,7 @@ fn register_plugin_twice_returns_error_and_does_not_duplicate() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     let plugin_path = PathBuf::from("src/plugin_manager/plugins/plugin.py");
 
@@ -1122,12 +1216,7 @@ async fn plugin_manager_pause_then_stop_works() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
     pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
         .expect("register_plugin failed");
 
@@ -1136,10 +1225,11 @@ async fn plugin_manager_pause_then_stop_works() {
 
     let id = 2001_u64;
 
-    pm.start_plugin_instance("example_plugin", vec![], temp_dir.clone(), id)
+    pm.start_plugin_instance("example_plugin", temp_dir.clone(), id)
         .await
         .expect("start failed");
 
+    pm.pause_plugin_instance(id).await.expect("pause failed");
     pm.pause_plugin_instance(id).await.expect("pause failed");
 
     // paused instances are filtered out by get_running_instances()
@@ -1164,12 +1254,7 @@ fn register_plugins_skips_non_py_files_and_directories() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     let dir = unique_temp_plugins_dir("register_plugins_skip_noise");
     fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
@@ -1201,30 +1286,7 @@ PLUGIN_TRIGGER = "manual"
     );
     assert_eq!(registered[0].name().as_str(), "only_this_one");
 
-    if let Err(e) = fs::remove_dir_all(&dir) {
-        eprintln!("cleanup failed removing {:?}: {}", dir, e);
-    }
-}
-
-fn write_minimal_python_plugin_without_constants(dir: &PathBuf, file_name: &str) -> PathBuf {
-    let path = dir.join(file_name);
-
-    // Minimal plugin that is VALID for validation, but provides NO PLUGIN_* constants.
-    // Expected behavior:
-    // - name falls back to filename stem
-    // - description falls back to "Plugin loaded from ..."
-    // - trigger defaults to Manual
-    let content = r#"
-class PluginImpl:
-    def __init__(self, path: str):
-        self.path = path
-
-    def run(self, data: str) -> str:
-        return "ok"
-"#;
-
-    fs::write(&path, content).expect("failed to write minimal python plugin file (no constants)");
-    path
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]
@@ -1238,12 +1300,7 @@ async fn stop_is_not_idempotent_and_resume_after_stop_fails() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
     pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
         .expect("register_plugin failed");
 
@@ -1252,7 +1309,7 @@ async fn stop_is_not_idempotent_and_resume_after_stop_fails() {
 
     let id = 3001_u64;
 
-    pm.start_plugin_instance("example_plugin", vec![], temp_dir.clone(), id)
+    pm.start_plugin_instance("example_plugin", temp_dir.clone(), id)
         .await
         .expect("start failed");
 
@@ -1289,12 +1346,7 @@ async fn pause_only_affects_target_instance() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
     pm.register_plugin(PathBuf::from("src/plugin_manager/plugins/plugin.py"))
         .expect("register_plugin failed");
 
@@ -1304,10 +1356,10 @@ async fn pause_only_affects_target_instance() {
     let id1 = 4001_u64;
     let id2 = 4002_u64;
 
-    pm.start_plugin_instance("example_plugin", vec![], temp_dir.clone(), id1)
+    pm.start_plugin_instance("example_plugin", temp_dir.clone(), id1)
         .await
         .expect("start id1 failed");
-    pm.start_plugin_instance("example_plugin", vec![], temp_dir.clone(), id2)
+    pm.start_plugin_instance("example_plugin", temp_dir.clone(), id2)
         .await
         .expect("start id2 failed");
 
@@ -1351,12 +1403,7 @@ fn register_plugin_uses_fallbacks_when_python_constants_are_missing() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     let dir = unique_temp_plugins_dir("plugin_missing_constants");
     fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
@@ -1384,65 +1431,6 @@ fn register_plugin_uses_fallbacks_when_python_constants_are_missing() {
     }
 }
 
-fn write_minimal_python_plugin_with_trigger(
-    dir: &PathBuf,
-    file_name: &str,
-    plugin_name: &str,
-    plugin_trigger: &str,
-) -> PathBuf {
-    let path = dir.join(file_name);
-
-    // Valid plugin + explicit constants so we can test trigger mapping deterministically.
-    let content = format!(
-        r#"
-PLUGIN_NAME = "{plugin_name}"
-PLUGIN_DESCRIPTION = "test plugin"
-PLUGIN_TRIGGER = "{plugin_trigger}"
-
-class PluginImpl:
-    def __init__(self, path: str):
-        self.path = path
-
-    def run(self, data: str) -> str:
-        return "ok"
-"#,
-    );
-
-    fs::write(&path, content).expect("failed to write python plugin file (with trigger)");
-    path
-}
-
-fn write_invalid_python_plugin_missing_plugin_impl(dir: &PathBuf, file_name: &str) -> PathBuf {
-    let path = dir.join(file_name);
-
-    // No PluginImpl -> should fail validation in register_plugin().
-    let content = r#"
-PLUGIN_NAME = "invalid_missing_plugin_impl"
-
-def something_else():
-    return "nope"
-"#;
-
-    fs::write(&path, content).expect("failed to write invalid python plugin file");
-    path
-}
-
-fn write_invalid_python_plugin_missing_run(dir: &PathBuf, file_name: &str) -> PathBuf {
-    let path = dir.join(file_name);
-
-    // PluginImpl exists, but no run() -> should fail validation in register_plugin().
-    let content = r#"
-PLUGIN_NAME = "invalid_missing_run"
-
-class PluginImpl:
-    def __init__(self, path: str):
-        self.path = path
-"#;
-
-    fs::write(&path, content).expect("failed to write invalid python plugin file");
-    path
-}
-
 #[test]
 fn register_plugin_maps_all_supported_triggers_and_fallbacks() {
     // Goal:
@@ -1451,12 +1439,7 @@ fn register_plugin_maps_all_supported_triggers_and_fallbacks() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     let dir = unique_temp_plugins_dir("trigger_mapping");
     fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
@@ -1553,12 +1536,7 @@ fn register_plugin_fails_validation_when_plugin_impl_missing_or_run_missing() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     let dir = unique_temp_plugins_dir("validation_errors");
     fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
@@ -1593,12 +1571,7 @@ fn load_config_and_apply_applies_multiple_known_plugins() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     // Arrange: register two plugins from a temp directory
     let dir = unique_temp_plugins_dir("config_multiple_known");
@@ -1676,12 +1649,7 @@ fn mixed_registration_directory_then_single_plugin_results_in_combined_set() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     // 1) Register two plugins via directory
     let dir = unique_temp_plugins_dir("mixed_registration");
@@ -1753,12 +1721,7 @@ async fn start_two_different_plugins_reports_correct_running_pairs() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     // Arrange: temp dir with one minimal plugin + built-in example plugin
     let dir = unique_temp_plugins_dir("two_different_plugins");
@@ -1785,10 +1748,10 @@ PLUGIN_TRIGGER = "manual"
     let id1 = 9101_u64;
     let id2 = 9102_u64;
 
-    pm.start_plugin_instance("other_plugin", vec![], temp_dir.clone(), id1)
+    pm.start_plugin_instance("other_plugin", temp_dir.clone(), id1)
         .await
         .expect("start other_plugin failed");
-    pm.start_plugin_instance("example_plugin", vec![], temp_dir.clone(), id2)
+    pm.start_plugin_instance("example_plugin", temp_dir.clone(), id2)
         .await
         .expect("start example_plugin failed");
 
@@ -1796,7 +1759,7 @@ PLUGIN_TRIGGER = "manual"
     let mut running: Vec<(String, u64)> = pm
         .get_running_instances()
         .into_iter()
-        .map(|(p, id)| (p.name().clone(), id))
+        .map(|(p, id, _)| (p.name().clone(), id))
         .collect();
 
     running.sort_by_key(|(_, id)| *id);
@@ -1817,94 +1780,6 @@ PLUGIN_TRIGGER = "manual"
     }
 }
 
-fn write_python_plugin_that_ignores_stop(
-    dir: &PathBuf,
-    file_name: &str,
-    plugin_name: &str,
-) -> PathBuf {
-    // This plugin ACKs stop(), but run() never ends -> forces PluginManager stop_plugin_instance()
-    // into the kill path after the soft-stop wait timeout.
-    let path = dir.join(file_name);
-
-    let content = format!(
-        r#"
-PLUGIN_NAME = "{plugin_name}"
-PLUGIN_DESCRIPTION = "ignores stop; used for kill-path test"
-PLUGIN_TRIGGER = "manual"
-
-import time
-
-class PluginImpl:
-    def __init__(self, path: str):
-        self.path = path
-
-    def run(self, data: str) -> str:
-        # Never returns, never checks a stop flag.
-        while True:
-            time.sleep(0.1)
-
-    def stop(self) -> str:
-        # Pretend we are stopping, but do not affect run().
-        return "stopping"
-
-    def pause(self) -> str:
-        return "paused"
-
-    def resume(self) -> str:
-        return "resumed"
-"#,
-    );
-
-    fs::write(&path, content).expect("failed to write ignore-stop python plugin");
-    path
-}
-
-fn write_python_plugin_with_slow_pause(
-    dir: &PathBuf,
-    file_name: &str,
-    plugin_name: &str,
-) -> PathBuf {
-    // This plugin makes pause() block longer than TIMEOUT_PAUSE_ACK (2s),
-    // so PluginManager::pause_plugin_instance should time out.
-    let path = dir.join(file_name);
-
-    let content = format!(
-        r#"
-PLUGIN_NAME = "{plugin_name}"
-PLUGIN_DESCRIPTION = "slow pause; used for timeout test"
-PLUGIN_TRIGGER = "manual"
-
-import time
-import threading
-
-class PluginImpl:
-    def __init__(self, path: str):
-        self.path = path
-        self._stop = threading.Event()
-
-    def run(self, data: str) -> str:
-        while not self._stop.is_set():
-            time.sleep(0.1)
-        return "stopped"
-
-    def stop(self) -> str:
-        self._stop.set()
-        return "stopping"
-
-    def pause(self) -> str:
-        # Block longer than the manager's TIMEOUT_PAUSE_ACK (2s)
-        time.sleep(5)
-        return "paused"
-
-    def resume(self) -> str:
-        return "resumed"
-"#,
-    );
-
-    fs::write(&path, content).expect("failed to write slow-pause python plugin");
-    path
-}
-
 #[tokio::test]
 async fn start_actually_executes_run_function() {
     // Goal:
@@ -1913,12 +1788,7 @@ async fn start_actually_executes_run_function() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     let dir = unique_temp_plugins_dir("run_marker_plugin");
     fs::create_dir_all(&dir).expect("failed to create temp plugins dir");
@@ -1939,8 +1809,8 @@ async fn start_actually_executes_run_function() {
     let temp_dir = unique_temp_plugins_dir("run_marker_instance");
     fs::create_dir_all(&temp_dir).expect("failed to create temp dir");
 
-    let id = 9910;
-    pm.start_plugin_instance("marker_plugin", vec![], temp_dir.clone(), id)
+    let id = 9910_u64;
+    pm.start_plugin_instance("marker_plugin", temp_dir.clone(), id)
         .await
         .expect("start marker_plugin failed");
 
@@ -1961,53 +1831,8 @@ async fn start_actually_executes_run_function() {
     // Cleanup: even if run already exited, stop should cleanly remove instance/process
     pm.stop_plugin_instance(id).await.expect("stop failed");
 
-    if let Err(e) = fs::remove_dir_all(&temp_dir) {
-        eprintln!("cleanup failed removing {:?}: {}", temp_dir, e);
-    }
-    if let Err(e) = fs::remove_dir_all(&dir) {
-        eprintln!("cleanup failed removing {:?}: {}", dir, e);
-    }
-}
-
-fn write_python_plugin_that_writes_marker_and_exits(
-    dir: &PathBuf,
-    file_name: &str,
-    plugin_name: &str,
-) -> PathBuf {
-    let path = dir.join(file_name);
-
-    // run() writes a marker file next to the plugin file and then exits.
-    // This gives us a deterministic proof that run() executed.
-    let content = format!(
-        r#"
-PLUGIN_NAME = "{plugin_name}"
-PLUGIN_DESCRIPTION = "writes marker and exits"
-PLUGIN_TRIGGER = "manual"
-
-from pathlib import Path
-
-class PluginImpl:
-    def __init__(self, path: str):
-        self.path = Path(path)
-
-    def run(self, data: str) -> str:
-        marker = self.path.with_suffix(".ran")
-        marker.write_text("ran", encoding="utf-8")
-        return "done"
-
-    def stop(self) -> str:
-        return "stopping"
-
-    def pause(self) -> str:
-        return "paused"
-
-    def resume(self) -> str:
-        return "resumed"
-"#,
-    );
-
-    fs::write(&path, content).expect("failed to write marker python plugin");
-    path
+    let _ = fs::remove_dir_all(&temp_dir);
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]
@@ -2018,12 +1843,7 @@ async fn stop_kills_runner_when_soft_stop_does_not_exit() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     // Arrange: register special plugin
     let dir = unique_temp_plugins_dir("kill_path_plugin");
@@ -2039,7 +1859,7 @@ async fn stop_kills_runner_when_soft_stop_does_not_exit() {
     let id = 9901_u64;
 
     // Act: start then stop (should force kill internally)
-    pm.start_plugin_instance("ignore_stop", vec![], temp_dir.clone(), id)
+    pm.start_plugin_instance("ignore_stop", temp_dir.clone(), id)
         .await
         .expect("start ignore_stop failed");
 
@@ -2066,12 +1886,7 @@ async fn pause_times_out_when_runner_does_not_ack_in_time() {
 
     common::init_test_logging();
 
-    let Some(storage_manager) = try_storage_manager_from_env() else {
-        eprintln!("Skipping: DATABASE_URL not set");
-        return;
-    };
-
-    let mut pm = PluginManager::new(storage_manager);
+    let mut pm = PluginManager::new();
 
     // Arrange: register plugin with slow pause()
     let dir = unique_temp_plugins_dir("slow_pause_plugin");
@@ -2085,7 +1900,7 @@ async fn pause_times_out_when_runner_does_not_ack_in_time() {
     fs::create_dir_all(&temp_dir).expect("failed to create temp dir");
 
     let id = 9902_u64;
-    pm.start_plugin_instance("slow_pause", vec![], temp_dir.clone(), id)
+    pm.start_plugin_instance("slow_pause", temp_dir.clone(), id)
         .await
         .expect("start slow_pause failed");
 
