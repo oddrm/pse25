@@ -23,6 +23,7 @@ use crate::{
 };
 
 use deadpool::Runtime;
+use chrono::{DateTime, NaiveDate, Utc, TimeZone};
 use deadpool_diesel::postgres::{Manager, Pool};
 use diesel::prelude::*;
 use diesel_async::AsyncPgConnection;
@@ -54,10 +55,51 @@ fn opt_contains(opt: &Option<String>, part: &str) -> bool {
         .map(|s| contains_part(s, part))
         .unwrap_or(false)
 }
+
+
+/// Tries to parse a search term as a date/timestamp. Supports:
+/// - Date only YYYY-MM-DD (e.g. "2024-01-15")
+/// - ISO 8601 datetime (e.g. "2024-01-15T10:30:00Z")
+fn parse_search_date(part: &str) -> Option<DateTime<Utc>> {
+    if let Ok(secs) = part.parse::<i64>() {
+        if let Some(dt) = Utc.timestamp_opt(secs, 0).single() {
+            return Some(dt);
+        }
+    }
+    if let Ok(date) = NaiveDate::parse_from_str(part, "%Y-%m-%d") {
+        if let Some(ndt) = date.and_hms_opt(0, 0, 0) {
+            return Some(Utc.from_utc_datetime(&ndt));
+        }
+    }
+    if let Ok(ndt) = chrono::NaiveDateTime::parse_from_str(part, "%Y-%m-%dT%H:%M:%S") {
+        return Some(Utc.from_utc_datetime(&ndt));
+    }
+    None
+}
+
+// Returns true if the entry has any timestamp on the same calendar day as date_time.
+fn entry_matches_date(entry: &Entry, date_time: &DateTime<Utc>) -> bool {
+    let search_date = date_time.date_naive();
+    entry.created_at.date_naive() == search_date
+        || entry.updated_at.date_naive() == search_date
+        || entry
+            .scenario_creation_time
+            .as_ref()
+            .map(|time| time.date_naive() == search_date)
+            .unwrap_or(false)
+}
+
 /// Returns true if this entry matches the search: every word in `search_parts` must appear
-/// in at least one of the entry's string fields (name, path, tags, scenario_name, etc.).
+/// in at least one of the entry's string fields, or (if the word is a valid date) match
+/// one of the entry's date fields (created_at, updated_at, scenario_creation_time).
 fn entry_matches_search(entry: &Entry, search_parts: &[String]) -> bool {
     for part in search_parts {
+        if let Some(search_dt) = parse_search_date(part) {
+            if !entry_matches_date(entry, &search_dt) {
+                return false;
+            }
+            continue;
+        }
         let matches = contains_part(&entry.name, part)
             || contains_part(&entry.path, part)
             || opt_contains(&entry.platform_name, part)
@@ -69,14 +111,14 @@ fn entry_matches_search(entry: &Entry, search_parts: &[String]) -> bool {
             || opt_contains(&entry.weather_wind_intensity, part)
             || opt_contains(&entry.weather_road_humidity, part)
             || entry.tags.iter().any(|t| contains_part(t, part));
-        // TODO topics reworked
-        // || entry.topics.iter().any(|t| contains_part(t, part));
+          //  || entry.topics.iter().any(|t| contains_part(t, part));
         if !matches {
             return false;
         }
     }
     true
 }
+
 
 #[derive(Clone)]
 pub struct StorageManager {
