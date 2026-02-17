@@ -1,6 +1,8 @@
 <template>
   <div class="flex flex-col items-center">
-    <input placeholder="Search" class="input" />
+    <!-- <p>entries: {{ entries?.length }} {{ entriesFetchError }} {{ entriesStatus }} {{ entries }}</p> -->
+    <input placeholder="Search" class="input" v-model="searchString" @keyup.enter="console.log(' enter on search');
+    refreshEntries()" />
     <table class="table">
       <thead>
         <tr>
@@ -11,21 +13,25 @@
         </tr>
       </thead>
       <tbody>
-        <Entry v-for="entry in entries" :key="entry.entryID" v-bind="entry" expandable @select="$emit('select', $event)" />
+        <Entry v-for="entry in entries" :key="entry.id" v-bind="entry" expandable @select="$emit('select', $event)" />
       </tbody>
     </table>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Sorting, columns as ENTRY_COLUMNS } from "~/utils/entryColumns";
+import { Sorting, columns } from "~/utils/entryColumns";
 
-const columns = ENTRY_COLUMNS;
 
 const searchString = ref("");
 const sortBy = ref(Sorting.Name);
 const ascending = ref(true);
 
 const { data: entries, refresh: refreshEntries, error: entriesFetchError, status: entriesStatus } = await useAsyncData("entries", async () => fetchEntries(searchString.value, sortBy.value, ascending.value, 1, 50));
+
+watchEffect(() => {
+  // console.log("searchString", searchString.value);
+  refreshEntries()
+});
 
 </script>

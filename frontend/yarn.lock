@@ -1609,13 +1609,6 @@
 
 "@pinia/nuxt@^0.11.3":
   version "0.11.3"
-  resolved "https://registry.yarnpkg.com/@pinia/nuxt/-/nuxt-0.11.3.tgz#f8d57b049cf18e94a82efcbbb72cf937085bc917"
-  integrity sha512-7WVNHpWx4qAEzOlnyrRC88kYrwnlR/PrThWT0XI1dSNyUAXu/KBv9oR37uCgYkZroqP5jn8DfzbkNF3BtKvE9w==
-  dependencies:
-    "@nuxt/kit" "^4.2.0"
-
-"@pinia/nuxt@^0.11.3":
-  version "0.11.3"
   resolved "https://registry.npmjs.org/@pinia/nuxt/-/nuxt-0.11.3.tgz"
   integrity sha512-7WVNHpWx4qAEzOlnyrRC88kYrwnlR/PrThWT0XI1dSNyUAXu/KBv9oR37uCgYkZroqP5jn8DfzbkNF3BtKvE9w==
   dependencies:
@@ -2460,6 +2453,11 @@
   dependencies:
     js-beautify "^1.14.9"
     vue-component-type-helpers "^2.0.0"
+
+"@vueform/slider@^2.1.10":
+  version "2.1.10"
+  resolved "https://registry.yarnpkg.com/@vueform/slider/-/slider-2.1.10.tgz#b3eb36178327b8c850e7e6f73c117663ea1cdf7f"
+  integrity sha512-L2G3Ju51Yq6yWF2wzYYsicUUaH56kL1QKGVtimUVHT1K1ADcRT94xVyIeJpS0klliVEeF6iMZFbdXtHq8AsDHw==
 
 "@vueuse/core@^14.2.0":
   version "14.2.0"

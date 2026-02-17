@@ -8,7 +8,6 @@ use tracing_subscriber::field::debug;
 
 mod common;
 
-
 #[instrument]
 #[tokio::test]
 async fn test_search() {
@@ -42,7 +41,7 @@ async fn test_search() {
         weather_fog: None,
         weather_snow: None,
         tags: vec!["test".to_string(), "entry".to_string()],
-        topics: vec!["/topic1".to_string(), "/topic2".to_string()],
+        // topics: vec!["/topic1".to_string(), "/topic2".to_string()],
     };
 
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
@@ -92,9 +91,10 @@ async fn test_search() {
         .unwrap();
     assert_eq!(entry_by_path, test_entry);
 
-    let entries = storage_manager.get_entries(Some("Test".to_string()), None, None, None, None, 0).await.unwrap();
+    let entries = storage_manager
+        .get_entries(Some("Test".to_string()), None, None, None, None, 0)
+        .await
+        .unwrap();
     debug!("searched entries: {:?}", entries);
     assert_eq!(entries.len(), 1);
-    
-
 }

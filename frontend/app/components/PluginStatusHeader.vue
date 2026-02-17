@@ -3,7 +3,7 @@
     <div v-if="pluginsStore && pluginsStore.runningPlugins && pluginsStore.runningPlugins.length > 0" class="p-6 pb-0 space-y-3">
       <h2 class="text-xs font-bold text-secondary uppercase tracking-widest">Aktive Einzelprozesse</h2>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div v-for="running in pluginsStore.runningPlugins" :key="running.runId" class="p-3 bg-base-200 border border-base-300 rounded-lg shadow-sm text-sm">
+        <div v-for="running in pluginsStore.runningPlugins" :key="running.runId" class="p-3 bg-base-200 border border-base-300 rounded-lg shadow text-sm">
           <div class="flex justify-between mb-1 font-medium">
             <span>
               <span class="text-primary font-bold">{{ running.pluginName }}</span> 

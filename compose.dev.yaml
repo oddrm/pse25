@@ -39,14 +39,14 @@ services:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
-      - LOG_LEVEL=debug
+      - LOG_LEVEL=warn
       # - LOG_TO_FILE=true
     working_dir: /app
     volumes:
       - ./backend:/app:cached
       - backend-target-dev:/app/target
       - ./logs:/logs
-      - ./test_data:/data
+      - ${DATA_PATH:-./test_data}:/data
       - ./plugins_dir:/plugins
 
   frontend:
@@ -62,7 +62,7 @@ services:
           path: frontend
           ignore:
             - frontend/node_modules
-            - frontend/dist
+            - frontend/.output
   pgadmin:
     image: dpage/pgadmin4:latest
     ports:

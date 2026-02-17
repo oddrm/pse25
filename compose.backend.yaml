@@ -47,7 +47,7 @@ services:
       - backend-target-test:/app/target
       - cargo-cache:/usr/local/cargo
       - ./plugins_dir:/plugins
-      - ./test_data:/data
+      - ${DATA_PATH:-./test_data}:/data
     command: ["sh", "-c", "cargo test ${TEST_ARGS:---no-fail-fast -- --nocapture}"]
 volumes:
   cargo-cache:
