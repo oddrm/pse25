@@ -46,8 +46,7 @@ services:
       - ./backend:/app:cached
       - backend-target-dev:/app/target
       - ./logs:/logs
-      # - /run/media/daniel/data/rosbags:/data
-      - ./test_data:/data
+      - ${DATA_PATH:-./test_data}:/data
       - ./plugins_dir:/plugins
 
   frontend:

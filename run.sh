@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<EOF
-Usage: $0 <dev|backend|frontend|e2e|prod> [--] [args...]
+Usage: [DATA_PATH=./test_data] $0 <dev|backend|frontend|e2e|prod> [--] [args...]
 
 Commands:
   dev          Start the full stack in development watch mode
@@ -44,8 +44,8 @@ case "$CMD" in
     fi
 
     # Start the full compose stack including backend. The backend service's command
-    # will run `cargo test` and read TEST_ARGS (default provided in compose file).
-    TEST_ARGS="$TEST_ARGS" docker compose -f compose.backend.yaml up --build --exit-code-from backend --abort-on-container-exit backend
+    # will run \`cargo test\` and read TEST_ARGS (default provided in compose file).
+    DATA_PATH="${DATA_PATH:-./test_data}" TEST_ARGS="$TEST_ARGS" docker compose -f compose.backend.yaml up --build --exit-code-from backend --abort-on-container-exit backend
     EXIT_CODE=$?
     docker compose -f compose.backend.yaml down
     exit $EXIT_CODE
@@ -62,7 +62,7 @@ case "$CMD" in
 
     # Use docker compose to (re)build images and run the e2e stack.
     # This ensures images are rebuilt when Dockerfiles or contexts change.
-    docker compose -f compose.e2e.yaml up --build --exit-code-from playwright --remove-orphans
+    DATA_PATH="${DATA_PATH:-./test_data}" docker compose -f compose.e2e.yaml up --build --exit-code-from playwright --remove-orphans
     EXIT_CODE=$?
     docker compose -f compose.e2e.yaml down
     exit $EXIT_CODE
@@ -71,12 +71,12 @@ case "$CMD" in
   dev)
     echo "Starting full development stack..."
     docker compose -f compose.dev.yaml down --remove-orphans
-    docker compose -f compose.dev.yaml up --build --remove-orphans --no-attach db --no-attach pgadmin
+    DATA_PATH="${DATA_PATH:-./test_data}" docker compose -f compose.dev.yaml up --build --remove-orphans --no-attach db --no-attach pgadmin
     ;;
 
   prod)
     echo "Starting production compose stack..."
-    docker compose -f compose.prod.yaml up --build
+    DATA_PATH="${DATA_PATH:-./test_data}" docker compose -f compose.prod.yaml up --build
     ;;
 
   *)

@@ -41,6 +41,7 @@ services:
       - RUST_BACKTRACE=1
     volumes:
       - ./plugins_dir:/plugins
+      - ${DATA_PATH:-./test_data}:/data
     restart: no
 
 volumes:
