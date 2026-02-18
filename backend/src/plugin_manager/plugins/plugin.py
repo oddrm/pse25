@@ -7,7 +7,7 @@ STOPPED = "stopped"
 # "on_entry_update"
 # "on_entry_delete"
 
-from plugin_base import BasePlugin, TICK_SECONDS
+from plugin_manager.plugins.example_plugins.plugin_base import BasePlugin, TICK_SECONDS
 import time
 
 
