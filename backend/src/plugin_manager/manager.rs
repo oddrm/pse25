@@ -1,3 +1,4 @@
+//docker compose -f compose.dev.yaml up --build
 use cron::Schedule;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -19,7 +20,11 @@ const TRIGGER_MANUAL: &str = "manual";
 const TRIGGER_ON_ENTRY_CREATE: &str = "on_entry_create";
 const TRIGGER_ON_ENTRY_UPDATE: &str = "on_entry_update";
 const TRIGGER_ON_ENTRY_DELETE: &str = "on_entry_delete";
-
+const PYTHON_UNBUFFERED_FLAG: &str = "-u";
+const RUNNER_PATH: &str = "src/plugin_manager/plugins/plugin_runner.py";
+const ARG_PLUGIN_PATH: &str = "--plugin-path";
+const ARG_INSTANCE_ID: &str = "--instance-id";
+const DATA: &str = "--data";
 const FALLBACK_PLUGIN_NAME: &str = "unknown";
 
 const TRIGGER_ON_SCHEDULE_PREFIX: &str = "on_schedule:";
@@ -28,19 +33,11 @@ const JSON_KEY_INSTANCE_ID: &str = "instance_id";
 const JSON_KEY_REQUEST_ID: &str = "request_id";
 const JSON_KEY_CMD: &str = "cmd";
 
-const PYTHON_UNBUFFERED_FLAG: &str = "-u";
-
 #[cfg(windows)]
 const PYTHON_EXECUTABLE: &str = "python";
 
 #[cfg(not(windows))]
 const PYTHON_EXECUTABLE: &str = "python3";
-
-// Achtung: Pfad muss zu deiner echten Datei passen.
-const RUNNER_PATH: &str = "src/plugin_manager/plugins/plugin_runner.py";
-
-const ARG_PLUGIN_PATH: &str = "--plugin-path";
-const ARG_INSTANCE_ID: &str = "--instance-id";
 
 const ERR_FAILED_READ_CONFIG_PREFIX: &str = "Failed to read config: ";
 const ERR_FAILED_PARSE_CONFIG_PREFIX: &str = "Failed to parse config: ";
@@ -206,6 +203,35 @@ impl PluginManager {
             running: HashMap::new(),
             history: HashMap::new(),
         }
+    }
+
+    /// Startet den Runner und übergibt `data` an plugin.run(data).
+    #[instrument]
+    pub async fn build_started_instance_with_data(
+        &self,
+        plugin_index: usize,
+        plugin_path: &PathBuf,
+        instance_id: InstanceID,
+        data: String,
+    ) -> Result<PluginHandle, Error> {
+        let plugin_name = self.registered[plugin_index].name().clone();
+
+        debug!(
+            "build_started_instance_with_data: plugin='{}' index={} instance_id={} data_bytes={}",
+            plugin_name,
+            plugin_index,
+            instance_id,
+            data.len()
+        );
+
+        build_started_instance_core_with_data(
+            plugin_index,
+            plugin_name,
+            plugin_path,
+            instance_id,
+            data,
+        )
+            .await
     }
 
     /// Phase 1 (kurz, unter Lock): finde alle Plugins, die zu diesem Event passen
@@ -867,67 +893,6 @@ impl PluginManager {
     }
 }
 
-// NEW: spawn runner without borrowing self (no state needed)
-#[instrument]
-async fn spawn_runner_core(
-    plugin_path: &PathBuf,
-    instance_id: InstanceID,
-) -> Result<(Child, ChildStdin, mpsc::Receiver<RunnerMsg>), Error> {
-    let runner_path = PathBuf::from(RUNNER_PATH);
-
-    let mut child = Command::new(PYTHON_EXECUTABLE)
-        .arg(PYTHON_UNBUFFERED_FLAG)
-        .arg(runner_path)
-        .arg(ARG_PLUGIN_PATH)
-        .arg(plugin_path)
-        .arg(ARG_INSTANCE_ID)
-        .arg(instance_id.to_string())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| Error::CustomError(format!("{ERR_FAILED_SPAWN_PY_PREFIX}{e}")))?;
-
-    let child_stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| Error::CustomError(ERR_FAILED_OPEN_STDIN.to_string()))?;
-
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| Error::CustomError(ERR_FAILED_OPEN_STDOUT.to_string()))?;
-
-    if let Some(stderr) = child.stderr.take() {
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                error!(LOG_PY_STDERR_PREFIX, line);
-            }
-        });
-    }
-
-    let (tx, rx) = mpsc::channel::<RunnerMsg>(128);
-    tokio::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            match serde_json::from_str::<RunnerMsg>(&line) {
-                Ok(msg) => {
-                    if tx.send(msg).await.is_err() {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    debug!(line = %line, error = %e, "python stdout (non-json)");
-                }
-            }
-        }
-    });
-
-    Ok((child, child_stdin, rx))
-}
-
-// NEW: build handle without borrowing self (only needs plugin_name/path/index)
 #[instrument]
 pub async fn build_started_instance_core(
     plugin_index: usize,
@@ -1157,4 +1122,143 @@ async fn run_instance_actor(
         }
     }
     let _ = child.kill().await;
+}
+
+// NEW: spawn runner WITH data
+#[instrument]
+async fn spawn_runner_core_with_data(
+    plugin_path: &PathBuf,
+    instance_id: InstanceID,
+    data: &str,
+) -> Result<(Child, ChildStdin, mpsc::Receiver<RunnerMsg>), Error> {
+    let runner_path = PathBuf::from(RUNNER_PATH);
+
+    debug!(
+        "Spawning python runner: exe='{}' runner='{:?}' plugin_path='{:?}' instance_id={} data_bytes={}",
+        PYTHON_EXECUTABLE,
+        runner_path,
+        plugin_path,
+        instance_id,
+        data.len()
+    );
+
+    let mut child = Command::new(PYTHON_EXECUTABLE)
+        .arg(PYTHON_UNBUFFERED_FLAG)
+        .arg(runner_path)
+        .arg(ARG_PLUGIN_PATH)
+        .arg(plugin_path)
+        .arg(ARG_INSTANCE_ID)
+        .arg(instance_id.to_string())
+        .arg("--data")
+        .arg(data)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| Error::CustomError(format!("{ERR_FAILED_SPAWN_PY_PREFIX}{e}")))?;
+
+    let child_stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| Error::CustomError(ERR_FAILED_OPEN_STDIN.to_string()))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| Error::CustomError(ERR_FAILED_OPEN_STDOUT.to_string()))?;
+
+    if let Some(stderr) = child.stderr.take() {
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                error!(LOG_PY_STDERR_PREFIX, line);
+            }
+        });
+    }
+
+    let (tx, rx) = mpsc::channel::<RunnerMsg>(128);
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            match serde_json::from_str::<RunnerMsg>(&line) {
+                Ok(msg) => {
+                    if tx.send(msg).await.is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    debug!(line = %line, error = %e, "python stdout (non-json)");
+                }
+            }
+        }
+    });
+
+    Ok((child, child_stdin, rx))
+}
+
+#[instrument]
+async fn spawn_runner_core(
+    plugin_path: &PathBuf,
+    instance_id: InstanceID,
+) -> Result<(Child, ChildStdin, mpsc::Receiver<RunnerMsg>), Error> {
+    spawn_runner_core_with_data(plugin_path, instance_id, "").await
+}
+
+#[instrument]
+pub async fn build_started_instance_core_with_data(
+    plugin_index: usize,
+    plugin_name: String,
+    plugin_path: &PathBuf,
+    instance_id: InstanceID,
+    data: String,
+) -> Result<PluginHandle, Error> {
+    let (child, mut child_stdin, mut stdout_rx) =
+        spawn_runner_core_with_data(plugin_path, instance_id, &data).await?;
+
+    let (command_tx, command_rx) = mpsc::channel(32);
+    let (status_tx, status_rx) = watch::channel(InstanceState::Running);
+
+    // Perform initial start handshake before spawning the actor
+    let request_id = format!("{}-0", instance_id);
+    send_runner_cmd(instance_id, &mut child_stdin, CMD_START, &request_id).await?;
+
+    // Wait for CMD_START ACK
+    timeout(TIMEOUT_START_ACK, async {
+        while let Some(msg) = stdout_rx.recv().await {
+            if msg.instance_id == instance_id && msg.request_id == Some(request_id.clone()) {
+                return if msg.ok.unwrap_or(false) {
+                    Ok(())
+                } else {
+                    Err(Error::CustomError(
+                        msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string()),
+                    ))
+                };
+            }
+        }
+        Err(Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))
+    })
+        .await
+        .map_err(|_| {
+            Error::CustomError(format!(
+                "Start handshake timed out after {:?}",
+                TIMEOUT_START_ACK
+            ))
+        })??;
+
+    tokio::spawn(run_instance_actor(
+        instance_id,
+        plugin_name.clone(),
+        child,
+        child_stdin,
+        stdout_rx,
+        command_rx,
+        status_tx,
+    ));
+    debug!("Spawned instance actor for instance {}", instance_id);
+
+    Ok(PluginHandle {
+        plugin_index,
+        command_tx,
+        status_rx,
+    })
 }

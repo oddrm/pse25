@@ -48,7 +48,7 @@ RUN apt-get update && apt-get install -y \
     libpq5 \
     ca-certificates \
     python3 \
-    libpython3-dev \
+    python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

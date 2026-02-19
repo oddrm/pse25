@@ -1,7 +1,6 @@
 FROM rust:latest AS builder
 WORKDIR /app
 
-
 # Install build deps
 RUN apt-get update && apt-get install -y \
     libpq-dev \
@@ -11,6 +10,11 @@ RUN apt-get update && apt-get install -y \
     curl \
     jq \
     && rm -rf /var/lib/apt/lists/*
+
+# PyYAML for plugins (provides Python module "yaml") - use apt to avoid PEP 668 pip restriction
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 python3-yaml \
+  && rm -rf /var/lib/apt/lists/*
 
 # Install cargo-watch for fast in-container rebuilds
 RUN cargo install cargo-watch
@@ -31,6 +35,7 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
     python3 \
+    python3-yaml \
     libpython3-dev \
     && rm -rf /var/lib/apt/lists/*
 

@@ -48,6 +48,37 @@ export const usePluginsStore = defineStore('plugins', {
       }
     },
 
+    async resolveEntryPathByName(entryName: string): Promise<string | null> {
+      const qs = new URLSearchParams({
+        search_string: entryName,
+        txid: '0',
+        page: '1',
+        page_size: '500',
+      })
+
+      const res = await fetch(`/backend/entries?${qs.toString()}`)
+      if (!res.ok) return null
+      const entries = await res.json()
+
+      if (!Array.isArray(entries)) return null
+
+      // Prefer exact match
+      for (const e of entries) {
+        if (e && e.name === entryName && typeof e.path === 'string') {
+          return e.path
+        }
+      }
+
+      // Fallback: first entry with a path
+      for (const e of entries) {
+        if (e && typeof e.path === 'string') {
+          return e.path
+        }
+      }
+
+      return null
+    },
+
     startPollingRunning() {
       if (this._pollInterval) return
       this._pollInterval = setInterval(async () => {
@@ -102,19 +133,46 @@ export const usePluginsStore = defineStore('plugins', {
       const plugin = this.plugins.find(p => p.id === pluginId)
       if (!plugin) return
 
-      // Prevent duplicate start for same entry
+      // Hard guard: export plugin requires an entry context
+      if (plugin.name === 'metadata_yaml_export_plugin' && !entryName) {
+        console.error("[plugins] metadata_yaml_export_plugin must be started with an entryName (not global).")
+        return
+      }
+
       if (entryName && this.runningPlugins.some(r => r.pluginName === plugin.name && r.entryName === entryName)) return
 
       try {
+        let body: string | undefined
+        let headers: Record<string, string> | undefined
+
+        if (entryName) {
+          const path = await this.resolveEntryPathByName(entryName)
+          console.debug('[plugins] resolveEntryPathByName', { entryName, path })
+
+          // Always send entry_name; backend can resolve path+metadata.
+          const payload: any = { entry_name: entryName }
+          if (path) payload.mcap_path = path
+
+          body = JSON.stringify(payload)
+          headers = { 'Content-Type': 'application/json' }
+        }
+
+        console.debug('[plugins] starting plugin', { plugin: plugin.name, entryName, body })
+
         const res = await fetch(`/backend/plugins/${encodeURIComponent(plugin.name)}/start`, {
           method: 'POST',
+          headers,
+          body,
         })
-        if (!res.ok) throw new Error('Failed to start plugin')
-        const instId = await res.json()
+
+        const text = await res.text()
+        console.debug('[plugins] start response', { ok: res.ok, status: res.status, text })
+
+        if (!res.ok) throw new Error(`Failed to start plugin: ${text}`)
+        const instId = JSON.parse(text)
 
         this.runningPlugins.push({ runId: instId, pluginName: plugin.name, entryName: entryName ?? '', progress: 0 })
 
-        // mark global flag if started without entry
         if (!entryName) {
           plugin.isGlobalRunning = true
         }
