@@ -23,9 +23,9 @@ const runGlobal = (id: number) => {
       <thead>
         <tr class="bg-base-200 border-b border-base-300 text-base-content">
           <th class="p-4 text-left text-xs font-semibold uppercase tracking-wider">Plugin</th>
-          <th class="p-4 text-left text-xs font-semibold uppercase tracking-wider">Beschreibung</th>
-          <th class="p-4 text-left text-xs font-semibold uppercase tracking-wider">Globaler Status</th>
-          <th class="p-4 text-right text-xs font-semibold uppercase tracking-wider">Aktion</th>
+          <th class="p-4 text-left text-xs font-semibold uppercase tracking-wider">Description</th>
+          <th class="p-4 text-left text-xs font-semibold uppercase tracking-wider">Global Status</th>
+          <th class="p-4 text-right text-xs font-semibold uppercase tracking-wider">Action</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-base-200">
@@ -60,7 +60,7 @@ const runGlobal = (id: number) => {
                 <span class="text-xs font-mono font-bold text-success">{{ plugin.globalProgress }}%</span>
               </div>
             </div>
-            <span v-else class="text-base-content/40 text-xs italic">Bereit</span>
+            <span v-else class="text-base-content/40 text-xs italic">Ready</span>
           </td>
 
           <td class="p-4 text-right">
