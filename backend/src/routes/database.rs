@@ -95,7 +95,7 @@ pub async fn get_metadata(
                 sequence_duration: e.sequence_duration,
                 sequence_distance: e.sequence_distance,
                 sequence_lat_starting_point_deg: e.sequence_lat_starting_point_deg,
-                sequence_lon_starting_point_deg: e.sequence_lat_starting_point_deg,
+                sequence_lon_starting_point_deg: e.sequence_lon_starting_point_deg,
                 weather_cloudiness: e.weather_cloudiness,
                 weather_precipitation: e.weather_precipitation,
                 weather_precipitation_deposits: e.weather_precipitation_deposits,
@@ -222,18 +222,27 @@ pub async fn get_entry(
     }
 }
 
-#[get("/paths/<path>/tx/<txid>")]
+#[get("/paths/<path..>?<txid>")]
 pub async fn get_entry_by_path(
     state: &State<AppState>,
-    path: String,
-    txid: TxID,
+    path: std::path::PathBuf,
+    txid: Option<TxID>,
 ) -> Result<Json<Entry>, Error> {
     let sm = &state.storage_manager;
 
-    let entry = sm.get_entry_by_path(path.clone(), txid).await?;
+    let txid = txid.unwrap_or(0);
+
+    // CHANGED: Rocket gives a relative path (no leading '/').
+    // Our DB stores absolute paths like "/data/...".
+    let mut path_str = path.to_string_lossy().to_string();
+    if !path_str.starts_with('/') {
+        path_str.insert(0, '/');
+    }
+
+    let entry = sm.get_entry_by_path(path_str.clone(), txid).await?;
     match entry {
         Some(e) => Ok(Json(e)),
-        None => not_found(format!("entry with path '{path}' not found")),
+        None => not_found(format!("entry with path '{path_str}' not found")),
     }
 }
 
