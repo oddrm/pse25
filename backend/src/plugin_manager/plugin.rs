@@ -30,7 +30,7 @@ impl Plugin {
             trigger,
             path,
 
-            enabled: true,
+            enabled: false,
             valid: true,
             validation_warnings: Vec::new(),
         }
@@ -84,10 +84,36 @@ impl Plugin {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TriggerKind {
+    OnEntryCreate,
+    OnEntryUpdate,
+    OnEntryDelete,
+}
+
+#[derive(Debug, Clone)]
+pub enum BackendEvent {
+    EntryCreated { path: String },
+    EntryUpdated { path: String },
+    EntryDeleted { path: String },
+    Manual { plugin_name: String }, // optional
+}
+
+impl BackendEvent {
+    pub fn trigger_kind(&self) -> Option<TriggerKind> {
+        match self {
+            BackendEvent::EntryCreated { .. } => Some(TriggerKind::OnEntryCreate),
+            BackendEvent::EntryUpdated { .. } => Some(TriggerKind::OnEntryUpdate),
+            BackendEvent::EntryDeleted { .. } => Some(TriggerKind::OnEntryDelete),
+            BackendEvent::Manual { .. } => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Trigger {
     OnEntryCreate,
-    OnEntryUpdate,
+    OnEntryUpdate, // implementiert
     OnEntryDelete,
     OnSchedule(Schedule),
     Manual,

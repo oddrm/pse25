@@ -6,6 +6,11 @@ use crate::storage::models::{
 use chrono::{DateTime, Utc};
 use rocket::serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use crate::plugin_manager::plugin::BackendEvent;
+use tokio::time::{Duration, timeout};
+
+const PM_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+const ROUTE_OP_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(crate = "rocket::serde")]
@@ -51,6 +56,19 @@ use crate::storage::storage_manager::{Map, TxID};
 use rocket::serde::json::Json;
 use rocket::{State, delete, get, post, put, response::status};
 
+async fn lock_plugin_manager(
+    state: &State<AppState>,
+) -> Result<tokio::sync::MutexGuard<'_, crate::plugin_manager::manager::PluginManager>, Error> {
+    timeout(PM_LOCK_TIMEOUT, state.plugin_manager.lock())
+        .await
+        .map_err(|_| {
+            Error::CustomError(format!(
+                "Plugin manager is busy (lock timeout after {:?}). Please retry.",
+                PM_LOCK_TIMEOUT
+            ))
+        })
+}
+
 fn not_found<T>(msg: String) -> Result<T, Error> {
     Err(StorageError::NotFound(msg).into())
 }
@@ -77,7 +95,7 @@ pub async fn get_metadata(
                 sequence_duration: e.sequence_duration,
                 sequence_distance: e.sequence_distance,
                 sequence_lat_starting_point_deg: e.sequence_lat_starting_point_deg,
-                sequence_lon_starting_point_deg: e.sequence_lon_starting_point_deg,
+                sequence_lon_starting_point_deg: e.sequence_lat_starting_point_deg,
                 weather_cloudiness: e.weather_cloudiness,
                 weather_precipitation: e.weather_precipitation,
                 weather_precipitation_deposits: e.weather_precipitation_deposits,
@@ -119,7 +137,53 @@ pub async fn update_metadata(
 ) -> Result<status::NoContent, Error> {
     let sm = &state.storage_manager;
     let m = metadata.into_inner();
+
     sm.update_entry(entry_id, m, txid).await?;
+
+    // ---- Trigger: OnEntryUpdate (Plugins starten, ohne globalen Lock über await zu halten) ----
+    // Wir brauchen den Entry-Pfad für das Event. Falls der Entry nicht existiert, skippen wir Trigger.
+    let entry_path = sm
+        .get_entry(entry_id, txid)
+        .await?
+        .map(|e| e.path);
+
+    if let Some(path) = entry_path {
+        let event = BackendEvent::EntryUpdated { path };
+
+        // Phase 1: prepare (kurz unter Lock)
+        let plans = {
+            let pm = lock_plugin_manager(state).await?;
+            pm.prepare_fire_event(&event)?
+        };
+
+        // Phase 2: build (langsam, ohne "langen" globalen Lock)
+        let mut built: Vec<(u64, crate::plugin_manager::manager::PluginHandle)> = Vec::new();
+        for (plugin_index, plugin_path, instance_id) in plans {
+            let handle = timeout(ROUTE_OP_TIMEOUT, async {
+                let pm = lock_plugin_manager(state).await?;
+                pm.build_started_instance(plugin_index, &plugin_path, instance_id)
+                    .await
+            })
+            .await
+            .map_err(|_| {
+                Error::CustomError(format!(
+                    "event start timed out after {:?}",
+                    ROUTE_OP_TIMEOUT
+                ))
+            })??;
+
+            built.push((instance_id, handle));
+        }
+
+        // Phase 3: commit (kurz unter Lock)
+        {
+            let mut pm = lock_plugin_manager(state).await?;
+            for (instance_id, handle) in built {
+                pm.commit_fired_event_instance(instance_id, handle)?;
+            }
+        }
+    }
+
     Ok(status::NoContent)
 }
 

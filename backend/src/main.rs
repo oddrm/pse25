@@ -1,14 +1,15 @@
 // use std::os::unix::fs::MetadataExt; -> unnötig und Windows Problem
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::{
     env,
     time::{Duration, Instant},
 };
+use std::sync::Arc;
 
 use backend::AppState;
 use backend::plugin_manager::manager::{InstanceState, PluginCommand, PluginManager};
+use backend::plugin_manager::plugin::Trigger;
 use backend::routes::database::*;
 use backend::routes::health_check::health;
 use backend::routes::logs::*;
@@ -72,14 +73,8 @@ async fn main() {
 
     #[allow(unused_mut)]
     let mut storage_manager = StorageManager::new(&db_url).unwrap();
-    file_watcher::scan_once(&storage_manager).await.unwrap();
-    file_watcher::start_scanning(&storage_manager, Duration::from_secs(1))
-        .await
-        .unwrap();
+
     let mut plugin_manager = PluginManager::new();
-
-    // check if /plugins exists and list all files
-
     plugin_manager
         .register_plugins(PathBuf::from("/plugins"))
         .unwrap();
@@ -87,8 +82,18 @@ async fn main() {
         .load_config_and_apply("/plugins/config/plugins.yaml")
         .unwrap();
 
-    // Spawn background watchdog to reap finished/unresponsive instances
     let plugin_manager_arc = Arc::new(tokio::sync::Mutex::new(plugin_manager));
+
+    // CHANGED: pass plugin_manager to scanner
+    file_watcher::scan_once(&storage_manager, plugin_manager_arc.clone())
+        .await
+        .unwrap();
+
+    file_watcher::start_scanning(&storage_manager, plugin_manager_arc.clone(), Duration::from_secs(1))
+        .await
+        .unwrap();
+
+    // Spawn background watchdog to reap finished/unresponsive instances
     {
         let pm_clone = plugin_manager_arc.clone();
         tokio::spawn(async move {
@@ -98,6 +103,141 @@ async fn main() {
                     tokio::time::timeout(Duration::from_secs(1), pm_clone.lock()).await
                 {
                     guard.reap_dead_and_unresponsive().await;
+                }
+            }
+        });
+    }
+
+    // --- Schedule Supervisor (rescan-safe) ---
+    {
+        use chrono::{DateTime, Utc};
+        use std::collections::HashMap;
+
+        let pm = plugin_manager_arc.clone();
+        tokio::spawn(async move {
+            // key: canonical path string (stable across rescans)
+            let mut next_run: HashMap<String, DateTime<Utc>> = HashMap::new();
+
+            loop {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+
+                // Phase 1: snapshot schedules under lock (fast)
+                let scheduled_snapshot: Vec<(String, chrono::DateTime<Utc>)> = {
+                    let guard = pm.lock().await;
+
+                    let now = Utc::now();
+                    let mut out = Vec::new();
+
+                    for p in guard.registered.iter() {
+                        if !p.enabled() || !p.valid() {
+                            continue;
+                        }
+
+                        let Trigger::OnSchedule(schedule) = p.trigger() else {
+                            continue;
+                        };
+
+                        // compute next time from "now"
+                        if let Some(next_dt) = schedule.upcoming(Utc).next() {
+                            let key = p.path().to_string_lossy().into_owned();
+                            // keep map entry if it exists; otherwise initialize
+                            let effective_next = next_run.get(&key).cloned().unwrap_or(next_dt);
+                            // if schedule changed or next is in the past too far, realign
+                            let effective_next = if effective_next < now {
+                                next_dt
+                            } else {
+                                effective_next
+                            };
+                            out.push((key, effective_next));
+                        }
+                    }
+
+                    out
+                };
+
+                // Clean up removed plugins from map (rescan-safe)
+                {
+                    let keys_in_snapshot: std::collections::HashSet<_> =
+                        scheduled_snapshot.iter().map(|(k, _)| k.clone()).collect();
+                    next_run.retain(|k, _| keys_in_snapshot.contains(k));
+                }
+
+                // Phase 2: start due plugins without holding lock across await
+                let now = Utc::now();
+                for (key, planned_next) in scheduled_snapshot {
+                    // initialize if missing
+                    next_run.entry(key.clone()).or_insert(planned_next);
+
+                    let due = match next_run.get(&key) {
+                        Some(t) => *t <= now,
+                        None => false,
+                    };
+                    if !due {
+                        continue;
+                    }
+
+                    // Re-check + fetch current data under lock (index may have changed due to rescan)
+                    let (plugin_index, plugin_name, plugin_path, schedule_clone) = {
+                        let guard = pm.lock().await;
+
+                        let Some((idx, plugin)) = guard
+                            .registered
+                            .iter()
+                            .enumerate()
+                            .find(|(_i, p)| p.path().to_string_lossy() == key)
+                        else {
+                            continue;
+                        };
+
+                        if !plugin.enabled() || !plugin.valid() {
+                            continue;
+                        }
+
+                        let Trigger::OnSchedule(schedule) = plugin.trigger() else {
+                            continue;
+                        };
+
+                        (idx, plugin.name().clone(), plugin.path().clone(), schedule.clone())
+                    };
+
+                    let instance_id = Utc::now().timestamp_micros().max(0) as u64;
+
+                    // Build (slow) without holding global lock
+                    let handle_res = tokio::time::timeout(
+                        Duration::from_secs(10),
+                        PluginManager::build_started_instance_detached(
+                            plugin_index,
+                            plugin_name,
+                            &plugin_path,
+                            instance_id,
+                        ),
+                    )
+                        .await;
+
+                    match handle_res {
+                        Ok(Ok(handle)) => {
+                            // Commit under lock
+                            let mut guard = pm.lock().await;
+                            if let Err(e) = guard.commit_started_instance(instance_id, handle) {
+                                tracing::warn!(
+                                    "schedule commit failed (instance_id={}): {:?}",
+                                    instance_id,
+                                    e
+                                );
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            tracing::warn!("schedule start failed for '{}': {:?}", key, e);
+                        }
+                        Err(_) => {
+                            tracing::warn!("schedule start timed out for '{}'", key);
+                        }
+                    }
+
+                    // Compute next run after firing (realign using current schedule)
+                    if let Some(next_dt) = schedule_clone.upcoming(Utc).next() {
+                        next_run.insert(key.clone(), next_dt);
+                    }
                 }
             }
         });

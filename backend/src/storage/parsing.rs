@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::storage::storage_manager::StorageManager;
 use crate::{
@@ -13,6 +13,12 @@ use tokio::process::Command;
 use tracing::debug;
 use tracing::error;
 use tracing::instrument;
+
+use crate::error::Error as AppError;
+use crate::plugin_manager::plugin::BackendEvent;
+use crate::plugin_manager::manager::PluginManager;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 const CUSTOM_METADATA_IDENTIFIER: &str = r"title: ";
 
@@ -218,18 +224,15 @@ pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
     let path = path.to_owned();
 
     // Use the `mcap` CLI to extract topics/duration (get_mcap_info parses the JSON)
-    let mcap_info = match get_mcap_info(&path).await {
-        Ok(c) => c,
-        Err(e) => {
-            debug!("mcap info failed: {:?}", e);
-            McapInfo {
-                topics: vec![],
-                start_time_ns: None,
-                end_time_ns: None,
-                duration_seconds: None,
-            }
+    let mcap_info = get_mcap_info(&path).await.unwrap_or_else(|e| {
+        debug!("mcap info failed: {:?}", e);
+        McapInfo {
+            topics: vec![],
+            start_time_ns: None,
+            end_time_ns: None,
+            duration_seconds: None,
         }
-    };
+    });
 
     // look for custom metadata file in same directory as the mcap
     let parent = path
@@ -239,7 +242,7 @@ pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
         ))?
         .to_path_buf();
 
-    let mut metadata_path: Option<std::path::PathBuf> = None;
+    let mut metadata_path: Option<PathBuf> = None;
     let mut dir = tokio::fs::read_dir(&parent)
         .await
         .map_err(|e| StorageError::IoError(e.into()))?;
@@ -445,13 +448,14 @@ pub async fn parse_metadata_yaml(path: &Path) -> Result<Option<serde_yaml::Value
 pub async fn insert_entry_into_db(
     storage_manager: &StorageManager,
     path: &Path,
+    plugin_manager: Arc<Mutex<PluginManager>>, // NEW
 ) -> Result<Entry, StorageError> {
     // build Entry from mcap (this is forgiving)
     let mut entry = get_entry_from_mcap(path).await?;
 
     // determine metadata yaml again (for sequences/sensors)
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let mut metadata_path: Option<std::path::PathBuf> = None;
+    let mut metadata_path: Option<PathBuf> = None;
     if let Ok(mut dir) = tokio::fs::read_dir(parent).await {
         while let Ok(Some(e)) = dir.next_entry().await {
             let p = e.path();
@@ -527,6 +531,57 @@ pub async fn insert_entry_into_db(
         );
         let new_id = storage_manager.add_entry(entry_clone, txid).await?;
         entry.id = new_id;
+
+        // NEW: fire OnEntryCreate trigger after successful insert
+        let event = BackendEvent::EntryCreated {
+            path: entry.path.clone(),
+        };
+
+        // Phase 1: prepare (kurz unter Lock) + Namen für detached build holen
+        let plans: Vec<(usize, String, PathBuf, u64)> = {
+            let pm = plugin_manager.lock().await;
+
+            let raw_plans = pm.prepare_fire_event(&event).map_err(|e| {
+                StorageError::CustomError(format!("prepare_fire_event failed: {e:?}"))
+            })?;
+
+            raw_plans
+                .into_iter()
+                .map(|(plugin_index, plugin_path, instance_id)| {
+                    let plugin_name = pm
+                        .registered
+                        .get(plugin_index)
+                        .map(|p| p.name().clone())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    (plugin_index, plugin_name, plugin_path, instance_id)
+                })
+                .collect()
+        };
+
+        // Phase 2: build (langsam, ohne globalen lock)
+        let mut built: Vec<(u64, crate::plugin_manager::manager::PluginHandle)> = Vec::new();
+        for (plugin_index, plugin_name, plugin_path, instance_id) in plans {
+            let handle = PluginManager::build_started_instance_detached(
+                plugin_index,
+                plugin_name,
+                &plugin_path,
+                instance_id,
+            )
+            .await
+            .map_err(|e| StorageError::CustomError(format!("build_started_instance failed: {e:?}")))?;
+
+            built.push((instance_id, handle));
+        }
+
+        // Phase 3: commit (kurz unter Lock)
+        {
+            let mut pm = plugin_manager.lock().await;
+            for (instance_id, handle) in built {
+                pm.commit_fired_event_instance(instance_id, handle)
+                    .map_err(|e| StorageError::CustomError(format!("commit failed: {e:?}")))?;
+            }
+        }
+
         // add tags for new entry
         for tag in entry.tags.clone().into_iter() {
             if let Err(e) = storage_manager.add_tag(entry.id, tag, txid).await {
@@ -536,18 +591,15 @@ pub async fn insert_entry_into_db(
     }
 
     // insert topics into topics table: run mcap info to get topics and duration
-    let mcap_info = match get_mcap_info(path).await {
-        Ok(c) => c,
-        Err(err) => {
-            error!("Failed to get MCAP info for topics: {:?}", err);
-            McapInfo {
-                topics: vec![],
-                start_time_ns: None,
-                end_time_ns: None,
-                duration_seconds: None,
-            }
+    let mcap_info = get_mcap_info(path).await.unwrap_or_else(|err| {
+        error!("Failed to get MCAP info for topics: {:?}", err);
+        McapInfo {
+            topics: vec![],
+            start_time_ns: None,
+            end_time_ns: None,
+            duration_seconds: None,
         }
-    };
+    });
     let topics_list = mcap_info.topics;
     let sequence_duration: Option<f64> = mcap_info.duration_seconds.or_else(|| {
         yaml.as_ref().and_then(|y| {

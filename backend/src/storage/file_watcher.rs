@@ -16,8 +16,65 @@ use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, error, instrument, warn};
 use walkdir::WalkDir;
 
+// NEW: plugin manager type
+use crate::plugin_manager::manager::PluginManager;
+use crate::plugin_manager::plugin::BackendEvent;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+// Helper: fire plugin backend event without holding global lock across awaits
+async fn fire_plugin_event(plugin_manager: Arc<Mutex<PluginManager>>, event: BackendEvent) {
+    // Phase 1: prepare under lock + attach plugin_name for detached build
+    let plans: Vec<(usize, String, std::path::PathBuf, u64)> = {
+        let pm = plugin_manager.lock().await;
+        let raw = match pm.prepare_fire_event(&event) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("prepare_fire_event failed: {:?}", e);
+                return;
+            }
+        };
+
+        raw.into_iter()
+            .map(|(plugin_index, plugin_path, instance_id)| {
+                let plugin_name = pm
+                    .registered
+                    .get(plugin_index)
+                    .map(|p| p.name().clone())
+                    .unwrap_or_else(|| "unknown".to_string());
+                (plugin_index, plugin_name, plugin_path, instance_id)
+            })
+            .collect()
+    };
+
+    // Phase 2: build without lock
+    let mut built: Vec<(u64, crate::plugin_manager::manager::PluginHandle)> = Vec::new();
+    for (plugin_index, plugin_name, plugin_path, instance_id) in plans {
+        match PluginManager::build_started_instance_detached(
+            plugin_index,
+            plugin_name,
+            &plugin_path,
+            instance_id,
+        )
+        .await
+        {
+            Ok(handle) => built.push((instance_id, handle)),
+            Err(e) => warn!("build_started_instance_detached failed: {:?}", e),
+        }
+    }
+
+    // Phase 3: commit under lock
+    let mut pm = plugin_manager.lock().await;
+    for (instance_id, handle) in built {
+        if let Err(e) = pm.commit_fired_event_instance(instance_id, handle) {
+            warn!("commit_fired_event_instance failed: {:?}", e);
+        }
+    }
+}
+
 async fn sync_file_added_or_modified(
     storage_manager: &StorageManager,
+    plugin_manager: Arc<Mutex<PluginManager>>,
     path: &Path,
 ) -> Result<(), StorageError> {
     let is_mcap = parsing::file_is_mcap(path).await;
@@ -25,7 +82,7 @@ async fn sync_file_added_or_modified(
 
     // If this is an MCAP, insert/update the entry in the DB
     if is_mcap {
-        if let Err(e) = parsing::insert_entry_into_db(storage_manager, path).await {
+        if let Err(e) = parsing::insert_entry_into_db(storage_manager, path, plugin_manager.clone()).await {
             error!("Failed to insert/update entry from scan: {:?}", e);
         }
     }
@@ -37,7 +94,7 @@ async fn sync_file_added_or_modified(
                 while let Ok(Some(ent)) = dir.next_entry().await {
                     let p = ent.path();
                     if parsing::file_is_mcap(&p).await {
-                        if let Err(e) = parsing::insert_entry_into_db(storage_manager, &p).await {
+                        if let Err(e) = parsing::insert_entry_into_db(storage_manager, &p, plugin_manager.clone()).await {
                             error!("Failed to insert/update entry from metadata scan: {:?}", e);
                         }
                     }
@@ -48,14 +105,20 @@ async fn sync_file_added_or_modified(
     Ok(())
 }
 
-async fn sync_file_removed(storage_manager: &StorageManager, path: &Path) {
+async fn sync_file_removed(
+    storage_manager: &StorageManager,
+    plugin_manager: Arc<Mutex<PluginManager>>, // NEW
+    path: &Path,
+) {
     let removed_path = path.to_string_lossy().to_string();
+
     // check if an entry exists for this path
     if let Ok(Some(entry)) = storage_manager
         .get_entry_by_path(removed_path.clone(), storage_manager.start_transaction())
         .await
     {
         let txid = storage_manager.start_transaction();
+
         // remove topics
         if let Ok(topics_map) = storage_manager.get_topics(entry.id, txid).await {
             for (tid, _t) in topics_map.into_iter() {
@@ -89,11 +152,15 @@ async fn sync_file_removed(storage_manager: &StorageManager, path: &Path) {
                 }
             }
         }
+
         // finally remove entry row
         let pool = storage_manager.db_connection_pool();
         let entry_id = entry.id;
+
+        let mut deleted_ok = false;
+
         if let Ok(conn2) = pool.get().await {
-            if let Err(e) = conn2
+            let del_res = conn2
                 .interact(move |conn| {
                     diesel::delete(
                         crate::schema::entries::dsl::entries
@@ -101,10 +168,30 @@ async fn sync_file_removed(storage_manager: &StorageManager, path: &Path) {
                     )
                     .execute(conn)
                 })
-                .await
-            {
-                error!("Failed to remove entry {} from DB: {:?}", entry_id, e);
+                .await;
+
+            match del_res {
+                Ok(Ok(rows)) => {
+                    deleted_ok = rows > 0;
+                }
+                Ok(Err(e)) => {
+                    error!("Failed to remove entry {} from DB: {:?}", entry_id, e);
+                }
+                Err(e) => {
+                    error!("Failed to remove entry {} from DB (interact): {:?}", entry_id, e);
+                }
             }
+        }
+
+        // Trigger only if DB delete actually happened
+        if deleted_ok {
+            fire_plugin_event(
+                plugin_manager.clone(),
+                BackendEvent::EntryDeleted {
+                    path: removed_path.clone(),
+                },
+            )
+            .await;
         }
     }
 }
@@ -112,6 +199,7 @@ async fn sync_file_removed(storage_manager: &StorageManager, path: &Path) {
 #[instrument]
 async fn process_event(
     storage_manager: &StorageManager,
+    plugin_manager: Arc<Mutex<PluginManager>>,
     event: &notify::Event,
 ) -> Result<(), StorageError> {
     let conn = storage_manager.db_connection_pool().get().await?;
@@ -132,8 +220,9 @@ async fn process_event(
             })
             .await??;
             let sm = storage_manager.clone();
+            let pm = plugin_manager.clone();
             let p = event.paths[0].clone();
-            if let Err(e) = sync_file_added_or_modified(&sm, &p).await {
+            if let Err(e) = sync_file_added_or_modified(&sm, pm, &p).await {
                 error!("Failed to sync added file {:?}: {:?}", p, e);
             }
         }
@@ -151,8 +240,9 @@ async fn process_event(
             })
             .await??;
             let sm = storage_manager.clone();
+            let pm = plugin_manager.clone();
             let p = event.paths[0].clone();
-            if let Err(e) = sync_file_added_or_modified(&sm, &p).await {
+            if let Err(e) = sync_file_added_or_modified(&sm, pm, &p).await {
                 error!("Failed to sync modified file {:?}: {:?}", p, e);
             }
         }
@@ -169,8 +259,9 @@ async fn process_event(
                 .await??;
 
                 let sm = storage_manager.clone();
+                let pm = plugin_manager.clone();
                 let p = event.paths[0].clone();
-                sync_file_removed(&sm, &p).await;
+                sync_file_removed(&sm, pm, &p).await;
             }
         }
         _ => {
@@ -181,14 +272,18 @@ async fn process_event(
 }
 
 #[instrument(skip(fs_event_rx))]
-async fn process_events(storage_manager: StorageManager, fs_event_rx: Receiver<notify::Event>) {
+async fn process_events(
+    storage_manager: StorageManager,
+    plugin_manager: Arc<Mutex<PluginManager>>,
+    fs_event_rx: Receiver<notify::Event>,
+) {
     debug!("Starting to process file events.");
-    // up to 10 simultaneous process event tasks
     ReceiverStream::new(fs_event_rx)
         .for_each_concurrent(10, |event| {
             let storage_manager_clone = storage_manager.clone();
+            let plugin_manager_clone = plugin_manager.clone();
             async move {
-                process_event(&storage_manager_clone, &event)
+                process_event(&storage_manager_clone, plugin_manager_clone, &event)
                     .await
                     .unwrap_or_else(|e| {
                         error!("Error processing file event {:?}: {:?}", event, e);
@@ -198,13 +293,10 @@ async fn process_events(storage_manager: StorageManager, fs_event_rx: Receiver<n
         .await;
 }
 
-// this both scans the directory on startup and starts the continuous scanning process
-// the notify debouncers can't be used because the the mini-debouncer deletes information
-// about the eventKind and the full-debouncer compacts events on whole directories as one event,
-// which is not desired as each file change has to be processed individually.
 #[instrument]
 pub async fn start_scanning(
     storage_manager: &StorageManager,
+    plugin_manager: Arc<Mutex<PluginManager>>, // NEW
     interval: Duration,
 ) -> Result<(), Error> {
     debug!("starting filesystem scan method");
@@ -232,6 +324,7 @@ pub async fn start_scanning(
 
     let watch_dir = storage_manager.watch_dir().clone();
     let storage_manager_clone = storage_manager.clone();
+    let plugin_manager_clone = plugin_manager.clone();
     tokio::task::spawn(async move {
         debug!("Starting filesystem scan watcher.");
         watcher
@@ -240,14 +333,17 @@ pub async fn start_scanning(
                 error!("Error on starting filesystem scan {:?}", e);
             });
         debug!("Filesystem scan started.");
-        process_events(storage_manager_clone, fs_event_rx).await;
+        process_events(storage_manager_clone, plugin_manager_clone, fs_event_rx).await;
     });
     debug!("Finished starting filesystem scan method.");
     Ok(())
 }
 
 // Does not run in extra thread
-pub async fn scan_once(storage_manager: &StorageManager) -> Result<(), StorageError> {
+pub async fn scan_once(
+    storage_manager: &StorageManager,
+    plugin_manager: Arc<Mutex<PluginManager>>, // NEW
+) -> Result<(), StorageError> {
     debug!("starting one-time filesystem scan");
     let conn = storage_manager.db_connection_pool().get().await?;
     let db_contents: HashSet<_> = conn
@@ -320,7 +416,8 @@ pub async fn scan_once(storage_manager: &StorageManager) -> Result<(), StorageEr
     // sync newly added MCAP files into entries/topics/etc.
     for p in mcap_paths.into_iter() {
         let sm = storage_manager.clone();
-        if let Err(e) = sync_file_added_or_modified(&sm, &p).await {
+        let pm = plugin_manager.clone();
+        if let Err(e) = sync_file_added_or_modified(&sm, pm, &p).await {
             error!("Failed to sync discovered MCAP {:?}: {:?}", p, e);
         }
     }
