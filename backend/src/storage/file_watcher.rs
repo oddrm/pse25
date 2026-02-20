@@ -246,11 +246,24 @@ async fn process_event(
 ) -> Result<(), StorageError> {
     let conn = storage_manager.db_connection_pool().get().await?;
 
-    let path = event.paths[0].to_string_lossy().to_string();
+    let p0 = match event.paths.get(0) {
+        Some(p) => p,
+        None => return Ok(()),
+    };
+
+    // Ignore temporary files created by seed/import plugins (atomic copy).
+    if let Some(name) = p0.file_name().and_then(|s| s.to_str()) {
+        if name.ends_with(".partial") {
+            return Ok(());
+        }
+    }
+
+    let path = p0.to_string_lossy().to_string();
+
     match &event.kind {
         notify::event::EventKind::Create(_) => {
-            let is_mcap = parsing::file_is_mcap(&event.paths[0]).await;
-            let is_custom_metadata = parsing::file_is_custom_metadata(&event.paths[0]).await?;
+            let is_mcap = parsing::file_is_mcap(p0).await;
+            let is_custom_metadata = parsing::file_is_custom_metadata(p0).await?;
             conn.interact(move |conn| {
                 diesel::insert_into(files::table)
                     .values(File {
@@ -263,15 +276,15 @@ async fn process_event(
             .await??;
             let sm = storage_manager.clone();
             let pm = plugin_manager.clone();
-            let p = event.paths[0].clone();
+            let p = p0.clone();
             if let Err(e) = sync_file_added_or_modified(&sm, pm, &p).await {
                 error!("Failed to sync added file {:?}: {:?}", p, e);
             }
         }
         notify::event::EventKind::Access(_) => {}
         notify::event::EventKind::Modify(_) => {
-            let is_mcap = parsing::file_is_mcap(&event.paths[0]).await;
-            let is_custom_metadata = parsing::file_is_custom_metadata(&event.paths[0]).await?;
+            let is_mcap = parsing::file_is_mcap(p0).await;
+            let is_custom_metadata = parsing::file_is_custom_metadata(p0).await?;
             conn.interact(move |conn| {
                 diesel::update(files::table.filter(files::path.eq(path)))
                     .set((
@@ -283,18 +296,13 @@ async fn process_event(
             .await??;
             let sm = storage_manager.clone();
             let pm = plugin_manager.clone();
-            let p = event.paths[0].clone();
+            let p = p0.clone();
             if let Err(e) = sync_file_added_or_modified(&sm, pm, &p).await {
                 error!("Failed to sync modified file {:?}: {:?}", p, e);
             }
         }
-
         notify::event::EventKind::Remove(_) => {
-            // while this won't receive create events of directories, if a directory is moved, the remove
-            // event still shows up these have to be ignored and can't be distinguished from file events
-            // in general there are no rename/move events, just create/ deletes.
             if !Path::new(&path).is_dir() {
-                // remove from files table
                 conn.interact(move |conn| {
                     diesel::delete(files::table.filter(files::path.eq(path))).execute(conn)
                 })
@@ -302,7 +310,7 @@ async fn process_event(
 
                 let sm = storage_manager.clone();
                 let pm = plugin_manager.clone();
-                let p = event.paths[0].clone();
+                let p = p0.clone();
                 sync_file_removed(&sm, pm, &p).await;
             }
         }

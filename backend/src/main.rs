@@ -134,10 +134,8 @@ async fn main() {
                         }
 
                         let Trigger::OnSchedule(schedule) = p.trigger() else {
-                            tracing::debug!("plugin '{}' is NOT OnSchedule => skip", p.name());
                             continue;
                         };
-                        tracing::debug!("plugin '{}' is OnSchedule", p.name());
                         // compute next time from "now"
                         if let Some(next_dt) = schedule.upcoming(Utc).next() {
                             let key = p.path().to_string_lossy().into_owned();

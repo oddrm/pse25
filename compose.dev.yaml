@@ -48,6 +48,7 @@ services:
       - ./logs:/logs
       - ${DATA_PATH:-./test_data}:/data
       - ./plugins_dir:/plugins
+      - C:\Users\rosal\OneDrive\Desktop\PSE\bagfile-db:/host_data
 
   frontend:
     build: frontend
