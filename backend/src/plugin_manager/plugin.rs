@@ -89,6 +89,7 @@ pub enum TriggerKind {
     OnEntryCreate,
     OnEntryUpdate,
     OnEntryDelete,
+    OnSchedule,
 }
 
 #[derive(Debug, Clone)]
@@ -96,7 +97,8 @@ pub enum BackendEvent {
     EntryCreated { path: String },
     EntryUpdated { path: String },
     EntryDeleted { path: String },
-    Manual { plugin_name: String }, // optional
+    OnSchedule {schedule: Schedule, path: String },
+    Manual { plugin_name: String }, 
 }
 
 impl BackendEvent {
@@ -105,6 +107,7 @@ impl BackendEvent {
             BackendEvent::EntryCreated { .. } => Some(TriggerKind::OnEntryCreate),
             BackendEvent::EntryUpdated { .. } => Some(TriggerKind::OnEntryUpdate),
             BackendEvent::EntryDeleted { .. } => Some(TriggerKind::OnEntryDelete),
+            BackendEvent::OnSchedule { .. } => Some(TriggerKind::OnSchedule),
             BackendEvent::Manual { .. } => None,
         }
     }

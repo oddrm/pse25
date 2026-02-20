@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 use std::sync::Arc;
-
+use tracing::field::debug;
 use backend::AppState;
 use backend::plugin_manager::manager::{InstanceState, PluginCommand, PluginManager};
 use backend::plugin_manager::plugin::Trigger;
@@ -134,14 +134,16 @@ async fn main() {
                         }
 
                         let Trigger::OnSchedule(schedule) = p.trigger() else {
+                            tracing::debug!("plugin '{}' is NOT OnSchedule => skip", p.name());
                             continue;
                         };
-
+                        tracing::debug!("plugin '{}' is OnSchedule", p.name());
                         // compute next time from "now"
                         if let Some(next_dt) = schedule.upcoming(Utc).next() {
                             let key = p.path().to_string_lossy().into_owned();
                             // keep map entry if it exists; otherwise initialize
-                            let effective_next = next_run.get(&key).cloned().unwrap_or(next_dt);
+                            let effective_next = next_run.get(&key).cloned()
+                                .unwrap_or(next_dt);
                             // if schedule changed or next is in the past too far, realign
                             let effective_next = if effective_next < now {
                                 next_dt
@@ -200,44 +202,34 @@ async fn main() {
                         (idx, plugin.name().clone(), plugin.path().clone(), schedule.clone())
                     };
 
-                    let instance_id = Utc::now().timestamp_micros().max(0) as u64;
+                        // Fire a backend event instead of directly starting instances
+                        let event = backend::plugin_manager::plugin::BackendEvent::OnSchedule {
+                            schedule: schedule_clone.clone(),
+                            path: "/data".to_string(),
+                        };
 
-                    // Build (slow) without holding global lock
-                    let handle_res = tokio::time::timeout(
-                        Duration::from_secs(10),
-                        PluginManager::build_started_instance_detached(
-                            plugin_index,
-                            plugin_name,
-                            &plugin_path,
-                            instance_id,
-                        ),
-                    )
+                        let fire_res = tokio::time::timeout(
+                            Duration::from_secs(10),
+                            PluginManager::fire_event_detached(pm.clone(), event),
+                        )
                         .await;
 
-                    match handle_res {
-                        Ok(Ok(handle)) => {
-                            // Commit under lock
-                            let mut guard = pm.lock().await;
-                            if let Err(e) = guard.commit_started_instance(instance_id, handle) {
-                                tracing::warn!(
-                                    "schedule commit failed (instance_id={}): {:?}",
-                                    instance_id,
-                                    e
-                                );
+                        match fire_res {
+                            Ok(Ok(_instance_ids)) => {
+                                // ok
+                            }
+                            Ok(Err(e)) => {
+                                tracing::warn!("schedule fire_event failed for '{}': {:?}", key, e);
+                            }
+                            Err(_) => {
+                                tracing::warn!("schedule fire_event timed out for '{}'", key);
                             }
                         }
-                        Ok(Err(e)) => {
-                            tracing::warn!("schedule start failed for '{}': {:?}", key, e);
-                        }
-                        Err(_) => {
-                            tracing::warn!("schedule start timed out for '{}'", key);
-                        }
-                    }
 
-                    // Compute next run after firing (realign using current schedule)
-                    if let Some(next_dt) = schedule_clone.upcoming(Utc).next() {
-                        next_run.insert(key.clone(), next_dt);
-                    }
+                        // Compute next run after firing (realign using current schedule)
+                        if let Some(next_dt) = schedule_clone.upcoming(Utc).next() {
+                            next_run.insert(key.clone(), next_dt);
+                        }
                 }
             }
         });

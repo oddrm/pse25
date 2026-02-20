@@ -6,6 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::str::FromStr;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -254,6 +255,7 @@ impl PluginManager {
                 (TriggerKind::OnEntryCreate, Trigger::OnEntryCreate) => true,
                 (TriggerKind::OnEntryUpdate, Trigger::OnEntryUpdate) => true,
                 (TriggerKind::OnEntryDelete, Trigger::OnEntryDelete) => true,
+                (TriggerKind::OnSchedule, Trigger::OnSchedule(_)) => true,
                 _ => false,
             })
             .map(|(i, _)| i)
@@ -867,6 +869,79 @@ impl PluginManager {
         build_started_instance_core_with_data(plugin_index, plugin_name, plugin_path, instance_id, data).await
     }
 
+    pub async fn fire_event_detached(
+        plugin_manager: Arc<tokio::sync::Mutex<PluginManager>>,
+        event: BackendEvent,
+    ) -> Result<Vec<u64>, Error> {
+        // ----- Phase 1: prepare under lock -----
+        let plans: Vec<(usize, String, PathBuf, u64, String)> = {
+            let pm = plugin_manager.lock().await;
+
+            let raw_plans = pm.prepare_fire_event(&event)?;
+
+            let event_name = match &event {
+                BackendEvent::EntryCreated { .. } => "created",
+                BackendEvent::EntryUpdated { .. } => "updated",
+                BackendEvent::EntryDeleted { .. } => "deleted",
+                BackendEvent::OnSchedule { .. } => "schedule",
+                BackendEvent::Manual { .. } => "manual",
+            }
+                .to_string();
+
+            let event_path = match &event {
+                BackendEvent::EntryCreated { path }
+                | BackendEvent::EntryUpdated { path }
+                | BackendEvent::EntryDeleted { path } => path.clone(),
+                BackendEvent::OnSchedule { path, .. } => path.clone(),
+                BackendEvent::Manual { plugin_name } => plugin_name.clone(),
+            };
+
+            raw_plans
+                .into_iter()
+                .map(|(plugin_index, plugin_path, instance_id)| {
+                    let plugin_name = pm
+                        .registered
+                        .get(plugin_index)
+                        .map(|p| p.name().clone())
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    let data = serde_json::json!({
+                        "event": event_name,
+                        "path": event_path,
+                        "plugin_path": plugin_path.to_string_lossy(),
+                    })
+                        .to_string();
+
+                    (plugin_index, plugin_name, plugin_path, instance_id, data)
+                })
+                .collect()
+        };
+
+        // ----- Phase 2: build without lock -----
+        let mut built: Vec<(u64, PluginHandle)> = Vec::new();
+        for (plugin_index, plugin_name, plugin_path, instance_id, data) in plans {
+            let handle = PluginManager::build_started_instance_detached_with_data(
+                plugin_index,
+                plugin_name,
+                &plugin_path,
+                instance_id,
+                data,
+            )
+                .await?;
+            built.push((instance_id, handle));
+        }
+
+        // ----- Phase 3: commit under lock -----
+        let mut started = Vec::new();
+        let mut pm = plugin_manager.lock().await;
+        for (instance_id, handle) in built {
+            pm.commit_started_instance(instance_id, handle)?;
+            started.push(instance_id);
+        }
+
+        Ok(started)
+    }
+
     pub async fn fire_event(&mut self, event: BackendEvent) -> Result<Vec<u64>, Error> {
         let Some(kind) = event.trigger_kind() else {
             return Ok(Vec::new());
@@ -882,6 +957,7 @@ impl PluginManager {
                 (TriggerKind::OnEntryCreate, Trigger::OnEntryCreate) => true,
                 (TriggerKind::OnEntryUpdate, Trigger::OnEntryUpdate) => true,
                 (TriggerKind::OnEntryDelete, Trigger::OnEntryDelete) => true,
+                (TriggerKind::OnSchedule, Trigger::OnSchedule(_)) => true,
                 _ => false,
             })
             .map(|(i, _)| i)
@@ -892,12 +968,31 @@ impl PluginManager {
         for plugin_index in plugin_indices {
             let instance_id = chrono::Utc::now().timestamp_micros().max(0) as u64;
 
-            let path = self.registered[plugin_index].path().clone();
+            let plugin_path = self.registered[plugin_index].path().clone();
 
-            // startet python-runner wie bei "start" (nur halt automatisch)
-            let handle = self.build_started_instance(plugin_index, &path, instance_id).await?;
+            // For schedule runs, pass a stable "global path" + plugin path as payload.
+            // OnSchedule has no entry path; we use watch_dir (/data) as the primary path.
+            let data = if kind == TriggerKind::OnSchedule {
+                serde_json::json!({
+                    "event": "schedule",
+                    "path": "/data",
+                    "watch_dir": "/data",
+                    "plugin_path": plugin_path.to_string_lossy(),
+                })
+                    .to_string()
+            } else {
+                String::new()
+            };
+
+            let handle = if kind == TriggerKind::OnSchedule {
+                self.build_started_instance_with_data(plugin_index, &plugin_path, instance_id, data)
+                    .await?
+            } else {
+                self.build_started_instance(plugin_index, &plugin_path, instance_id)
+                    .await?
+            };
+
             self.commit_started_instance(instance_id, handle)?;
-
             started.push(instance_id);
         }
 
