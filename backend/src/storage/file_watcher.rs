@@ -23,7 +23,11 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 // Helper: fire plugin backend event without holding global lock across awaits
-async fn fire_plugin_event(plugin_manager: Arc<Mutex<PluginManager>>, event: BackendEvent) {
+async fn fire_plugin_event(
+    plugin_manager: Arc<Mutex<PluginManager>>,
+    event: BackendEvent,
+    data: Option<String>,
+) {
     // Phase 1: prepare under lock + attach plugin_name for detached build
     let plans: Vec<(usize, String, std::path::PathBuf, u64)> = {
         let pm = plugin_manager.lock().await;
@@ -50,14 +54,25 @@ async fn fire_plugin_event(plugin_manager: Arc<Mutex<PluginManager>>, event: Bac
     // Phase 2: build without lock
     let mut built: Vec<(u64, crate::plugin_manager::manager::PluginHandle)> = Vec::new();
     for (plugin_index, plugin_name, plugin_path, instance_id) in plans {
-        match PluginManager::build_started_instance_detached(
-            plugin_index,
-            plugin_name,
-            &plugin_path,
-            instance_id,
-        )
-        .await
-        {
+        let handle_res = match &data {
+            Some(d) => PluginManager::build_started_instance_detached_with_data(
+                plugin_index,
+                plugin_name,
+                &plugin_path,
+                instance_id,
+                d.clone(),
+            )
+            .await,
+            None => PluginManager::build_started_instance_detached(
+                plugin_index,
+                plugin_name,
+                &plugin_path,
+                instance_id,
+            )
+            .await,
+        };
+
+        match handle_res {
             Ok(handle) => built.push((instance_id, handle)),
             Err(e) => warn!("build_started_instance_detached failed: {:?}", e),
         }
@@ -185,11 +200,38 @@ async fn sync_file_removed(
 
         // Trigger only if DB delete actually happened
         if deleted_ok {
+            // Provide payload for plugins (so they don't see empty data on delete)
+            let plugin_data = serde_json::json!({
+                "metadata": {
+                    "time_machine": entry.time_machine,
+                    "platform_name": entry.platform_name,
+                    "platform_image_link": entry.platform_image_link,
+                    "scenario_name": entry.scenario_name,
+                    "scenario_creation_time": entry.scenario_creation_time.map(|dt| dt.to_rfc3339()),
+                    "scenario_description": entry.scenario_description,
+                    "sequence_duration": entry.sequence_duration,
+                    "sequence_distance": entry.sequence_distance,
+                    "sequence_lat_starting_point_deg": entry.sequence_lat_starting_point_deg,
+                    "sequence_lon_starting_point_deg": entry.sequence_lon_starting_point_deg,
+                    "weather_cloudiness": entry.weather_cloudiness,
+                    "weather_precipitation": entry.weather_precipitation,
+                    "weather_precipitation_deposits": entry.weather_precipitation_deposits,
+                    "weather_wind_intensity": entry.weather_wind_intensity,
+                    "weather_road_humidity": entry.weather_road_humidity,
+                    "weather_fog": entry.weather_fog,
+                    "weather_snow": entry.weather_snow,
+                },
+                "mcap_path": removed_path.clone(),
+                "event": "deleted",
+            })
+            .to_string();
+
             fire_plugin_event(
                 plugin_manager.clone(),
                 BackendEvent::EntryDeleted {
                     path: removed_path.clone(),
                 },
+                Some(plugin_data),
             )
             .await;
         }
