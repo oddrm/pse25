@@ -855,6 +855,18 @@ impl PluginManager {
         build_started_instance_core(plugin_index, plugin_name, plugin_path, instance_id).await
     }
 
+    /// Like `build_started_instance_detached`, but passes `data` to plugin.run(data).
+    #[instrument]
+    pub async fn build_started_instance_detached_with_data(
+        plugin_index: usize,
+        plugin_name: String,
+        plugin_path: &PathBuf,
+        instance_id: InstanceID,
+        data: String,
+    ) -> Result<PluginHandle, Error> {
+        build_started_instance_core_with_data(plugin_index, plugin_name, plugin_path, instance_id, data).await
+    }
+
     pub async fn fire_event(&mut self, event: BackendEvent) -> Result<Vec<u64>, Error> {
         let Some(kind) = event.trigger_kind() else {
             return Ok(Vec::new());

@@ -537,6 +537,32 @@ pub async fn insert_entry_into_db(
             path: entry.path.clone(),
         };
 
+        // Build payload for plugins that expect metadata on create
+        let plugin_data = serde_json::json!({
+            "metadata": {
+                "time_machine": entry.time_machine,
+                "platform_name": entry.platform_name,
+                "platform_image_link": entry.platform_image_link,
+                "scenario_name": entry.scenario_name,
+                "scenario_creation_time": entry.scenario_creation_time.map(|dt| dt.to_rfc3339()),
+                "scenario_description": entry.scenario_description,
+                "sequence_duration": entry.sequence_duration,
+                "sequence_distance": entry.sequence_distance,
+                "sequence_lat_starting_point_deg": entry.sequence_lat_starting_point_deg,
+                "sequence_lon_starting_point_deg": entry.sequence_lon_starting_point_deg,
+                "weather_cloudiness": entry.weather_cloudiness,
+                "weather_precipitation": entry.weather_precipitation,
+                "weather_precipitation_deposits": entry.weather_precipitation_deposits,
+                "weather_wind_intensity": entry.weather_wind_intensity,
+                "weather_road_humidity": entry.weather_road_humidity,
+                "weather_fog": entry.weather_fog,
+                "weather_snow": entry.weather_snow,
+                // topics/tags live elsewhere; keep payload minimal and stable
+            },
+            "mcap_path": entry.path,
+        })
+            .to_string();
+
         // Phase 1: prepare (kurz unter Lock) + Namen für detached build holen
         let plans: Vec<(usize, String, PathBuf, u64)> = {
             let pm = plugin_manager.lock().await;
@@ -561,14 +587,15 @@ pub async fn insert_entry_into_db(
         // Phase 2: build (langsam, ohne globalen lock)
         let mut built: Vec<(u64, crate::plugin_manager::manager::PluginHandle)> = Vec::new();
         for (plugin_index, plugin_name, plugin_path, instance_id) in plans {
-            let handle = PluginManager::build_started_instance_detached(
+            let handle = PluginManager::build_started_instance_detached_with_data(
                 plugin_index,
                 plugin_name,
                 &plugin_path,
                 instance_id,
+                plugin_data.clone(),
             )
-            .await
-            .map_err(|e| StorageError::CustomError(format!("build_started_instance failed: {e:?}")))?;
+                .await
+                .map_err(|e| StorageError::CustomError(format!("build_started_instance failed: {e:?}")))?;
 
             built.push((instance_id, handle));
         }
