@@ -138,7 +138,7 @@ pub async fn update_metadata(
     let sm = &state.storage_manager;
     let m = metadata.into_inner();
 
-    sm.update_entry(entry_id, m, txid).await?;
+    sm.update_entry(entry_id, m.clone(), txid).await?;
 
     // ---- Trigger: OnEntryUpdate (Plugins starten, ohne globalen Lock über await zu halten) ----
     // Wir brauchen den Entry-Pfad für das Event. Falls der Entry nicht existiert, skippen wir Trigger.
@@ -148,7 +148,7 @@ pub async fn update_metadata(
         .map(|e| e.path);
 
     if let Some(path) = entry_path {
-        let event = BackendEvent::EntryUpdated { path };
+        let event = BackendEvent::EntryUpdated { path: path.clone() };
 
         // Phase 1: prepare (kurz unter Lock)
         let plans = {
@@ -156,12 +156,20 @@ pub async fn update_metadata(
             pm.prepare_fire_event(&event)?
         };
 
+        // Build payload for plugins that expect metadata on update
+        let plugin_data = serde_json::json!({
+            "metadata": serde_json::to_value(&m).unwrap_or(serde_json::Value::Null),
+            "mcap_path": path,
+        })
+        .to_string();
+
         // Phase 2: build (langsam, ohne "langen" globalen Lock)
         let mut built: Vec<(u64, crate::plugin_manager::manager::PluginHandle)> = Vec::new();
         for (plugin_index, plugin_path, instance_id) in plans {
+            let data = plugin_data.clone();
             let handle = timeout(ROUTE_OP_TIMEOUT, async {
                 let pm = lock_plugin_manager(state).await?;
-                pm.build_started_instance(plugin_index, &plugin_path, instance_id)
+                pm.build_started_instance_with_data(plugin_index, &plugin_path, instance_id, data)
                     .await
             })
             .await

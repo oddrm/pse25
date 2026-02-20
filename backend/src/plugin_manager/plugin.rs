@@ -113,7 +113,7 @@ impl BackendEvent {
 #[derive(Debug, Clone)]
 pub enum Trigger {
     OnEntryCreate,
-    OnEntryUpdate, // implementiert
+    OnEntryUpdate,
     OnEntryDelete,
     OnSchedule(Schedule),
     Manual,
