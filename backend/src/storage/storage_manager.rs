@@ -1,7 +1,10 @@
-
-
 #![allow(unused)]
 
+use crate::{
+    routes,
+    schema::{files, sensors::entry_id},
+};
+use itertools::Itertools;
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
@@ -12,11 +15,6 @@ use std::{
     thread,
     time::Duration,
 };
-use itertools::Itertools;
-use crate::{
-    routes,
-    schema::{files, sensors::entry_id},
-};
 // use crate::schema::metadata::dsl::{entry_id as metadata_entry_id, metadata};
 use crate::storage::models::*;
 use crate::{
@@ -24,8 +22,8 @@ use crate::{
     schema,
 };
 
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use deadpool::Runtime;
-use chrono::{DateTime, NaiveDate, Utc, TimeZone};
 use deadpool_diesel::postgres::{Manager, Pool};
 use diesel::prelude::*;
 use diesel_async::AsyncPgConnection;
@@ -57,7 +55,6 @@ fn opt_contains(opt: &Option<String>, part: &str) -> bool {
         .map(|s| contains_part(s, part))
         .unwrap_or(false)
 }
-
 
 /// Tries to parse a search term as a date/timestamp. Supports:
 /// - Date only YYYY-MM-DD (e.g. "2024-01-15")
@@ -113,14 +110,13 @@ fn entry_matches_search(entry: &Entry, search_parts: &[String]) -> bool {
             || opt_contains(&entry.weather_wind_intensity, part)
             || opt_contains(&entry.weather_road_humidity, part)
             || entry.tags.iter().any(|t| contains_part(t, part));
-          //  || entry.topics.iter().any(|t| contains_part(t, part));
+        //  || entry.topics.iter().any(|t| contains_part(t, part));
         if !matches {
             return false;
         }
     }
     true
 }
-
 
 #[derive(Clone)]
 pub struct StorageManager {
@@ -236,13 +232,13 @@ impl StorageManager {
                     .load::<Entry>(conn)
             })
             .await??;
-
+        // debug!("Queried all entries, count: {}", entries.len());
         // 1. Optional search: filter by search string when provided
         let search_parts: Vec<String> = match search_string.as_deref() {
             None | Some("") => Vec::new(),
             Some(s) => s.split_whitespace().map(|p| p.to_lowercase()).collect(),
         };
-
+        // debug!("Search parts: {:?}", search_parts);
         let filtered: Vec<Entry> = if search_parts.is_empty() {
             entries
         } else {
@@ -251,7 +247,7 @@ impl StorageManager {
                 .filter(|e| entry_matches_search(e, &search_parts))
                 .collect()
         };
-
+        // debug!("Filtered entries count after search: {}", filtered.len());
         // 2. Sort (always applied
         let mut sorted: Vec<Entry> = filtered
             .into_iter()
@@ -261,21 +257,26 @@ impl StorageManager {
                 _ => Ord::cmp(&a.name, &b.name),
             })
             .collect();
-
+        // debug!("Sorted entries: {:?}", sorted);
         // 3. Ascending / descending
         if ascending.is_some_and(|a| !a) {
             sorted.reverse();
         }
-
+        debug!("Applied ascending/descending");
         // 4. Paging
         let paged: Vec<Entry> = match (page, page_size) {
             (Some(p), Some(ps)) if ps > 0 => {
                 let start = (p as usize).saturating_mul(ps as usize);
+                // debug!("Applying paging: start index {}, page size {}", start, ps);
                 sorted.into_iter().skip(start).take(ps as usize).collect()
             }
             _ => sorted,
         };
-
+        // debug!("Applied paging: page {:?}, page_size {:?}", page, page_size);
+        // debug!(
+        // "Final entries count after filtering, sorting, and paging: {}",
+        // paged.len()
+        // );
         Ok(paged)
     }
 
@@ -739,4 +740,3 @@ impl std::fmt::Debug for StorageManager {
             .finish()
     }
 }
-

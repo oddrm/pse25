@@ -27,7 +27,7 @@ const searchString = ref("");
 const sortBy = ref(Sorting.Name);
 const ascending = ref(true);
 
-const { data: entries, refresh: refreshEntries, error: entriesFetchError, status: entriesStatus } = await useAsyncData("entries", async () => fetchEntries(searchString.value, sortBy.value, ascending.value, 1, 50));
+const { data: entries, refresh: refreshEntries, error: entriesFetchError, status: entriesStatus } = await useAsyncData("entries", async () => fetchEntries(searchString.value, sortBy.value, ascending.value, 0, 50));
 
 watchEffect(() => {
   // console.log("searchString", searchString.value);
