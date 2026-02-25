@@ -7,8 +7,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from plugin_base import BasePlugin
 
-PLUGIN_NAME = "delete_rest_plugin"
-PLUGIN_DESCRIPTION = "Deletes associated YAML and *_export.yaml files when an entry (MCAP) is deleted."
+PLUGIN_NAME = "DANGEROUS_DO_NOT_USE_delete_rest_plugin"
+PLUGIN_DESCRIPTION = (
+    "Deletes associated YAML and *_export.yaml files when an entry (MCAP) is deleted."
+)
 PLUGIN_TRIGGER = "on_entry_delete"
 
 log = logging.getLogger(__name__)
@@ -79,7 +81,10 @@ class PluginImpl(BasePlugin):
         mcap_path = _extract_mcap_path(payload)
         if mcap_path is None:
             log.warning("missing 'path'/'mcap_path' in payload; nothing to delete")
-            return json.dumps({"ok": True, "deleted": [], "skipped": [], "reason": "no_path"}, ensure_ascii=False)
+            return json.dumps(
+                {"ok": True, "deleted": [], "skipped": [], "reason": "no_path"},
+                ensure_ascii=False,
+            )
 
         # If a directory path is sent (shouldn't happen), bail out safely
         if mcap_path.exists() and mcap_path.is_dir():
@@ -109,6 +114,11 @@ class PluginImpl(BasePlugin):
                 skipped.append({"path": str(p), "status": status})
 
         return json.dumps(
-            {"ok": True, "mcap_path": str(mcap_path), "deleted": deleted, "skipped": skipped},
+            {
+                "ok": True,
+                "mcap_path": str(mcap_path),
+                "deleted": deleted,
+                "skipped": skipped,
+            },
             ensure_ascii=False,
         )
