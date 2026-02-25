@@ -1,3 +1,5 @@
+
+
 #![allow(unused)]
 
 use std::{
@@ -10,7 +12,7 @@ use std::{
     thread,
     time::Duration,
 };
-
+use itertools::Itertools;
 use crate::{
     routes,
     schema::{files, sensors::entry_id},
@@ -220,10 +222,10 @@ impl StorageManager {
     pub async fn get_entries(
         &self,
         search_string: Option<String>,
-        _sort_by: Option<String>,
-        _ascending: Option<bool>,
-        _page: Option<u32>,
-        _page_size: Option<u32>,
+        sort_by: Option<String>,
+        ascending: Option<bool>,
+        page: Option<u32>,
+        page_size: Option<u32>,
         txid: TxID,
     ) -> Result<Vec<Entry>, StorageError> {
         let conn = self.db_connection_pool().get().await?;
@@ -234,27 +236,47 @@ impl StorageManager {
                     .load::<Entry>(conn)
             })
             .await??;
-        // debug!("Queried entries: {}", entries.len());
-        // --- Search logic (only when search_string is provided) ---
-        // 1. Split the search string by whitespace into "words", lowercased.
-        //    Example: "  Rain  Highway  " → ["rain", "highway"]
+
+        // 1. Optional search: filter by search string when provided
         let search_parts: Vec<String> = match search_string.as_deref() {
-            None | Some("") => return Ok(entries), // no search → return all entries
+            None | Some("") => Vec::new(),
             Some(s) => s.split_whitespace().map(|p| p.to_lowercase()).collect(),
         };
 
-        if search_parts.is_empty() {
-            return Ok(entries);
-        }
+        let filtered: Vec<Entry> = if search_parts.is_empty() {
+            entries
+        } else {
+            entries
+                .into_iter()
+                .filter(|e| entry_matches_search(e, &search_parts))
+                .collect()
+        };
 
-        // 2. Keep only entries where every search word appears in at least one field.
-        //    We look in: name, path, platform_name, scenario_name, scenario_description,
-        let filtered: Vec<Entry> = entries
-            .into_par_iter()
-            .filter(|e| entry_matches_search(e, &search_parts))
+        // 2. Sort (always applied
+        let mut sorted: Vec<Entry> = filtered
+            .into_iter()
+            .sorted_by(|a, b| match sort_by.as_deref() {
+                Some("Name") => Ord::cmp(&a.name, &b.name),
+                Some("Path") => Ord::cmp(&a.path, &b.path),
+                _ => Ord::cmp(&a.name, &b.name),
+            })
             .collect();
 
-        Ok(filtered)
+        // 3. Ascending / descending
+        if ascending.is_some_and(|a| !a) {
+            sorted.reverse();
+        }
+
+        // 4. Paging
+        let paged: Vec<Entry> = match (page, page_size) {
+            (Some(p), Some(ps)) if ps > 0 => {
+                let start = (p as usize).saturating_mul(ps as usize);
+                sorted.into_iter().skip(start).take(ps as usize).collect()
+            }
+            _ => sorted,
+        };
+
+        Ok(paged)
     }
 
     #[instrument]
@@ -717,3 +739,4 @@ impl std::fmt::Debug for StorageManager {
             .finish()
     }
 }
+
