@@ -34,6 +34,15 @@
         >
           Logs
         </NuxtLink>
+        
+        <NuxtLink
+          to="/userGuide"
+          class="tab"
+          :class="{ 'tab-active': route.path === '/userGuide' }"
+        >
+          Handbook
+        </NuxtLink>
+        
       </nav>
 
     </header>

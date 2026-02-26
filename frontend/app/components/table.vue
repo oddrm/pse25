@@ -3,11 +3,21 @@
     <!-- <p>entries: {{ entries?.length }} {{ entriesFetchError }} {{ entriesStatus }} {{ entries }}</p> -->
     <input placeholder="Search" class="input" v-model="searchString" @keyup.enter="console.log(' enter on search');
     refreshEntries()" />
-    <table class="table">
+    <table class="table table-fixed">
       <thead>
         <tr>
-          <th v-for="(column, index) in columns" :key="index">
-            {{ column }}
+          <th
+            v-for="(column, index) in columns"
+            :key="index"
+            class="cursor-pointer select-none"
+            @click="handleSort(column)"
+          >
+            <div class="flex items-center justify-between">
+              <span>{{ column }}</span>
+              <span class="inline-block w-3 text-center">
+                <span v-if="sortBy === column">{{ ascending ? '▲' : '▼' }}</span>
+              </span>
+            </div>
           </th>
           <th>Plugins</th>
         </tr>
@@ -28,6 +38,26 @@ const sortBy = ref(Sorting.Name);
 const ascending = ref(true);
 
 const { data: entries, refresh: refreshEntries, error: entriesFetchError, status: entriesStatus } = await useAsyncData("entries", async () => fetchEntries(searchString.value, sortBy.value, ascending.value, 1, 50));
+
+const handleSort = (column: string) => {
+  if (
+    column !== "Name" &&
+    column !== "Path" &&
+    column !== "Size" &&
+    column !== "Platform"
+  ) {
+    return;
+  }
+
+  if (sortBy.value === column) {
+    ascending.value = !ascending.value;
+  } else {
+    sortBy.value = column as Sorting;
+    ascending.value = true;
+  }
+
+  refreshEntries();
+};
 
 watchEffect(() => {
   // console.log("searchString", searchString.value);
