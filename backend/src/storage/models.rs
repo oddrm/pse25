@@ -34,6 +34,7 @@ pub struct Entry {
     pub size: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub status: String,
     pub time_machine: Option<f64>,
     pub platform_name: Option<String>,
     pub platform_image_link: Option<String>,

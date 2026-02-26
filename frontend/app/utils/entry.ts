@@ -6,6 +6,7 @@ export interface Entry {
     name: string;
     path: string;
     size: number;
+    status: string;
     created_at: string;
     updated_at: string;
     time_machine: number | null;

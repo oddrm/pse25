@@ -382,6 +382,21 @@ pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
         .and_then(|w| w.get("snow"))
         .and_then(|v| v.as_bool());
 
+    // check if all fields from mcap info could be read and at least one topic has a message
+    let status = if mcap_info.duration_seconds.is_some()
+        && mcap_info.start_time_ns.is_some()
+        && mcap_info.end_time_ns.is_some()
+        && !mcap_info.topics.is_empty()
+        && mcap_info.topics.iter().any(|t| t.message_count > 0)
+    {
+        "Complete"
+    } else if !mcap_info.topics.is_empty() {
+        "Partial MCAP Info"
+    } else {
+        "No MCAP Info"
+    }
+    .to_string();
+
     let entry = Entry {
         id: 0,
         name: path
@@ -392,6 +407,7 @@ pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
         size,
         created_at: now,
         updated_at: now,
+        status,
         time_machine,
         platform_name,
         platform_image_link,

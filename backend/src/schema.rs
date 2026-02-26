@@ -14,6 +14,7 @@ diesel::table! {
         name -> Varchar,
         path -> Varchar,
         size -> BigInt,
+        status -> Varchar,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         // from yaml

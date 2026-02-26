@@ -3,7 +3,7 @@
     <!-- <p>entries: {{ entries?.length }} {{ entriesFetchError }} {{ entriesStatus }} {{ entries }}</p> -->
     <input placeholder="Search" class="input" v-model="searchString" @keyup.enter="console.log(' enter on search');
     refreshEntries()" />
-    <table class="table table-fixed">
+    <table class="table table-auto">
       <thead>
         <tr>
           <th v-for="(column, index) in columns" :key="index" class="cursor-pointer select-none"
