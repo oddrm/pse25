@@ -28,7 +28,7 @@ export const useSequencesStore = defineStore("sequences", {
       // Load from backend as primary source of truth
       try {
         // TODO match with rest of search
-        const entries = await fetchEntries('', Sorting.Name, true, 0, 50)
+        const entries = await fetchEntries('', Sorting.Name, true, 0, 50000)
         let allSeqs: Sequence[] = []
         for (const e of entries) {
           const map = await fetchSequences(e.id)

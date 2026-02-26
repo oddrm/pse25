@@ -6,16 +6,12 @@
     <table class="table table-fixed">
       <thead>
         <tr>
-          <th
-            v-for="(column, index) in columns"
-            :key="index"
-            class="cursor-pointer select-none"
-            @click="handleSort(column)"
-          >
+          <th v-for="(column, index) in columns" :key="index" class="cursor-pointer select-none"
+            @click="handleSort(column)">
             <div class="flex items-center justify-between">
               <span>{{ column }}</span>
               <span class="inline-block w-3 text-center">
-                <span v-if="sortBy === column">{{ ascending ? '▲' : '▼' }}</span>
+                <span v-if="sortBy === column">{{ ascending ? '▼' : '▲' }}</span>
               </span>
             </div>
           </th>

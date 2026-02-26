@@ -254,6 +254,8 @@ impl StorageManager {
             .sorted_by(|a, b| match sort_by.as_deref() {
                 Some("Name") => Ord::cmp(&a.name, &b.name),
                 Some("Path") => Ord::cmp(&a.path, &b.path),
+                Some("Size") => Ord::cmp(&a.size, &b.size),
+                Some("Platform") => Ord::cmp(&a.platform_name, &b.platform_name),
                 _ => Ord::cmp(&a.name, &b.name),
             })
             .collect();
