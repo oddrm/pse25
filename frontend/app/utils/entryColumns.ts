@@ -7,6 +7,7 @@ export enum Sorting {
 }
 
 export const columns = [
+    "Status",
     "Name",
     "Path",
     "Size",

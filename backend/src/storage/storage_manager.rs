@@ -313,6 +313,7 @@ impl StorageManager {
             .interact(move |conn| {
                 schema::entries::dsl::entries
                     .filter(schema::entries::dsl::path.eq(path))
+                    .select(Entry::as_select())
                     .first::<Entry>(conn)
                     .optional()
             })
@@ -332,6 +333,7 @@ impl StorageManager {
             .interact(move |conn| {
                 schema::sequences::dsl::sequences
                     .filter(schema::sequences::dsl::entry_id.eq(entry_id_))
+                    .select(Sequence::as_select())
                     .load::<Sequence>(conn)
             })
             .await??;
@@ -354,6 +356,7 @@ impl StorageManager {
             .interact(move |conn| {
                 schema::sensors::dsl::sensors
                     .filter(schema::sensors::dsl::entry_id.eq(entry_id_))
+                    .select(Sensor::as_select())
                     .load::<Sensor>(conn)
             })
             .await??;
@@ -369,7 +372,11 @@ impl StorageManager {
     pub async fn get_all_sensors(&self, txid: TxID) -> Result<Map<SensorID, Sensor>, StorageError> {
         let conn = self.db_connection_pool().get().await?;
         let sensors = conn
-            .interact(move |conn| schema::sensors::dsl::sensors.load::<Sensor>(conn))
+            .interact(move |conn| {
+                schema::sensors::dsl::sensors
+                    .select(Sensor::as_select())
+                    .load::<Sensor>(conn)
+            })
             .await??;
         let sensors_map = sensors.into_iter().map(|s| (s.id, s)).collect();
         debug!("Queried all sensors: {:?}", sensors_map);
@@ -387,6 +394,7 @@ impl StorageManager {
             .interact(move |conn| {
                 schema::topics::dsl::topics
                     .filter(schema::topics::dsl::entry_id.eq(entry_id_))
+                    .select(crate::storage::models::Topic::as_select())
                     .load::<crate::storage::models::Topic>(conn)
             })
             .await??;
@@ -526,6 +534,7 @@ impl StorageManager {
                         entries_dsl::weather_fog.eq(e.weather_fog),
                         entries_dsl::weather_snow.eq(e.weather_snow),
                         entries_dsl::tags.eq(e.tags),
+                        entries_dsl::status.eq(e.status.clone()),
                     ))
                     .returning(entries_dsl::id)
                     .get_result::<EntryID>(conn)

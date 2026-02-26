@@ -1,6 +1,11 @@
 <template>
   <tr class="cursor-pointer hover:bg-base-300 transition-colors duration-150" @click="$emit('select', props.id)">
-    <td class="font-medium">{{ props.name }}</td>
+    <td>
+      <span :class="'flex items-center justify-center badge font-medium ' + statusColor(props.status)">{{ props.status
+      }}
+      </span>
+    </td>
+    <td class="font-medium whitespace-nowrap">{{ props.name }}</td>
     <td class="text-xs text-gray-500 truncate max-w-[150px]" :title="props.path">{{ props.path }}</td>
     <td>{{ (props.size / 1000 / 1000).toFixed(2) }} MB</td>
     <td>{{ props.platform_name }}</td>
@@ -51,6 +56,19 @@ defineEmits<{
 // LOKALER STATE FÜR TAGS (Ersatz für Store)
 // Wir erstellen eine Kopie, damit wir sie bearbeiten können.
 const localTags = ref<string[]>([...props.tags])
+
+const statusColor = (status: string) => {
+  switch (status) {
+    case 'Complete':
+      return 'badge-success'
+    case 'NO MCAP Info':
+      return 'badge-error'
+    case 'Partial MCAP Info':
+      return 'badge-warning'
+    default:
+      return 'badge-neutral'
+  }
+};
 
 // Falls sich die Daten von der "Tabelle" ändern (z.B. durch Suche/Sortierung),
 // müssen wir unsere lokale Kopie aktualisieren.
