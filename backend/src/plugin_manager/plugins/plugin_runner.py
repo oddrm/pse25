@@ -176,10 +176,17 @@ def main() -> int:
         json_handler.setFormatter(logging.Formatter("%(message)s"))
         root_logger.addHandler(json_handler)
         root_logger.setLevel(logging.DEBUG)
+
         # bekommt Faktory/ Klase
         plugin_impl = getattr(module, PLUGIN_IMPL)
+
         # Instanz erzeugen
-        plugin = plugin_impl(args.plugin_path)
+        # NEW (robust): prefer (path, data), fallback to (path) for older plugins
+        try:
+            plugin = plugin_impl(args.plugin_path, args.data)
+        except TypeError:
+            plugin = plugin_impl(args.plugin_path)
+
     except Exception as e:
         write_msg(
             {

@@ -4,7 +4,7 @@ use rocket::serde::json::Json;
 use rocket::{State, get, post, put, response::status};
 
 use tokio::time::{Duration, timeout};
-use tracing::{debug, instrument};
+use tracing::debug;
 
 const PM_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 const ROUTE_OP_TIMEOUT: Duration = Duration::from_secs(10);

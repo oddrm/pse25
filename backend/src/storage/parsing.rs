@@ -14,7 +14,6 @@ use tracing::debug;
 use tracing::error;
 use tracing::instrument;
 
-use crate::error::Error as AppError;
 use crate::plugin_manager::plugin::BackendEvent;
 use crate::plugin_manager::manager::PluginManager;
 use std::sync::Arc;

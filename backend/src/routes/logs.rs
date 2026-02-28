@@ -51,7 +51,7 @@ pub fn get_logs(level: Option<String>, limit: Option<usize>) -> Json<Vec<LogEntr
             let mut current_entry: Option<LogEntry> = None;
 
             for line in lines {
-                if let Some(mut log_entry) = parse_log_line(&line) {
+                if let Some(log_entry) = parse_log_line(&line) {
                     // New log entry started
                     if let Some(completed) = current_entry.take() {
                         if level_matches(&completed, &level_filter) && !is_noise(&completed) {

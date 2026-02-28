@@ -1,14 +1,12 @@
 // use std::os::unix::fs::MetadataExt; -> unnötig und Windows Problem
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::{
     env,
-    time::{Duration, Instant},
+    time::{Duration},
 };
 use std::sync::Arc;
-use tracing::field::debug;
 use backend::AppState;
-use backend::plugin_manager::manager::{InstanceState, PluginCommand, PluginManager};
+use backend::plugin_manager::manager::{PluginManager};
 use backend::plugin_manager::plugin::Trigger;
 use backend::routes::database::*;
 use backend::routes::health_check::health;
@@ -122,7 +120,7 @@ async fn main() {
                 tokio::time::sleep(Duration::from_secs(1)).await;
 
                 // Phase 1: snapshot schedules under lock (fast)
-                let scheduled_snapshot: Vec<(String, chrono::DateTime<Utc>)> = {
+                let scheduled_snapshot: Vec<(String, DateTime<Utc>)> = {
                     let guard = pm.lock().await;
 
                     let now = Utc::now();
@@ -177,10 +175,10 @@ async fn main() {
                     }
 
                     // Re-check + fetch current data under lock (index may have changed due to rescan)
-                    let (plugin_index, plugin_name, plugin_path, schedule_clone) = {
+                    let schedule_clone = {
                         let guard = pm.lock().await;
 
-                        let Some((idx, plugin)) = guard
+                        let Some((_idx, plugin)) = guard
                             .registered
                             .iter()
                             .enumerate()
@@ -197,37 +195,37 @@ async fn main() {
                             continue;
                         };
 
-                        (idx, plugin.name().clone(), plugin.path().clone(), schedule.clone())
+                        schedule.clone()
                     };
 
-                        // Fire a backend event instead of directly starting instances
-                        let event = backend::plugin_manager::plugin::BackendEvent::OnSchedule {
-                            schedule: schedule_clone.clone(),
-                            path: "/data".to_string(),
-                        };
+                    // Fire a backend event instead of directly starting instances
+                    let event = backend::plugin_manager::plugin::BackendEvent::OnSchedule {
+                        schedule: schedule_clone.clone(),
+                        path: "/data".to_string(),
+                    };
 
-                        let fire_res = tokio::time::timeout(
-                            Duration::from_secs(10),
-                            PluginManager::fire_event_detached(pm.clone(), event),
-                        )
-                        .await;
+                    let fire_res = tokio::time::timeout(
+                        Duration::from_secs(10),
+                        PluginManager::fire_event_detached(pm.clone(), event),
+                    )
+                    .await;
 
-                        match fire_res {
-                            Ok(Ok(_instance_ids)) => {
-                                // ok
-                            }
-                            Ok(Err(e)) => {
-                                tracing::warn!("schedule fire_event failed for '{}': {:?}", key, e);
-                            }
-                            Err(_) => {
-                                tracing::warn!("schedule fire_event timed out for '{}'", key);
-                            }
+                    match fire_res {
+                        Ok(Ok(_instance_ids)) => {
+                            // ok
                         }
-
-                        // Compute next run after firing (realign using current schedule)
-                        if let Some(next_dt) = schedule_clone.upcoming(Utc).next() {
-                            next_run.insert(key.clone(), next_dt);
+                        Ok(Err(e)) => {
+                            tracing::warn!("schedule fire_event failed for '{}': {:?}", key, e);
                         }
+                        Err(_) => {
+                            tracing::warn!("schedule fire_event timed out for '{}'", key);
+                        }
+                    }
+
+                    // Compute next run after firing (realign using current schedule)
+                    if let Some(next_dt) = schedule_clone.upcoming(Utc).next() {
+                        next_run.insert(key.clone(), next_dt);
+                    }
                 }
             }
         });

@@ -13,6 +13,9 @@ RESULT_PAUSED = "paused"
 RESULT_RESUMED = "resumed"
 RESULT_STOPPING = "stopping"
 
+# Kopie muss unter plugins_dir/config
+# Plugins unter plugins_dir
+# yaml aus src/plugin_manager/plugins/config muss als Kopie unter plugins_dir/config
 
 class BasePlugin:
     """
@@ -20,10 +23,16 @@ class BasePlugin:
     - kooperatives Stoppen per Event
     - Pause/Resume per Event
     - run() wird vom Plugin selbst implementiert (kein step()-Loop mehr)
+
+    NEW:
+    - Zusätzlich zum `path` bekommt jedes Plugin beim Erzeugen `data` (String) mit,
+      z.B. aus dem Frontend. Es liegt dann als `self.data` vor.
     """
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, data: str = ""):
         self.path = Path(path)
+        self.data = data  # NEW: Frontend-/Payload-String beim Erzeugen verfügbar
+
         # Threading event funktioniert wie eine Ampel
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()

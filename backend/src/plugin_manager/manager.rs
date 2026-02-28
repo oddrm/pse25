@@ -1,4 +1,3 @@
-//docker compose -f compose.dev.yaml up --build
 use cron::Schedule;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -12,12 +11,15 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Duration, timeout};
 use tracing::{debug, error, info, instrument, warn};
-use tracing_subscriber::field::debug;
 use crate::plugin_manager::plugin::{BackendEvent, Trigger, TriggerKind};
 use crate::plugin_manager::python_bridge;
 use crate::{error::Error, plugin_manager::plugin::Plugin};
 
+const EVENT_INIT_ERROR: &str = "init_error";
+
+#[allow(dead_code)]
 const TRIGGER_MANUAL: &str = "manual";
+#[allow(dead_code)]
 const TRIGGER_ON_ENTRY_CREATE: &str = "on_entry_create";
 const TRIGGER_ON_ENTRY_UPDATE: &str = "on_entry_update";
 const TRIGGER_ON_ENTRY_DELETE: &str = "on_entry_delete";
@@ -25,7 +27,6 @@ const PYTHON_UNBUFFERED_FLAG: &str = "-u";
 const RUNNER_PATH: &str = "src/plugin_manager/plugins/plugin_runner.py";
 const ARG_PLUGIN_PATH: &str = "--plugin-path";
 const ARG_INSTANCE_ID: &str = "--instance-id";
-const DATA: &str = "--data";
 const FALLBACK_PLUGIN_NAME: &str = "unknown";
 
 const TRIGGER_ON_SCHEDULE_PREFIX: &str = "on_schedule:";
@@ -42,7 +43,6 @@ const PYTHON_EXECUTABLE: &str = "python3";
 
 const ERR_FAILED_READ_CONFIG_PREFIX: &str = "Failed to read config: ";
 const ERR_FAILED_PARSE_CONFIG_PREFIX: &str = "Failed to parse config: ";
-const ERR_PLUGIN_NOT_FOUND_PREFIX: &str = "Plugin '";
 const ERR_PLUGIN_NOT_REGISTERED_PREFIX: &str = "Plugin '";
 const ERR_INSTANCE_ALREADY_RUNNING_PREFIX: &str = "Instance ";
 const ERR_INSTANCE_NOT_RUNNING_PREFIX: &str = "Instance ";
@@ -51,7 +51,6 @@ const ERR_FAILED_OPEN_STDIN: &str = "Failed to open stdin for python runner";
 const ERR_FAILED_OPEN_STDOUT: &str = "Failed to open stdout for python runner";
 const ERR_PY_STDOUT_CLOSED: &str = "Python runner stdout closed";
 const ERR_UNKNOWN_ERROR: &str = "unknown_error";
-const ERR_FAILED_KILL_PY_PREFIX: &str = "Failed to kill python runner: ";
 const ERR_FAILED_SEND_CMD_PREFIX: &str = "Failed to send cmd to python runner: ";
 const ERR_FAILED_FLUSH_CMD_PREFIX: &str = "Failed to flush cmd to python runner: ";
 
@@ -62,19 +61,12 @@ const CMD_RESUME: &str = "resume";
 const CMD_STATUS: &str = "status";
 
 const LOG_PY_STDERR_PREFIX: &str = "python stderr: {}";
-const LOG_PY_STDOUT_NON_JSON: &str = "python stdout (non-json): {} (parse err: {})";
 const LOG_RUNNER_EVENT: &str = "runner event (instance {}): {}";
-
-const LOG_SOFT_STOP_FORCE_KILL: &str =
-    "Soft stop ACK ok, but process did not exit quickly; forcing kill.";
-const LOG_SOFT_STOP_FAILED_FORCE_KILL: &str = "Soft stop failed/timeout; forcing kill. err={:?}";
 
 const TIMEOUT_START_ACK: Duration = Duration::from_secs(5);
 const TIMEOUT_SOFT_STOP_ACK: Duration = Duration::from_secs(2);
 const TIMEOUT_PAUSE_ACK: Duration = Duration::from_secs(2);
 const TIMEOUT_RESUME_ACK: Duration = Duration::from_secs(2);
-const TIMEOUT_WAIT_EXIT_AFTER_SOFT_STOP: Duration = Duration::from_secs(2);
-const TIMEOUT_WAIT_EXIT_AFTER_KILL: Duration = Duration::from_secs(2);
 
 type InstanceID = u64;
 
@@ -422,6 +414,7 @@ impl PluginManager {
     }
 
     // Start Python Runner
+    #[allow(dead_code)]
     #[instrument]
     async fn spawn_runner(
         &self,
@@ -1000,63 +993,6 @@ impl PluginManager {
     }
 }
 
-#[instrument]
-pub async fn build_started_instance_core(
-    plugin_index: usize,
-    plugin_name: String,
-    plugin_path: &PathBuf,
-    instance_id: InstanceID,
-) -> Result<PluginHandle, Error> {
-    let (child, mut child_stdin, mut stdout_rx) =
-        spawn_runner_core(plugin_path, instance_id).await?;
-    let (command_tx, command_rx) = mpsc::channel(32);
-    let (status_tx, status_rx) = watch::channel(InstanceState::Running);
-
-    // Perform initial start handshake before spawning the actor
-    let request_id = format!("{}-0", instance_id);
-    send_runner_cmd(instance_id, &mut child_stdin, CMD_START, &request_id).await?;
-
-    // Wait for CMD_START ACK
-    timeout(TIMEOUT_START_ACK, async {
-        while let Some(msg) = stdout_rx.recv().await {
-            if msg.instance_id == instance_id && msg.request_id == Some(request_id.clone()) {
-                return if msg.ok.unwrap_or(false) {
-                    Ok(())
-                } else {
-                    Err(Error::CustomError(
-                        msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string()),
-                    ))
-                };
-            }
-        }
-        Err(Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))
-    })
-        .await
-        .map_err(|_| {
-            Error::CustomError(format!(
-                "Start handshake timed out after {:?}",
-                TIMEOUT_START_ACK
-            ))
-        })??;
-
-    tokio::spawn(run_instance_actor(
-        instance_id,
-        plugin_name.clone(),
-        child,
-        child_stdin,
-        stdout_rx,
-        command_rx,
-        status_tx,
-    ));
-    debug!("Spawned instance actor for instance {}", instance_id);
-
-    Ok(PluginHandle {
-        plugin_index,
-        command_tx,
-        status_rx,
-    })
-}
-
 async fn send_runner_cmd(
     instance_id: InstanceID,
     stdin: &mut ChildStdin,
@@ -1312,6 +1248,73 @@ async fn spawn_runner_core(
 }
 
 #[instrument]
+pub async fn build_started_instance_core(
+    plugin_index: usize,
+    plugin_name: String,
+    plugin_path: &PathBuf,
+    instance_id: InstanceID,
+) -> Result<PluginHandle, Error> {
+    let (child, mut child_stdin, mut stdout_rx) =
+        spawn_runner_core(plugin_path, instance_id).await?;
+    let (command_tx, command_rx) = mpsc::channel(32);
+    let (status_tx, status_rx) = watch::channel(InstanceState::Running);
+
+    // Perform initial start handshake before spawning the actor
+    let request_id = format!("{}-0", instance_id);
+    send_runner_cmd(instance_id, &mut child_stdin, CMD_START, &request_id).await?;
+
+    // Wait for CMD_START ACK (or init_error)
+    timeout(TIMEOUT_START_ACK, async {
+        while let Some(msg) = stdout_rx.recv().await {
+            if msg.instance_id != instance_id {
+                continue;
+            }
+
+            if msg.event.as_deref() == Some(EVENT_INIT_ERROR) {
+                let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+                let trace = msg.trace.unwrap_or_default();
+                return Err(Error::CustomError(format!("python runner init_error: {err}\n{trace}")));
+            }
+
+            if msg.request_id == Some(request_id.clone()) {
+                return if msg.ok.unwrap_or(false) {
+                    Ok(())
+                } else {
+                    Err(Error::CustomError(
+                        msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string()),
+                    ))
+                };
+            }
+        }
+        Err(Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))
+    })
+        .await
+        .map_err(|_| {
+            Error::CustomError(format!(
+                "Start handshake timed out after {:?}",
+                TIMEOUT_START_ACK
+            ))
+        })??;
+
+    tokio::spawn(run_instance_actor(
+        instance_id,
+        plugin_name.clone(),
+        child,
+        child_stdin,
+        stdout_rx,
+        command_rx,
+        status_tx,
+    ));
+    debug!("Spawned instance actor for instance {}", instance_id);
+
+    Ok(PluginHandle {
+        plugin_index,
+        command_tx,
+        status_rx,
+    })
+}
+
+#[instrument]
 pub async fn build_started_instance_core_with_data(
     plugin_index: usize,
     plugin_name: String,
@@ -1329,10 +1332,20 @@ pub async fn build_started_instance_core_with_data(
     let request_id = format!("{}-0", instance_id);
     send_runner_cmd(instance_id, &mut child_stdin, CMD_START, &request_id).await?;
 
-    // Wait for CMD_START ACK
+    // Wait for CMD_START ACK (or init_error)
     timeout(TIMEOUT_START_ACK, async {
         while let Some(msg) = stdout_rx.recv().await {
-            if msg.instance_id == instance_id && msg.request_id == Some(request_id.clone()) {
+            if msg.instance_id != instance_id {
+                continue;
+            }
+
+            if msg.event.as_deref() == Some(EVENT_INIT_ERROR) {
+                let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+                let trace = msg.trace.unwrap_or_default();
+                return Err(Error::CustomError(format!("python runner init_error: {err}\n{trace}")));
+            }
+
+            if msg.request_id == Some(request_id.clone()) {
                 return if msg.ok.unwrap_or(false) {
                     Ok(())
                 } else {
