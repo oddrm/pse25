@@ -649,6 +649,7 @@ pub async fn insert_entry_into_db(
                 end_timestamp: end_ts,
                 created_at: now,
                 updated_at: now,
+                tags: Vec::new(),
             };
             // upsert main sequence: match by description + timestamps
             let existing_seqs = storage_manager.get_sequences(entry.id, txid).await.ok();
@@ -702,6 +703,7 @@ pub async fn insert_entry_into_db(
                         end_timestamp: end_ts,
                         created_at: now,
                         updated_at: now,
+                        tags: Vec::new(),
                     };
                     // subsequence upsert: match by description + timestamps
                     let existing_seqs = storage_manager.get_sequences(entry.id, txid).await.ok();

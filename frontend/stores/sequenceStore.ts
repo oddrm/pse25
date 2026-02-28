@@ -69,7 +69,8 @@ export const useSequencesStore = defineStore("sequences", {
         const webPayload: SequenceWeb = {
           description: payload.description,
           start_timestamp: payload.start_timestamp,
-          end_timestamp: payload.end_timestamp
+          end_timestamp: payload.end_timestamp,
+          tags: payload.tags || []
         }
         const newId = await addSequence(payload.entry_id, webPayload)
 
@@ -98,7 +99,8 @@ export const useSequencesStore = defineStore("sequences", {
         const webPayload: SequenceWeb = {
           description: updatedSeq.description,
           start_timestamp: updatedSeq.start_timestamp,
-          end_timestamp: updatedSeq.end_timestamp
+          end_timestamp: updatedSeq.end_timestamp,
+          tags: updatedSeq.tags || []
         }
         await updateSequence(updatedSeq.entry_id, updatedSeq.id, webPayload)
         this.sequences[index] = {
