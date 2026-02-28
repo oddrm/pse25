@@ -106,6 +106,8 @@ class PluginImpl(BasePlugin):
             logger.exception("failed to parse input data")
             return STOPPED
 
+        self.report_progress(0.01, "Validating input")
+
         if not mcap_path.exists():
             logger.error("mcap not found: %s", mcap_path)
             return STOPPED
@@ -113,13 +115,16 @@ class PluginImpl(BasePlugin):
         # NEW: If filename already indicates compression -> treat as success, just log.
         if mcap_path.suffix.lower() == ".mcap" and mcap_path.stem.lower().endswith(".compressed"):
             logger.info("input already looks compressed, skipping: %s", mcap_path)
+            self.report_progress(1.0, "Already compressed (skipped)")
             return STOPPED
 
         # NEW: allow "already compressed, just rename" mode (useful if UI points to a compressed file without suffix)
         if already_compressed:
+            self.report_progress(0.2, "Renaming already-compressed file")
             new_path = _with_compressed_suffix(mcap_path)
             if new_path.resolve() == mcap_path.resolve():
                 logger.info("already_compressed=true but name already ok, nothing to do: %s", mcap_path)
+                self.report_progress(1.0, "Done")
                 return STOPPED
 
             try:
@@ -132,6 +137,7 @@ class PluginImpl(BasePlugin):
                 return STOPPED
 
             logger.info("file was already compressed; renamed to: %s", new_path)
+            self.report_progress(1.0, "Renamed")
             return STOPPED
 
         # NEW: guard against double-compressing already-compressed outputs
@@ -142,6 +148,7 @@ class PluginImpl(BasePlugin):
                 mcap_path,
             )
             return STOPPED
+
 
         if out_path is None:
             out_path = _default_output_path_next_to_mcap(mcap_path)
@@ -161,6 +168,8 @@ class PluginImpl(BasePlugin):
         if self.should_stop():
             logger.info("%s stopping on request (before start)", PLUGIN_NAME)
             return STOPPED
+
+        self.report_progress(0.05, "Preparing output")
 
         try:
             out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -193,6 +202,9 @@ class PluginImpl(BasePlugin):
         last_progress_ts = start_ts
         last_size = _safe_size_bytes(tmp_out_path)
 
+        input_size = max(1, _safe_size_bytes(mcap_path))
+        self.report_progress(0.06, "Starting compression")
+
         progress_interval_s = 5.0
 
         proc = None  # NEW: prevent NameError
@@ -204,7 +216,6 @@ class PluginImpl(BasePlugin):
                 stderr=subprocess.PIPE,
             )
 
-            # Progress loop only runs if proc started successfully
             while True:
                 self.wait_while_paused()
                 if self.should_stop():
@@ -235,6 +246,11 @@ class PluginImpl(BasePlugin):
                     exists = tmp_out_path.exists()
                     cur_size = _safe_size_bytes(tmp_out_path)
                     elapsed = now - start_ts
+
+                    # NEW: estimate progress via output size growth vs input size
+                    ratio = max(0.0, min(1.0, cur_size / float(input_size)))
+                    estimated = 0.05 + 0.90 * ratio
+                    self.report_progress(estimated, f"Compressing… ({int(ratio * 100)}%)")
 
                     if cur_size != last_size:
                         logger.info(
@@ -295,6 +311,8 @@ class PluginImpl(BasePlugin):
             )
             return STOPPED
 
+        self.report_progress(0.95, "Finalizing output")
+
         tmp_size = _safe_size_bytes(tmp_out_path)
         if tmp_size <= 0:
             try:
@@ -322,4 +340,6 @@ class PluginImpl(BasePlugin):
         elapsed = time.monotonic() - start_ts
         out_size = _safe_size_bytes(out_path)
         logger.info("wrote compressed MCAP: %s (size=%d bytes, elapsed=%.1fs)", out_path, out_size, elapsed)
+
+        self.report_progress(1.0, "Done")
         return STOPPED

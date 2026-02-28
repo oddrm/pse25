@@ -16,7 +16,12 @@ logger = logging.getLogger(__name__)
 
 class PluginImpl(BasePlugin):
     """
-    Komprimiert den Ausgabe von `mcap info` in eine Sidecar-Datei (im selben Ordner wie die MCAP):
+    Plugin-Syntax wie in den plugin_examples:
+    - Metadata Konstanten am Anfang
+    - Implementierung in class PluginImpl(BasePlugin)
+    - run(data: str) -> str liefert am Ende STOPPED
+
+    Sidecar-Datei (im selben Ordner wie die MCAP):
       <datei>.mcap.info.txt.gz
     Beispiel:
       demo.mcap -> demo.mcap.info.txt.gz

@@ -206,6 +206,8 @@ def _to_str_or_number_as_str(v: Any) -> Optional[str]:
 
 class PluginImpl(BasePlugin):
     def run(self, data: str) -> str:
+        self.report_progress(0.01, "Starting import")
+
         self.wait_while_paused()
         if self.should_stop():
             return self._json_result(status="stopped", message="stopped")
@@ -219,6 +221,8 @@ class PluginImpl(BasePlugin):
         except Exception as e:
             return self._json_result(status="error", message=f"invalid json payload: {e}")
 
+        self.report_progress(0.10, "Validated payload")
+
         mcap_path_raw = (payload.get("mcap_path") or "").strip()
         if not mcap_path_raw:
             return self._json_result(status="error", message="missing 'mcap_path'")
@@ -229,20 +233,23 @@ class PluginImpl(BasePlugin):
         if mcap_path.suffix.lower() != ".mcap":
             return self._json_result(status="error", message=f"mcap_path must point to a .mcap file: {mcap_path}")
 
-        # NEW: choose export yaml (not metadata.yaml)
+        self.report_progress(0.18, "Looking for export YAML")
+
         try:
             export_yaml_path = _find_export_yaml_next_to_mcap(mcap_path)
         except Exception as e:
             return self._json_result(status="error", message=str(e))
 
         if export_yaml_path is None:
+            # no progress change; still pending
             return self._json_result(
                 status="pending",
                 message="no *_export.yaml found yet next to mcap",
                 summary={"mcap_path": str(mcap_path), "export_yaml_path": None},
             )
 
-        # Parse export YAML
+        self.report_progress(0.30, "Parsing YAML")
+
         try:
             parsed = self._parse_yaml(export_yaml_path)
         except Exception as e:
@@ -251,16 +258,12 @@ class PluginImpl(BasePlugin):
         if parsed is None:
             return self._json_result(status="stopped", message="stopped")
 
-        # NEW: apply to entry via backend, by path
-        # CHANGED: default port 8080 (compose.dev.yaml exposes backend on 8080)
+        self.report_progress(0.45, "Resolving entry in backend")
+
         backend_base_url = (payload.get("backend_base_url") or "http://127.0.0.1:8080").rstrip("/")
         txid = int(payload.get("txid") or 0)
 
         entry_path = str(mcap_path)
-
-        # CHANGED: /paths/<path..>?txid=...
-        # - remove leading "/" because the route is /paths/<path..>
-        # - keep "/" unescaped inside the path
         path_part = quote(entry_path.lstrip("/"), safe="/")
         url = f"{backend_base_url}/paths/{path_part}?txid={txid}"
 
@@ -273,18 +276,28 @@ class PluginImpl(BasePlugin):
         if not isinstance(entry_id, int):
             return self._json_result(status="error", message="backend response missing numeric entry.id")
 
-        # Map YAML -> MetadataWeb (best-effort; unset fields remain null)
+        self.report_progress(0.60, "Mapping metadata")
+
         md = self._map_export_yaml_to_metadata_web(parsed)
+
+        self.report_progress(0.75, "Updating metadata")
 
         try:
             self._http_put_json(f"{backend_base_url}/entries/{entry_id}/metadata/tx/{txid}", md)
         except Exception as e:
             return self._json_result(status="error", message=f"failed to update metadata: {e}")
 
-        # Optional: tags
         tags = self._extract_tags(parsed)
         if tags:
-            for tag in tags:
+            for i, tag in enumerate(tags, start=1):
+                self.wait_while_paused()
+                if self.should_stop():
+                    return self._json_result(status="stopped", message="stopped")
+
+                # 75%..95% reserved for tags
+                frac = i / max(1, len(tags))
+                self.report_progress(0.75 + 0.20 * frac, f"Adding tag {i}/{len(tags)}")
+
                 try:
                     self._http_put_text(
                         f"{backend_base_url}/entries/{entry_id}/tags/tx/{txid}",
@@ -292,6 +305,8 @@ class PluginImpl(BasePlugin):
                     )
                 except Exception as e:
                     return self._json_result(status="error", message=f"failed to add tag '{tag}': {e}")
+
+        self.report_progress(1.0, "Done")
 
         summary = {
             "mcap_path": str(mcap_path),

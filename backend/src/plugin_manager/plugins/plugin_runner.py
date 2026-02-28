@@ -180,12 +180,21 @@ def main() -> int:
         # bekommt Faktory/ Klase
         plugin_impl = getattr(module, PLUGIN_IMPL)
 
-        # Instanz erzeugen
-        # NEW (robust): prefer (path, data), fallback to (path) for older plugins
+        # Instanz erzeugen (bevorzugt inkl. instance_id)
         try:
-            plugin = plugin_impl(args.plugin_path, args.data)
+            plugin = plugin_impl(args.plugin_path, args.data, instance_id)
         except TypeError:
-            plugin = plugin_impl(args.plugin_path)
+            try:
+                plugin = plugin_impl(args.plugin_path, args.data)
+            except TypeError:
+                plugin = plugin_impl(args.plugin_path)
+
+        # NEW: smoke test - if progress API exists, emit an initial progress tick
+        try:
+            if hasattr(plugin, "report_progress"):
+                plugin.report_progress(0.0, "started")
+        except Exception:
+            pass
 
     except Exception as e:
         write_msg(

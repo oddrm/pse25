@@ -32,6 +32,7 @@ pub struct PluginInfo {
     valid: bool,
     instance_id: Option<u64>,
     state: Option<crate::plugin_manager::manager::InstanceState>,
+    progress: Option<f32>,
 }
 
 #[post("/plugins/<plugin_name>/start", data = "<payload>")]
@@ -135,7 +136,6 @@ pub async fn start_plugin_instance(
         data_str
     );
 
-    // ... existing code: prepare_start / build_started_instance_with_data / commit ...
     let (plugin_index, plugin_path) = {
         let pm = lock_plugin_manager(state).await?;
         pm.prepare_start(plugin_name)?
@@ -293,12 +293,16 @@ pub async fn get_plugin_instances(state: &State<AppState>) -> Result<Json<Vec<Pl
 
     let mut results: Vec<PluginInfo> = Vec::new();
 
-    // currently running (including Paused/Completed/Failed)
     for (p, instance_id, status) in pm.get_running_instances() {
-        // treat disabled plugins as non-registered => skip their instances
         if !p.enabled() {
             continue;
         }
+
+        let progress = pm
+            .running
+            .get(&instance_id)
+            .map(|h| *h.progress_rx.borrow());
+
         results.push(PluginInfo {
             name: p.name().clone(),
             description: p.description().clone(),
@@ -308,12 +312,11 @@ pub async fn get_plugin_instances(state: &State<AppState>) -> Result<Json<Vec<Pl
             valid: p.valid(),
             instance_id: Some(instance_id),
             state: Some(status),
+            progress,
         });
     }
 
-    // include stopped/recorded instances from history
     for (p, instance_id, status) in pm.get_history_instances() {
-        // skip instances for disabled plugins as well
         if !p.enabled() {
             continue;
         }
@@ -326,13 +329,13 @@ pub async fn get_plugin_instances(state: &State<AppState>) -> Result<Json<Vec<Pl
             valid: p.valid(),
             instance_id: Some(instance_id),
             state: Some(status),
+            progress: Some(1.0),
         });
     }
 
     Ok(Json(results))
 }
 
-// Die GETs bleiben ok: sie locken kurz und awaiten nichts "Langsames".
 #[get("/plugins/registered")]
 pub async fn get_registered_plugins(
     state: &State<AppState>,
@@ -352,6 +355,7 @@ pub async fn get_registered_plugins(
             valid: p.valid(),
             instance_id: None,
             state: None,
+            progress: None,
         })
         .collect();
 

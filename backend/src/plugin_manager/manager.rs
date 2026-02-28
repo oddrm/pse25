@@ -178,6 +178,7 @@ pub struct PluginHandle {
     pub plugin_index: usize,
     pub command_tx: mpsc::Sender<PluginCommand>,
     pub status_rx: watch::Receiver<InstanceState>,
+    pub progress_rx: watch::Receiver<f32>,
 }
 
 #[derive(Debug)]
@@ -1021,7 +1022,7 @@ async fn send_runner_cmd(
         .map_err(|e| Error::CustomError(format!("{ERR_FAILED_FLUSH_CMD_PREFIX}{e}")))?;
     Ok(())
 }
-#[instrument(skip(child, child_stdin, stdout_rx, command_rx, status_tx))]
+#[instrument(skip(child, child_stdin, stdout_rx, command_rx, status_tx, progress_tx))]
 async fn run_instance_actor(
     instance_id: InstanceID,
     plugin_name: String,
@@ -1030,6 +1031,7 @@ async fn run_instance_actor(
     mut stdout_rx: mpsc::Receiver<RunnerMsg>,
     mut command_rx: mpsc::Receiver<PluginCommand>,
     status_tx: watch::Sender<InstanceState>,
+    progress_tx: watch::Sender<f32>,
 ) {
     enum PendingReply {
         Unit(oneshot::Sender<Result<(), Error>>, String),
@@ -1042,6 +1044,7 @@ async fn run_instance_actor(
     loop {
         tokio::select! {
             cmd = command_rx.recv() => {
+                // ... existing code unchanged ...
                 match cmd {
                     Some(PluginCommand::Stop(reply)) => {
                         let request_id = format!("{}-{}", instance_id, next_request_seq);
@@ -1087,47 +1090,24 @@ async fn run_instance_actor(
                 match msg {
                     Some(msg) => {
                         if msg.instance_id != instance_id { continue; }
-                        if let Some(request_id) = msg.request_id {
-                            if let Some(pending) = pending_acks.remove(&request_id) {
-                                match pending {
-                                    PendingReply::Unit(reply, cmd) => {
-                                        if msg.ok.unwrap_or(false) {
-                                            // Update state for pause/resume/stop acknowledgements
-                                            match cmd.as_str() {
-                                                CMD_PAUSE => { status_tx.send(InstanceState::Paused).ok(); }
-                                                CMD_RESUME => { status_tx.send(InstanceState::Running).ok(); }
-                                                CMD_STOP => { status_tx.send(InstanceState::Stopped).ok(); }
-                                                _ => {}
-                                            }
-                                            let _ = reply.send(Ok(()));
-                                        } else {
-                                            let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
-                                            let _ = reply.send(Err(Error::CustomError(err)));
-                                        }
-                                    }
-                                    PendingReply::Json(reply) => {
-                                        if msg.ok.unwrap_or(false) {
-                                            if let Some(result) = &msg.result {
-                                                let _ = reply.send(Ok(result.clone()));
-                                            } else {
-                                                // send empty object if no result present
-                                                let _ = reply.send(Ok(serde_json::Value::Null));
-                                            }
-                                        } else {
-                                            let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
-                                            let _ = reply.send(Err(Error::CustomError(err)));
-                                        }
+
+                        if let Some(ev) = &msg.event {
+                            // NEW: progress events from plugin
+                            if ev == "progress" {
+                                if let Some(val) = &msg.result {
+                                    if let Some(p) = val.get("progress").and_then(|v| v.as_f64()) {
+                                        let clamped = p.clamp(0.0, 1.0) as f32;
+                                        let _ = progress_tx.send(clamped);
                                     }
                                 }
+                                continue;
                             }
-                        }
-                        if let Some(ev) = &msg.event {
+
                             // Special handling for logs emitted from plugin (via Python logging)
                             if ev == "log" {
                                 if let Some(val) = &msg.result {
                                     if let Some(level) = val.get("level").and_then(|v| v.as_str()) {
                                         let message = val.get("msg").and_then(|v| v.as_str()).unwrap_or_default();
-                                        // plugin::plugin_name.instance_id
                                         let logger_name = format!("plugin.{}.{}", instance_id, level.to_lowercase());
                                         match level {
                                             "DEBUG" => debug!("{} {}", logger_name, message),
@@ -1145,8 +1125,42 @@ async fn run_instance_actor(
                             if ev == "exited" {
                                 let final_state = if msg.ok.unwrap_or(false) { InstanceState::Completed } else { InstanceState::Failed };
                                 status_tx.send(final_state).ok();
+                                let _ = progress_tx.send(1.0);
                                 info!("plugin instance {} ('{}') exited with state {:?}", instance_id, plugin_name, final_state);
                                 break;
+                            }
+                        }
+
+                        if let Some(request_id) = msg.request_id {
+                            if let Some(pending) = pending_acks.remove(&request_id) {
+                          match pending {
+                                    PendingReply::Unit(reply, cmd) => {
+                                        if msg.ok.unwrap_or(false) {
+                                            match cmd.as_str() {
+                                                CMD_PAUSE => { status_tx.send(InstanceState::Paused).ok(); }
+                                                CMD_RESUME => { status_tx.send(InstanceState::Running).ok(); }
+                                                CMD_STOP => { status_tx.send(InstanceState::Stopped).ok(); }
+                                                _ => {}
+                                            }
+                                            let _ = reply.send(Ok(()));
+                                        } else {
+                                            let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+                                            let _ = reply.send(Err(Error::CustomError(err)));
+                                        }
+                                    }
+                                    PendingReply::Json(reply) => {
+                                        if msg.ok.unwrap_or(false) {
+                                            if let Some(result) = &msg.result {
+                                                let _ = reply.send(Ok(result.clone()));
+                                            } else {
+                                                let _ = reply.send(Ok(serde_json::Value::Null));
+                                            }
+                                        } else {
+                                            let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+                                            let _ = reply.send(Err(Error::CustomError(err)));
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1159,6 +1173,7 @@ async fn run_instance_actor(
                     _ => InstanceState::Failed,
                 };
                 status_tx.send(s).ok();
+                let _ = progress_tx.send(1.0);
                 info!("python runner process for instance {} ('{}') exited with state {:?}", instance_id, plugin_name, s);
                 break;
             }
@@ -1259,6 +1274,9 @@ pub async fn build_started_instance_core(
     let (command_tx, command_rx) = mpsc::channel(32);
     let (status_tx, status_rx) = watch::channel(InstanceState::Running);
 
+    // NEW
+    let (progress_tx, progress_rx) = watch::channel(0.0_f32);
+
     // Perform initial start handshake before spawning the actor
     let request_id = format!("{}-0", instance_id);
     send_runner_cmd(instance_id, &mut child_stdin, CMD_START, &request_id).await?;
@@ -1304,13 +1322,14 @@ pub async fn build_started_instance_core(
         stdout_rx,
         command_rx,
         status_tx,
+        progress_tx,
     ));
-    debug!("Spawned instance actor for instance {}", instance_id);
 
     Ok(PluginHandle {
         plugin_index,
         command_tx,
         status_rx,
+        progress_rx,
     })
 }
 
@@ -1328,6 +1347,9 @@ pub async fn build_started_instance_core_with_data(
     let (command_tx, command_rx) = mpsc::channel(32);
     let (status_tx, status_rx) = watch::channel(InstanceState::Running);
 
+    // NEW
+    let (progress_tx, progress_rx) = watch::channel(0.0_f32);
+
     // Perform initial start handshake before spawning the actor
     let request_id = format!("{}-0", instance_id);
     send_runner_cmd(instance_id, &mut child_stdin, CMD_START, &request_id).await?;
@@ -1373,12 +1395,13 @@ pub async fn build_started_instance_core_with_data(
         stdout_rx,
         command_rx,
         status_tx,
+        progress_tx,
     ));
-    debug!("Spawned instance actor for instance {}", instance_id);
 
     Ok(PluginHandle {
         plugin_index,
         command_tx,
         status_rx,
+        progress_rx,
     })
 }

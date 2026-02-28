@@ -112,7 +112,6 @@ class PluginImpl(BasePlugin):
                 ensure_ascii=False,
             )
 
-        # If payload provides mcap_path, keep that exact file in mode=all.
         mcap_to_keep: Optional[Path] = None
         mcap_raw = payload.get("mcap_path")
         if isinstance(mcap_raw, str) and mcap_raw.strip():
@@ -121,19 +120,22 @@ class PluginImpl(BasePlugin):
         deleted: List[str] = []
         skipped: List[Dict[str, str]] = []
 
-        for p in directory.iterdir():
+        # NEW: Fortschritt vorbereiten
+        all_files = [p for p in directory.iterdir() if p.is_file()]
+        total = max(1, len(all_files))
+        self.report_progress(0.0, f"Scanning {total} files")
+
+        for idx, p in enumerate(all_files, start=1):
             if self.should_stop():
                 return "stopped"
             self.wait_while_paused()
-
-            if not p.is_file():
-                continue
 
             name_lc = p.name.lower()
 
             should_delete = False
             if mode == "all":
                 if _should_keep_in_all(p, mcap_to_keep):
+                    self.report_progress(idx / total, f"Keeping {p.name}")
                     continue
                 should_delete = True
             elif mode == "export":
@@ -142,13 +144,18 @@ class PluginImpl(BasePlugin):
                 should_delete = "compress" in name_lc
 
             if not should_delete:
+                self.report_progress(idx / total, f"Skipping {p.name}")
                 continue
 
             try:
                 p.unlink()
                 deleted.append(str(p))
+                self.report_progress(idx / total, f"Deleted {p.name}")
             except Exception as e:
                 skipped.append({"path": str(p), "reason": str(e)})
+                self.report_progress(idx / total, f"Failed {p.name}")
+
+        self.report_progress(1.0, "Done")
 
         return json.dumps(
             {"ok": True, "mode": mode, "dir": str(directory), "deleted": deleted, "skipped": skipped},
