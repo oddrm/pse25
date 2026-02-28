@@ -590,6 +590,7 @@ impl StorageManager {
     ) -> Result<SequenceID, StorageError> {
         let conn = self.db_connection_pool().get().await?;
         let s = sequence.clone();
+        debug!("Adding sequence for entry_id {}: {:?}", entry_id_, s);
         let sequence_id = conn
             .interact(move |conn| {
                 use crate::schema::sequences::dsl as sequences_dsl;
@@ -601,6 +602,7 @@ impl StorageManager {
                         sequences_dsl::end_timestamp.eq(s.end_timestamp),
                         sequences_dsl::created_at.eq(s.created_at),
                         sequences_dsl::updated_at.eq(s.updated_at),
+                        sequences_dsl::tags.eq(s.tags),
                     ))
                     .returning(sequences_dsl::id)
                     .get_result::<SequenceID>(conn)
@@ -633,6 +635,7 @@ impl StorageManager {
                 schema::sequences::dsl::start_timestamp.eq(sequence.start_timestamp),
                 schema::sequences::dsl::end_timestamp.eq(sequence.end_timestamp),
                 schema::sequences::dsl::updated_at.eq(sequence.updated_at),
+                schema::sequences::dsl::tags.eq(sequence.tags),
             ))
             .execute(conn)
         })

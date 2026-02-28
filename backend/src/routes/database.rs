@@ -46,6 +46,7 @@ pub struct SequenceWeb {
     pub description: String,
     pub start_timestamp: i64,
     pub end_timestamp: i64,
+    pub tags: Vec<String>,
 }
 use crate::storage::storage_manager::{Map, TxID};
 use rocket::serde::json::Json;
@@ -309,6 +310,7 @@ pub async fn add_sequence(
         end_timestamp: s.end_timestamp,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        tags: s.tags,
     };
 
     let new_id = sm.add_sequence(entry_id, storage_sequence, txid).await?;
@@ -336,8 +338,9 @@ pub async fn update_sequence(
         description: s.description,
         start_timestamp: s.start_timestamp,
         end_timestamp: s.end_timestamp,
-        created_at: Utc::now(), // will not be updated
+        created_at: Utc::now(),
         updated_at: Utc::now(),
+        tags: s.tags,
     };
 
     sm.update_sequence(entry_id, sequence_id, storage_sequence, txid)

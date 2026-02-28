@@ -83,6 +83,7 @@ pub struct Sequence {
     pub end_timestamp: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub tags: Vec<String>,
 }
 
 #[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize, PartialEq)]
