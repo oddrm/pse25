@@ -33,6 +33,7 @@ use notify::{
     event::{CreateKind, EventAttributes},
 };
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rocket::futures::stream;
 use rocket::futures::{FutureExt, StreamExt};
 use tokio::sync::oneshot;
 use tokio::sync::{
@@ -86,36 +87,6 @@ fn entry_matches_date(entry: &Entry, date_time: &DateTime<Utc>) -> bool {
             .as_ref()
             .map(|time| time.date_naive() == search_date)
             .unwrap_or(false)
-}
-
-/// Returns true if this entry matches the search: every word in `search_parts` must appear
-/// in at least one of the entry's string fields, or (if the word is a valid date) match
-/// one of the entry's date fields (created_at, updated_at, scenario_creation_time).
-fn entry_matches_search(entry: &Entry, search_parts: &[String]) -> bool {
-    for part in search_parts {
-        if let Some(search_dt) = parse_search_date(part) {
-            if !entry_matches_date(entry, &search_dt) {
-                return false;
-            }
-            continue;
-        }
-        let matches = contains_part(&entry.name, part)
-            || contains_part(&entry.path, part)
-            || opt_contains(&entry.platform_name, part)
-            || opt_contains(&entry.scenario_name, part)
-            || opt_contains(&entry.scenario_description, part)
-            || opt_contains(&entry.weather_cloudiness, part)
-            || opt_contains(&entry.weather_precipitation, part)
-            || opt_contains(&entry.weather_precipitation_deposits, part)
-            || opt_contains(&entry.weather_wind_intensity, part)
-            || opt_contains(&entry.weather_road_humidity, part)
-            || entry.tags.iter().any(|t| contains_part(t, part));
-        //  || entry.topics.iter().any(|t| contains_part(t, part));
-        if !matches {
-            return false;
-        }
-    }
-    true
 }
 
 #[derive(Clone)]
@@ -214,6 +185,43 @@ impl StorageManager {
         Ok(())
     }
 
+    /// Returns true if this entry matches the search: every word in `search_parts` must appear
+    /// in at least one of the entry's string fields, or (if the word is a valid date) match
+    /// one of the entry's date fields (created_at, updated_at, scenario_creation_time).
+    /// If `entry_topics` is provided, topic_name and topic_type are also matched.
+    async fn entry_matches_search(&self, entry: &Entry, search_parts: &[String]) -> bool {
+        for part in search_parts {
+            if let Some(search_dt) = parse_search_date(part) {
+                if !entry_matches_date(entry, &search_dt) {
+                    return false;
+                }
+                continue;
+            }
+            let matches_without_topics = contains_part(&entry.name, part)
+                || contains_part(&entry.path, part)
+                || opt_contains(&entry.platform_name, part)
+                || opt_contains(&entry.scenario_name, part)
+                || opt_contains(&entry.scenario_description, part)
+                || opt_contains(&entry.weather_cloudiness, part)
+                || opt_contains(&entry.weather_precipitation, part)
+                || opt_contains(&entry.weather_precipitation_deposits, part)
+                || opt_contains(&entry.weather_wind_intensity, part)
+                || opt_contains(&entry.weather_road_humidity, part)
+                || entry.tags.iter().any(|t| contains_part(t, part));
+            if matches_without_topics {
+                continue;
+            }
+            let topics = self.get_topics(entry.id, 0).await.unwrap_or(Map::new());
+            let topic_matches = topics.into_iter().any(|(_, topic)| {
+                contains_part(&topic.topic_name, part) || opt_contains(&topic.topic_type, part)
+            });
+            if !topic_matches {
+                return false;
+            }
+        }
+        true
+    }
+
     #[instrument]
     pub async fn get_entries(
         &self,
@@ -242,9 +250,21 @@ impl StorageManager {
         let filtered: Vec<Entry> = if search_parts.is_empty() {
             entries
         } else {
-            entries
+            let search_parts = std::sync::Arc::new(search_parts);
+            let stream = stream::iter(entries.into_iter().map(move |entry| {
+                let search_parts = search_parts.clone();
+                let sm = self;
+                async move {
+                    let matched = sm.entry_matches_search(&entry, &(*search_parts)[..]).await;
+                    (matched, entry)
+                }
+            }))
+            .buffer_unordered(10);
+
+            let results: Vec<(bool, Entry)> = stream.collect::<Vec<_>>().await;
+            results
                 .into_iter()
-                .filter(|e| entry_matches_search(e, &search_parts))
+                .filter_map(|(matched, entry)| if matched { Some(entry) } else { None })
                 .collect()
         };
         let filtered_count = filtered.len() as u32;
@@ -276,7 +296,6 @@ impl StorageManager {
         if ascending.is_some_and(|a| !a) {
             sorted.reverse();
         }
-        debug!("Applied ascending/descending");
         // 4. Paging
         let paged: Vec<Entry> = match (page, page_size) {
             (Some(p), Some(ps)) if ps > 0 => {
