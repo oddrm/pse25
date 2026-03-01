@@ -3,6 +3,7 @@
     <!-- <p>entries: {{ entries?.length }} {{ entriesFetchError }} {{ entriesStatus }} {{ entries }}</p> -->
     <input placeholder="Search" class="input" v-model="searchString" @keyup.enter="console.log(' enter on search');
     refreshEntries()" />
+    <p>num pages {{ numPages }}</p>
     <table class="table table-auto">
       <thead>
         <tr>
@@ -33,7 +34,10 @@ const searchString = ref("");
 const sortBy = ref(Sorting.Name);
 const ascending = ref(true);
 
-const { data: entries, refresh: refreshEntries, error: entriesFetchError, status: entriesStatus } = await useAsyncData("entries", async () => fetchEntries(searchString.value, sortBy.value, ascending.value, 0, 50));
+const { data: result, refresh: refreshEntries, error: entriesFetchError, status: entriesStatus } = await useAsyncData("entries", async () => fetchEntries(searchString.value, sortBy.value, ascending.value, 0, 2));
+
+const entries = computed(() => result.value ? result.value[0] : []);
+const numPages = computed(() => result.value ? result.value[1] : 0);
 
 const handleSort = (column: string) => {
   if (

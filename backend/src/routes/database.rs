@@ -133,15 +133,15 @@ pub async fn get_entries(
     page: Option<u32>,
     page_size: Option<u32>,
     txid: Option<TxID>,
-) -> Result<Json<Vec<Entry>>, Error> {
+) -> Result<Json<(Vec<Entry>, u32)>, Error> {
     let sm = &state.storage_manager;
     let txid = txid.unwrap_or(0);
 
-    let entries = sm
+    let (entries, num_pages) = sm
         .get_entries(search_string, sort_by, ascending, page, page_size, txid)
         .await?;
 
-    Ok(Json(entries))
+    Ok(Json((entries, num_pages)))
 }
 
 #[get("/entries/<entry_id>/tx/<txid>")]

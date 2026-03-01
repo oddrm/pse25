@@ -223,7 +223,7 @@ impl StorageManager {
         page: Option<u32>,
         page_size: Option<u32>,
         txid: TxID,
-    ) -> Result<Vec<Entry>, StorageError> {
+    ) -> Result<(Vec<Entry>, u32), StorageError> {
         let conn = self.db_connection_pool().get().await?;
         let entries = conn
             .interact(move |conn| {
@@ -247,6 +247,8 @@ impl StorageManager {
                 .filter(|e| entry_matches_search(e, &search_parts))
                 .collect()
         };
+        let filtered_count = filtered.len() as u32;
+
         // debug!("Filtered entries count after search: {}", filtered.len());
         // 2. Sort (always applied
         let mut sorted: Vec<Entry> = filtered
@@ -274,12 +276,17 @@ impl StorageManager {
             }
             _ => sorted,
         };
+
+        let num_pages = page_size
+            .filter(|&ps| ps > 0)
+            .map(|ps| (filtered_count as f64 / ps as f64).ceil() as u32)
+            .unwrap_or(1);
         // debug!("Applied paging: page {:?}, page_size {:?}", page, page_size);
         // debug!(
         // "Final entries count after filtering, sorting, and paging: {}",
         // paged.len()
         // );
-        Ok(paged)
+        Ok((paged, num_pages))
     }
 
     #[instrument]
