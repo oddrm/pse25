@@ -15,7 +15,7 @@ const runGlobal = (id: number) => {
 </script>
 
 <template>
-  <div class="bg-base-100 rounded-box shadow overflow-hidden border border-base-300">
+  <div class="bg-base-100 rounded-box shadow overflow-hidden border border-base-300 pt-14">
     <div class="p-4 flex justify-end">
       <button class="btn btn-sm btn-secondary" @click="pluginsStore.registerPlugins()">Rescan plugins</button>
     </div>

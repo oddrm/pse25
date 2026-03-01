@@ -9,13 +9,14 @@ export interface Sequence {
 
   // Local-only fields (not persisted in backend currently)
   name?: string;
-  tags?: string[];
+  tags: string[];
 }
 
 export interface SequenceWeb {
   description: string;
   start_timestamp: number;
   end_timestamp: number;
+  tags: string[];
 }
 
 export type sequenceID = number;

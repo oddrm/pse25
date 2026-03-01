@@ -72,8 +72,7 @@ async fn main() {
 
     #[allow(unused_mut)]
     let mut storage_manager = StorageManager::new(&db_url).unwrap();
-    file_watcher::scan_once(&storage_manager).await.unwrap();
-    file_watcher::start_scanning(&storage_manager, Duration::from_secs(1))
+    file_watcher::start_scanning(&storage_manager, Duration::from_secs(5))
         .await
         .unwrap();
     let mut plugin_manager = PluginManager::new();

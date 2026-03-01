@@ -1,20 +1,20 @@
 <template>
   <tr class="cursor-pointer hover:bg-base-300 transition-colors duration-150" @click="$emit('select', props.id)">
     <td>
-      <span :class="'flex items-center justify-center badge font-medium ' + statusColor(props.status)">{{ props.status
-      }}
+      <span :class="'flex items-center justify-center min-w-min badge font-medium ' + statusColor(props.status)">
+
       </span>
     </td>
     <td class="font-medium whitespace-nowrap">{{ props.name }}</td>
-    <td class="text-xs text-gray-500 truncate max-w-[150px]" :title="props.path">{{ props.path }}</td>
+    <td class="text-xs text-gray-500 truncate max-w-40" :title="props.path">{{ props.path }}</td>
     <td>{{ (props.size / 1000 / 1000).toFixed(2) }} MB</td>
     <td>{{ props.platform_name }}</td>
 
-    <td @click.stop class="min-w-[200px]">
+    <td @click.stop class="min-w-20">
       <TagEditor :tags="localTags" @update="onTagsChange" />
     </td>
 
-    <td @click.stop class="scale-90">
+    <td @click.stop class="">
       <EntryPlugins :entry="{
         entryID: props.id,
         name: props.name
@@ -61,7 +61,7 @@ const statusColor = (status: string) => {
   switch (status) {
     case 'Complete':
       return 'badge-success'
-    case 'NO MCAP Info':
+    case 'No MCAP Info':
       return 'badge-error'
     case 'Partial MCAP Info':
       return 'badge-warning'

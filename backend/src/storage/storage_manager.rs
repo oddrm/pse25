@@ -230,7 +230,7 @@ impl StorageManager {
         page: Option<u32>,
         page_size: Option<u32>,
         txid: TxID,
-    ) -> Result<Vec<Entry>, StorageError> {
+    ) -> Result<(Vec<Entry>, u32), StorageError> {
         let conn = self.db_connection_pool().get().await?;
         let entries = conn
             .interact(move |conn| {
@@ -272,6 +272,8 @@ impl StorageManager {
                 })
                 .collect()
         };
+        let filtered_count = filtered.len() as u32;
+
         // debug!("Filtered entries count after search: {}", filtered.len());
         // 2. Sort (always applied
         let mut sorted: Vec<Entry> = filtered
@@ -281,6 +283,16 @@ impl StorageManager {
                 Some("Path") => Ord::cmp(&a.path, &b.path),
                 Some("Size") => Ord::cmp(&a.size, &b.size),
                 Some("Platform") => Ord::cmp(&a.platform_name, &b.platform_name),
+                Some("Status") => {
+                    // Define a custom order for status: "new" < "processing" < "processed"
+                    let status_order = |status: &str| match status {
+                        "Complete" => 0,
+                        "Partial MCAP Info" => 1,
+                        "No MCAP Info" => 2,
+                        _ => 3,
+                    };
+                    Ord::cmp(&status_order(&a.status), &status_order(&b.status))
+                }
                 _ => Ord::cmp(&a.name, &b.name),
             })
             .collect();
@@ -299,12 +311,17 @@ impl StorageManager {
             }
             _ => sorted,
         };
+
+        let num_pages = page_size
+            .filter(|&ps| ps > 0)
+            .map(|ps| (filtered_count as f64 / ps as f64).ceil() as u32)
+            .unwrap_or(1);
         // debug!("Applied paging: page {:?}, page_size {:?}", page, page_size);
         // debug!(
         // "Final entries count after filtering, sorting, and paging: {}",
         // paged.len()
         // );
-        Ok(paged)
+        Ok((paged, num_pages))
     }
 
     #[instrument]
@@ -343,7 +360,7 @@ impl StorageManager {
                     .optional()
             })
             .await??;
-        debug!("Queried entry by path: {:?}", entry);
+        // debug!("Queried entry by path: {:?}", entry);
         Ok(entry)
     }
 
@@ -615,6 +632,7 @@ impl StorageManager {
     ) -> Result<SequenceID, StorageError> {
         let conn = self.db_connection_pool().get().await?;
         let s = sequence.clone();
+        debug!("Adding sequence for entry_id {}: {:?}", entry_id_, s);
         let sequence_id = conn
             .interact(move |conn| {
                 use crate::schema::sequences::dsl as sequences_dsl;
@@ -626,6 +644,7 @@ impl StorageManager {
                         sequences_dsl::end_timestamp.eq(s.end_timestamp),
                         sequences_dsl::created_at.eq(s.created_at),
                         sequences_dsl::updated_at.eq(s.updated_at),
+                        sequences_dsl::tags.eq(s.tags),
                     ))
                     .returning(sequences_dsl::id)
                     .get_result::<SequenceID>(conn)
@@ -658,6 +677,7 @@ impl StorageManager {
                 schema::sequences::dsl::start_timestamp.eq(sequence.start_timestamp),
                 schema::sequences::dsl::end_timestamp.eq(sequence.end_timestamp),
                 schema::sequences::dsl::updated_at.eq(sequence.updated_at),
+                schema::sequences::dsl::tags.eq(sequence.tags),
             ))
             .execute(conn)
         })

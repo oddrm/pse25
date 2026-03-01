@@ -46,6 +46,7 @@ pub struct SequenceWeb {
     pub description: String,
     pub start_timestamp: i64,
     pub end_timestamp: i64,
+    pub tags: Vec<String>,
 }
 use crate::storage::storage_manager::{Map, TxID};
 use rocket::serde::json::Json;
@@ -132,15 +133,15 @@ pub async fn get_entries(
     page: Option<u32>,
     page_size: Option<u32>,
     txid: Option<TxID>,
-) -> Result<Json<Vec<Entry>>, Error> {
+) -> Result<Json<(Vec<Entry>, u32)>, Error> {
     let sm = &state.storage_manager;
     let txid = txid.unwrap_or(0);
 
-    let entries = sm
+    let (entries, num_pages) = sm
         .get_entries(search_string, sort_by, ascending, page, page_size, txid)
         .await?;
 
-    Ok(Json(entries))
+    Ok(Json((entries, num_pages)))
 }
 
 #[get("/entries/<entry_id>/tx/<txid>")]
@@ -309,6 +310,7 @@ pub async fn add_sequence(
         end_timestamp: s.end_timestamp,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        tags: s.tags,
     };
 
     let new_id = sm.add_sequence(entry_id, storage_sequence, txid).await?;
@@ -336,8 +338,9 @@ pub async fn update_sequence(
         description: s.description,
         start_timestamp: s.start_timestamp,
         end_timestamp: s.end_timestamp,
-        created_at: Utc::now(), // will not be updated
+        created_at: Utc::now(),
         updated_at: Utc::now(),
+        tags: s.tags,
     };
 
     sm.update_sequence(entry_id, sequence_id, storage_sequence, txid)

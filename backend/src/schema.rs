@@ -48,6 +48,7 @@ diesel::table! {
         end_timestamp -> BigInt,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        tags -> Array<Text>,
     }
 }
 

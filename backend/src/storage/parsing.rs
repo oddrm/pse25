@@ -6,6 +6,7 @@ use crate::{
     storage::models::{Entry, Sensor, Sequence},
 };
 use chrono::{DateTime, Utc};
+use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use serde_json;
 use serde_yaml;
 use tokio::io::AsyncReadExt;
@@ -36,7 +37,7 @@ async fn get_mcap_info(path: &Path) -> Result<McapInfo, StorageError> {
     // Use the `mcap` CLI plaintext output: `mcap info <path>` and parse it.
     let mut cmd = Command::new("mcap");
     cmd.arg("info").arg(path);
-    debug!("Running command: mcap info {:?}", path);
+    // debug!("Running command: mcap info {:?}", path);
     let output = match cmd.output().await {
         Ok(o) => o,
         Err(e) => {
@@ -52,7 +53,7 @@ async fn get_mcap_info(path: &Path) -> Result<McapInfo, StorageError> {
             output.status, stderr
         )));
     }
-    debug!("mcap stdout length: {}", output.stdout.len());
+    // debug!("mcap stdout length: {}", output.stdout.len());
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     debug!("mcap stdout: {}", stdout);
     let mut duration_seconds: Option<f64> = None;
@@ -165,7 +166,7 @@ async fn get_mcap_info(path: &Path) -> Result<McapInfo, StorageError> {
 }
 
 #[instrument]
-pub async fn file_is_mcap(path: &Path) -> bool {
+pub fn file_is_mcap(path: &Path) -> bool {
     path.extension()
         .map_or(false, |ext| ext.to_string_lossy().to_lowercase() == "mcap")
 }
@@ -179,10 +180,10 @@ pub async fn file_is_custom_metadata(path: &Path) -> Result<bool, StorageError> 
         }
         None => false,
     };
-    debug!(
-        "Checking custom metadata for {:?}, extension_ok={}",
-        path, correct_extension
-    );
+    // debug!(
+    //     "Checking custom metadata for {:?}, extension_ok={}",
+    //     path, correct_extension
+    // );
     if correct_extension {
         let mut file = tokio::fs::File::open(path)
             .await
@@ -192,16 +193,16 @@ pub async fn file_is_custom_metadata(path: &Path) -> Result<bool, StorageError> 
             .read(&mut buffer)
             .await
             .map_err(|e| StorageError::IoError(e.into()))?;
-        debug!(
-            "Read {} bytes from metadata candidate {:?}",
-            read_bytes, path
-        );
+        // debug!(
+        //     "Read {} bytes from metadata candidate {:?}",
+        //     read_bytes, path
+        // );
         let content = String::from_utf8_lossy(&buffer[..read_bytes]);
         if content.contains(CUSTOM_METADATA_IDENTIFIER) {
-            debug!("Custom metadata identifier found in {:?}", path);
+            // debug!("Custom metadata identifier found in {:?}", path);
             return Ok(true);
         } else {
-            debug!("Custom metadata identifier NOT found in {:?}", path);
+            // debug!("Custom metadata identifier NOT found in {:?}", path);
         }
     }
     Ok(false)
@@ -213,8 +214,8 @@ pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
         .await
         .map_err(|e| StorageError::IoError(e.into()))?;
     debug!("Reading MCAP file: {:?}", path);
-    debug!("File metadata: {:?}", file.metadata().await);
-    debug!("Extracting topics from MCAP file: {:?}", path);
+    // debug!("File metadata: {:?}", file.metadata().await);
+    // debug!("Extracting topics from MCAP file: {:?}", path);
     let path = path.to_owned();
 
     // Use the `mcap` CLI to extract topics/duration (get_mcap_info parses the JSON)
@@ -254,14 +255,14 @@ pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
             break;
         }
     }
-    debug!("Metadata path for {:?}: {:?}", path, metadata_path);
+    // debug!("Metadata path for {:?}: {:?}", path, metadata_path);
 
     // parse metadata yaml if present (for optional metadata)
     let yaml: Option<serde_yaml::Value> = match metadata_path {
         Some(md) => parse_metadata_yaml(&md).await.unwrap_or(None),
         None => None,
     };
-    debug!("Parsed YAML present: {}", yaml.is_some());
+    // debug!("Parsed YAML present: {}", yaml.is_some());
 
     // determine sequence duration: prefer MCAP-derived duration, fall back to YAML
     let sequence_duration: Option<f64> = mcap_info.duration_seconds.or_else(|| {
@@ -289,7 +290,7 @@ pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
             })
         })
         .unwrap_or_else(|| vec![]);
-    debug!("Extracted tags: {:?}", tags);
+    // debug!("Extracted tags: {:?}", tags);
 
     // file metadata
     let meta = tokio::fs::metadata(&path)
@@ -428,13 +429,13 @@ pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
         tags,
         // topics are stored in separate table now
     };
-    debug!(
-        "Constructed Entry: id=0 name={} path={} size={} tags_count={}",
-        entry.name,
-        entry.path,
-        entry.size,
-        entry.tags.len()
-    );
+    // debug!(
+    //     "Constructed Entry: id=0 name={} path={} size={} tags_count={}",
+    //     entry.name,
+    //     entry.path,
+    //     entry.size,
+    //     entry.tags.len()
+    // );
 
     Ok(entry)
 }
@@ -495,7 +496,7 @@ pub async fn insert_entry_into_db(
             "Entry with same path already exists with id {}. Updating it.",
             existing.id
         );
-        debug!("Existing entry: {:?}", existing);
+        // debug!("Existing entry: {:?}", existing);
         // update metadata for existing entry
         entry.id = existing.id;
         let md = crate::routes::database::MetadataWeb {
@@ -527,11 +528,34 @@ pub async fn insert_entry_into_db(
                 error!("Failed to add tag for entry {}: {:?}", entry.id, e);
             }
         }
+        let pool = storage_manager.db_connection_pool();
+        let entry_id = entry.id;
+        let entry_size = entry.size;
+        let entry_updated_at = entry.updated_at;
+        let entry_status = entry.status.clone();
+        if let Ok(conn2) = pool.get().await {
+            if let Err(e) = conn2
+                .interact(move |conn| {
+                    diesel::update(
+                        crate::schema::entries::dsl::entries
+                            .filter(crate::schema::entries::dsl::id.eq(entry_id)),
+                    )
+                    .set((
+                        crate::schema::entries::dsl::size.eq(entry_size),
+                        crate::schema::entries::dsl::updated_at.eq(entry_updated_at),
+                        crate::schema::entries::dsl::status.eq(entry_status),
+                    ))
+                    .execute(conn)
+                })
+                .await
+            {
+                error!(
+                    "Failed to update size/updated_at/status for entry {}: {:?}",
+                    entry_id, e
+                );
+            }
+        }
     } else {
-        debug!(
-            "No existing entry with same path. Inserting new entry for path {:?}.",
-            entry.path
-        );
         // insert new entry (keep previous insertion approach)
         let entry_clone = entry.clone();
         debug!(
@@ -649,6 +673,7 @@ pub async fn insert_entry_into_db(
                 end_timestamp: end_ts,
                 created_at: now,
                 updated_at: now,
+                tags: Vec::new(),
             };
             // upsert main sequence: match by description + timestamps
             let existing_seqs = storage_manager.get_sequences(entry.id, txid).await.ok();
@@ -702,6 +727,7 @@ pub async fn insert_entry_into_db(
                         end_timestamp: end_ts,
                         created_at: now,
                         updated_at: now,
+                        tags: Vec::new(),
                     };
                     // subsequence upsert: match by description + timestamps
                     let existing_seqs = storage_manager.get_sequences(entry.id, txid).await.ok();

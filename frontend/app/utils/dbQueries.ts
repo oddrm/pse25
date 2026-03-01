@@ -5,9 +5,9 @@ import type { MetadataWeb } from "./metadata";
 import type { Sensor, SensorWeb } from "./sensor";
 import type { Topic } from "./topic";
 
-export const fetchEntries = async (searchString: string, sortBy: Sorting, ascending: boolean, page: number, pageSize: number): Promise<Entry[]> => {
+export const fetchEntries = async (searchString: string, sortBy: Sorting, ascending: boolean, page: number, pageSize: number): Promise<[Entry[], number]> => {
     try {
-        const data = await $fetch<Entry[]>("/backend/entries", {
+        const data = await $fetch<[Entry[], number]>("/backend/entries", {
             method: "GET",
             query: {
                 search_string: searchString,

@@ -1,5 +1,5 @@
 <template>
-  <div class="p-6">
+  <div class="p-6 pt-14">
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-2xl font-bold">Backend Logs</h1>
       <div class="flex gap-2 items-center">
