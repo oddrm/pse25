@@ -6,11 +6,11 @@
       </span>
     </td>
     <td class="font-medium whitespace-nowrap">{{ props.name }}</td>
-    <td class="text-xs text-gray-500 truncate max-w-[150px]" :title="props.path">{{ props.path }}</td>
+    <td class="text-xs text-gray-500 truncate max-w-40" :title="props.path">{{ props.path }}</td>
     <td>{{ (props.size / 1000 / 1000).toFixed(2) }} MB</td>
     <td>{{ props.platform_name }}</td>
 
-    <td @click.stop class="min-w-[200px]">
+    <td @click.stop class="min-w-20">
       <TagEditor :tags="localTags" @update="onTagsChange" />
     </td>
 
