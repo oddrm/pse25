@@ -91,7 +91,8 @@ fn entry_matches_date(entry: &Entry, date_time: &DateTime<Utc>) -> bool {
 /// Returns true if this entry matches the search: every word in `search_parts` must appear
 /// in at least one of the entry's string fields, or (if the word is a valid date) match
 /// one of the entry's date fields (created_at, updated_at, scenario_creation_time).
-fn entry_matches_search(entry: &Entry, search_parts: &[String]) -> bool {
+/// If `entry_topics` is provided, topic_name and topic_type are also matched.
+fn entry_matches_search(entry: &Entry, search_parts: &[String], entry_topics: Option<&[Topic]>) -> bool {
     for part in search_parts {
         if let Some(search_dt) = parse_search_date(part) {
             if !entry_matches_date(entry, &search_dt) {
@@ -99,6 +100,12 @@ fn entry_matches_search(entry: &Entry, search_parts: &[String]) -> bool {
             }
             continue;
         }
+        let topic_matches = entry_topics.map_or(false, |topics| {
+            topics.iter().any(|topic: &Topic| {
+                contains_part(&topic.topic_name, part)
+                    || opt_contains(&topic.topic_type, part)
+            })
+        });
         let matches = contains_part(&entry.name, part)
             || contains_part(&entry.path, part)
             || opt_contains(&entry.platform_name, part)
@@ -109,8 +116,8 @@ fn entry_matches_search(entry: &Entry, search_parts: &[String]) -> bool {
             || opt_contains(&entry.weather_precipitation_deposits, part)
             || opt_contains(&entry.weather_wind_intensity, part)
             || opt_contains(&entry.weather_road_humidity, part)
-            || entry.tags.iter().any(|t| contains_part(t, part));
-        //  || entry.topics.iter().any(|t| contains_part(t, part));
+            || entry.tags.iter().any(|t| contains_part(t, part))
+            || topic_matches;
         if !matches {
             return false;
         }
@@ -242,9 +249,27 @@ impl StorageManager {
         let filtered: Vec<Entry> = if search_parts.is_empty() {
             entries
         } else {
+            // Load all topics so we can match by topic_name / topic_type
+            let topics_map: Map<EntryID, Vec<Topic>> = {
+                let conn = self.db_connection_pool().get().await?;
+                let topics = conn
+                    .interact(move |conn| {
+                        schema::topics::dsl::topics
+                            .select(Topic::as_select())
+                            .load::<Topic>(conn)
+                    })
+                    .await??;
+                topics.into_iter().fold(Map::new(), |mut m, t| {
+                    m.entry(t.entry_id).or_default().push(t);
+                    m
+                })
+            };
             entries
                 .into_iter()
-                .filter(|e| entry_matches_search(e, &search_parts))
+                .filter(|e| {
+                    let topics = topics_map.get(&e.id).map(|v| v.as_slice());
+                    entry_matches_search(e, &search_parts, topics)
+                })
                 .collect()
         };
         // debug!("Filtered entries count after search: {}", filtered.len());
