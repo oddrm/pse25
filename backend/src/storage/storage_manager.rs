@@ -258,6 +258,16 @@ impl StorageManager {
                 Some("Path") => Ord::cmp(&a.path, &b.path),
                 Some("Size") => Ord::cmp(&a.size, &b.size),
                 Some("Platform") => Ord::cmp(&a.platform_name, &b.platform_name),
+                Some("Status") => {
+                    // Define a custom order for status: "new" < "processing" < "processed"
+                    let status_order = |status: &str| match status {
+                        "Complete" => 0,
+                        "Partial MCAP Info" => 1,
+                        "No MCAP Info" => 2,
+                        _ => 3,
+                    };
+                    Ord::cmp(&status_order(&a.status), &status_order(&b.status))
+                }
                 _ => Ord::cmp(&a.name, &b.name),
             })
             .collect();

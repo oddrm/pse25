@@ -2,7 +2,7 @@
   <tr class="cursor-pointer hover:bg-base-300 transition-colors duration-150" @click="$emit('select', props.id)">
     <td>
       <span :class="'flex items-center justify-center min-w-min badge font-medium ' + statusColor(props.status)">
-        
+
       </span>
     </td>
     <td class="font-medium whitespace-nowrap">{{ props.name }}</td>
@@ -61,7 +61,7 @@ const statusColor = (status: string) => {
   switch (status) {
     case 'Complete':
       return 'badge-success'
-    case 'NO MCAP Info':
+    case 'No MCAP Info':
       return 'badge-error'
     case 'Partial MCAP Info':
       return 'badge-warning'
