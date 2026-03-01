@@ -48,9 +48,7 @@
     </header>
 
     <!-- Content -->
-    <main class="flex-1 pt-12">
       <slot />
-    </main>
 
   </div>
 </template>
