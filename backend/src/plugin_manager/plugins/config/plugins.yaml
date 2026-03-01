@@ -1,12 +1,21 @@
 
 # Welche Plugins und welche Schalter?
 plugins:
-  - name: plugin_a
-    enabled: true
-  - name: plugin_b
+  - name: seed_test_data_plugin
     enabled: false
+  - name: delete_parts_of_data_set_only
+    enabled: false
+  - name: metadata_yaml_export_plugin
+    enabled: false
+  - name: metadata_yaml_import_plugin
+    enabled: false
+  - name: append_42
+    enabled: false
+  - name: delete_rest_plugin
+    enabled: false
+  - name: mcap_info_compressed
+    enabled: true
 
-#  // In Server-Init (z.B. main.rs oder setup-Code)
-#  let mut plugin_manager = PluginManager::new();
-#  plugin_manager.register_plugins(plugins_dir)?;
-#  plugin_manager.load_config_and_apply("config/plugins.yaml")?;
+# muss unter plugins_dir/config
+
+# TODO implement compress myself

@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 use std::path::Path;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use crate::error::Error;
 

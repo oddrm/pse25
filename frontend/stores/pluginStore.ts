@@ -97,25 +97,31 @@ export const usePluginsStore = defineStore('plugins', {
       }, 300)
     },
 
-    async startPlugin(pluginId: number, entryName?: string) {
+    async startPlugin(pluginId: number, entryPath?: string, payload?: any) {
       const logsStore = useLogsStore()
       const plugin = this.plugins.find(p => p.id === pluginId)
       if (!plugin) return
 
-      // Prevent duplicate start for same entry
-      if (entryName && this.runningPlugins.some(r => r.pluginName === plugin.name && r.entryName === entryName)) return
+
+      if (entryPath && this.runningPlugins.some(r => r.pluginName === plugin.name && r.entryName === entryPath)) return
 
       try {
+        console.debug('[plugins] starting plugin', { plugin: plugin.name, entryName: entryPath, payload })
+
         const res = await fetch(`/backend/plugins/${encodeURIComponent(plugin.name)}/start`, {
           method: 'POST',
+          body: JSON.stringify({ entry_path: entryPath, payload }),
         })
-        if (!res.ok) throw new Error('Failed to start plugin')
-        const instId = await res.json()
 
-        this.runningPlugins.push({ runId: instId, pluginName: plugin.name, entryName: entryName ?? '', progress: 0 })
+        const text = await res.text()
+        console.debug('[plugins] start response', { ok: res.ok, status: res.status, text })
 
-        // mark global flag if started without entry
-        if (!entryName) {
+        if (!res.ok) throw new Error(`Failed to start plugin: ${text}`)
+        const instId = JSON.parse(text)
+
+        this.runningPlugins.push({ runId: instId, pluginName: plugin.name, entryName: entryPath ?? '', progress: 0 })
+
+        if (!entryPath) {
           plugin.isGlobalRunning = true
         }
       } catch (err: any) {

@@ -176,10 +176,20 @@ def main() -> int:
         json_handler.setFormatter(logging.Formatter("%(message)s"))
         root_logger.addHandler(json_handler)
         root_logger.setLevel(logging.DEBUG)
-        # bekommt Faktory/ Klase
+
+        # bekommt Faktory/ Klasse
         plugin_impl = getattr(module, PLUGIN_IMPL)
-        # Instanz erzeugen
-        plugin = plugin_impl(args.plugin_path)
+        # TODO check
+        # Instanz erzeugen (bevorzugt inkl. instance_id)
+        plugin = plugin_impl(args.plugin_path, args.data, instance_id)
+
+        # NEW: smoke test - if progress API exists, emit an initial progress tick
+        try:
+            if hasattr(plugin, "report_progress"):
+                plugin.report_progress(0.0, "started")
+        except Exception:
+            pass
+
     except Exception as e:
         write_msg(
             {

@@ -1,3 +1,6 @@
+use crate::plugin_manager::plugin::{BackendEvent, Trigger, TriggerKind};
+use crate::plugin_manager::python_bridge;
+use crate::{error::Error, plugin_manager::plugin::Plugin};
 use cron::Schedule;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -5,23 +8,23 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::str::FromStr;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Duration, timeout};
 use tracing::{debug, error, info, instrument, warn};
-use tracing_subscriber::field::debug;
 
-use crate::plugin_manager::plugin::Trigger;
-use crate::plugin_manager::python_bridge;
-use crate::{error::Error, plugin_manager::plugin::Plugin};
-// -------------------- constants --------------------
+const EVENT_INIT_ERROR: &str = "init_error";
 
 const TRIGGER_MANUAL: &str = "manual";
 const TRIGGER_ON_ENTRY_CREATE: &str = "on_entry_create";
 const TRIGGER_ON_ENTRY_UPDATE: &str = "on_entry_update";
 const TRIGGER_ON_ENTRY_DELETE: &str = "on_entry_delete";
-
+const PYTHON_UNBUFFERED_FLAG: &str = "-u";
+const RUNNER_PATH: &str = "src/plugin_manager/plugins/plugin_runner.py";
+const ARG_PLUGIN_PATH: &str = "--plugin-path";
+const ARG_INSTANCE_ID: &str = "--instance-id";
 const FALLBACK_PLUGIN_NAME: &str = "unknown";
 
 const TRIGGER_ON_SCHEDULE_PREFIX: &str = "on_schedule:";
@@ -30,23 +33,10 @@ const JSON_KEY_INSTANCE_ID: &str = "instance_id";
 const JSON_KEY_REQUEST_ID: &str = "request_id";
 const JSON_KEY_CMD: &str = "cmd";
 
-const PYTHON_UNBUFFERED_FLAG: &str = "-u";
-
-#[cfg(windows)]
-const PYTHON_EXECUTABLE: &str = "python";
-
-#[cfg(not(windows))]
 const PYTHON_EXECUTABLE: &str = "python3";
-
-// Achtung: Pfad muss zu deiner echten Datei passen.
-const RUNNER_PATH: &str = "src/plugin_manager/plugins/plugin_runner.py";
-
-const ARG_PLUGIN_PATH: &str = "--plugin-path";
-const ARG_INSTANCE_ID: &str = "--instance-id";
 
 const ERR_FAILED_READ_CONFIG_PREFIX: &str = "Failed to read config: ";
 const ERR_FAILED_PARSE_CONFIG_PREFIX: &str = "Failed to parse config: ";
-const ERR_PLUGIN_NOT_FOUND_PREFIX: &str = "Plugin '";
 const ERR_PLUGIN_NOT_REGISTERED_PREFIX: &str = "Plugin '";
 const ERR_INSTANCE_ALREADY_RUNNING_PREFIX: &str = "Instance ";
 const ERR_INSTANCE_NOT_RUNNING_PREFIX: &str = "Instance ";
@@ -55,7 +45,6 @@ const ERR_FAILED_OPEN_STDIN: &str = "Failed to open stdin for python runner";
 const ERR_FAILED_OPEN_STDOUT: &str = "Failed to open stdout for python runner";
 const ERR_PY_STDOUT_CLOSED: &str = "Python runner stdout closed";
 const ERR_UNKNOWN_ERROR: &str = "unknown_error";
-const ERR_FAILED_KILL_PY_PREFIX: &str = "Failed to kill python runner: ";
 const ERR_FAILED_SEND_CMD_PREFIX: &str = "Failed to send cmd to python runner: ";
 const ERR_FAILED_FLUSH_CMD_PREFIX: &str = "Failed to flush cmd to python runner: ";
 
@@ -66,19 +55,12 @@ const CMD_RESUME: &str = "resume";
 const CMD_STATUS: &str = "status";
 
 const LOG_PY_STDERR_PREFIX: &str = "python stderr: {}";
-const LOG_PY_STDOUT_NON_JSON: &str = "python stdout (non-json): {} (parse err: {})";
 const LOG_RUNNER_EVENT: &str = "runner event (instance {}): {}";
-
-const LOG_SOFT_STOP_FORCE_KILL: &str =
-    "Soft stop ACK ok, but process did not exit quickly; forcing kill.";
-const LOG_SOFT_STOP_FAILED_FORCE_KILL: &str = "Soft stop failed/timeout; forcing kill. err={:?}";
 
 const TIMEOUT_START_ACK: Duration = Duration::from_secs(5);
 const TIMEOUT_SOFT_STOP_ACK: Duration = Duration::from_secs(2);
 const TIMEOUT_PAUSE_ACK: Duration = Duration::from_secs(2);
 const TIMEOUT_RESUME_ACK: Duration = Duration::from_secs(2);
-const TIMEOUT_WAIT_EXIT_AFTER_SOFT_STOP: Duration = Duration::from_secs(2);
-const TIMEOUT_WAIT_EXIT_AFTER_KILL: Duration = Duration::from_secs(2);
 
 type InstanceID = u64;
 
@@ -114,6 +96,7 @@ fn parse_trigger(py_trigger: Option<&str>) -> Result<Trigger, Error> {
         _ => Ok(Trigger::Manual),
     }
 }
+
 // baut json aus instanz/request_id und cmd
 #[instrument]
 fn build_cmd_request(instance_id: InstanceID, request_id: &str, cmd: &str) -> serde_json::Value {
@@ -161,6 +144,7 @@ struct RunnerMsg {
 #[derive(Debug, Deserialize)]
 pub struct PluginConfig {
     pub name: String,
+    #[serde(default)]
     pub enabled: bool,
 }
 
@@ -183,6 +167,7 @@ pub struct PluginHandle {
     pub plugin_index: usize,
     pub command_tx: mpsc::Sender<PluginCommand>,
     pub status_rx: watch::Receiver<InstanceState>,
+    pub progress_rx: watch::Receiver<f32>,
 }
 
 #[derive(Debug)]
@@ -194,7 +179,6 @@ pub struct PluginManager {
 }
 
 impl PluginManager {
-    // alles notwendige neu erzeugt
     #[instrument]
     pub fn new() -> Self {
         Self {
@@ -202,6 +186,81 @@ impl PluginManager {
             running: HashMap::new(),
             history: HashMap::new(),
         }
+    }
+
+    /// Startet den Runner und übergibt `data` an plugin.run(data).
+    #[instrument]
+    pub async fn build_started_instance_with_data(
+        &self,
+        plugin_index: usize,
+        plugin_path: &PathBuf,
+        instance_id: InstanceID,
+        data: String,
+    ) -> Result<PluginHandle, Error> {
+        let plugin_name = self.registered[plugin_index].name().clone();
+
+        debug!(
+            "build_started_instance_with_data: plugin='{}' index={} instance_id={} data_bytes={}",
+            plugin_name,
+            plugin_index,
+            instance_id,
+            data.len()
+        );
+
+        build_started_instance_core_with_data(
+            plugin_index,
+            plugin_name,
+            plugin_path,
+            instance_id,
+            data,
+        )
+        .await
+    }
+
+    /// Phase 1 (kurz, unter Lock): finde alle Plugins, die zu diesem Event passen
+    /// und gib die Start-Pläne zurück (plugin_index, plugin_path, instance_id).
+    #[instrument]
+    pub fn prepare_fire_event(
+        &self,
+        event: &BackendEvent,
+    ) -> Result<Vec<(usize, PathBuf, InstanceID)>, Error> {
+        let Some(kind) = event.trigger_kind() else {
+            return Ok(Vec::new());
+        };
+
+        let plugin_indices: Vec<usize> = self
+            .registered
+            .iter()
+            .enumerate()
+            .filter(|(_i, p)| {
+                if !(p.enabled() && p.valid()) {
+                    return false;
+                }
+                match (&kind, p.trigger()) {
+                    (TriggerKind::OnEntryCreate, Trigger::OnEntryCreate) => true,
+                    (TriggerKind::OnEntryUpdate, Trigger::OnEntryUpdate) => true,
+                    (TriggerKind::OnEntryDelete, Trigger::OnEntryDelete) => true,
+                    (TriggerKind::OnSchedule, Trigger::OnSchedule(_)) => true,
+                    _ => false,
+                }
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        // IDs so bauen, dass sie innerhalb *dieses* Events garantiert verschieden sind.
+        let base = chrono::Utc::now().timestamp_micros().max(0) as u64;
+
+        let plans = plugin_indices
+            .into_iter()
+            .enumerate()
+            .map(|(seq, plugin_index)| {
+                let plugin_path = self.registered[plugin_index].path().clone();
+                let instance_id = base.saturating_add(seq as u64);
+                (plugin_index, plugin_path, instance_id)
+            })
+            .collect();
+
+        Ok(plans)
     }
 
     #[instrument(skip(self))]
@@ -216,21 +275,24 @@ impl PluginManager {
         // Parsen zu PluginsConfig
         let config: PluginsConfig = serde_yaml::from_str(&content)
             .map_err(|e| Error::CustomError(format!("{ERR_FAILED_PARSE_CONFIG_PREFIX}{e}")))?;
-        // TODO what about disabled plugins?
-        // suche entsprechende Plugins und setze enabled-Flag
+
+        // CHANGED: apply enabled flag only if plugin exists; otherwise warn and continue
         for plugin_cfg in config.plugins {
-            let plugin = self
+            match self
                 .registered
                 .iter_mut()
                 .find(|p| p.name().as_str() == plugin_cfg.name)
-                .ok_or_else(|| {
-                    Error::CustomError(format!(
-                        "{ERR_PLUGIN_NOT_FOUND_PREFIX}{}' not found",
+            {
+                Some(plugin) => {
+                    plugin.set_enabled(plugin_cfg.enabled);
+                }
+                None => {
+                    warn!(
+                        "Config references plugin '{}' but it is not registered; skipping",
                         plugin_cfg.name
-                    ))
-                })?;
-
-            plugin.set_enabled(plugin_cfg.enabled);
+                    );
+                }
+            }
         }
 
         Ok(())
@@ -394,6 +456,21 @@ impl PluginManager {
         Ok((child, child_stdin, rx))
     }
 
+    /// Snapshot for schedule daemon: all enabled+valid schedule plugins.
+    #[instrument]
+    pub fn get_scheduled_plugins_snapshot(&self) -> Vec<(usize, String, PathBuf, Schedule)> {
+        self.registered
+            .iter()
+            .enumerate()
+            .filter(|(_i, p)| p.enabled() && p.valid())
+            .filter_map(|(i, p)| match p.trigger() {
+                Trigger::OnSchedule(s) => Some((i, p.name().clone(), p.path().clone(), s.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // CHANGED: build_started_instance now uses the lock-free core function
     #[instrument]
     pub async fn build_started_instance(
         &self,
@@ -401,55 +478,8 @@ impl PluginManager {
         plugin_path: &PathBuf,
         instance_id: InstanceID,
     ) -> Result<PluginHandle, Error> {
-        let (child, mut child_stdin, mut stdout_rx) =
-            self.spawn_runner(plugin_path, instance_id).await?;
-        let (command_tx, command_rx) = mpsc::channel(32);
-        let (status_tx, status_rx) = watch::channel(InstanceState::Running);
-
-        // Perform initial start handshake before spawning the actor
-        let request_id = format!("{}-0", instance_id);
-        send_runner_cmd(instance_id, &mut child_stdin, CMD_START, &request_id).await?;
-
-        // Wait for CMD_START ACK
-        timeout(TIMEOUT_START_ACK, async {
-            while let Some(msg) = stdout_rx.recv().await {
-                if msg.instance_id == instance_id && msg.request_id == Some(request_id.clone()) {
-                    return if msg.ok.unwrap_or(false) {
-                        Ok(())
-                    } else {
-                        Err(Error::CustomError(
-                            msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string()),
-                        ))
-                    };
-                }
-            }
-            Err(Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))
-        })
-        .await
-        .map_err(|_| {
-            Error::CustomError(format!(
-                "Start handshake timed out after {:?}",
-                TIMEOUT_START_ACK
-            ))
-        })??;
-
         let plugin_name = self.registered[plugin_index].name().clone();
-        tokio::spawn(run_instance_actor(
-            instance_id,
-            plugin_name.clone(),
-            child,
-            child_stdin,
-            stdout_rx,
-            command_rx,
-            status_tx,
-        ));
-        debug!("Spawned instance actor for instance {}", instance_id);
-
-        Ok(PluginHandle {
-            plugin_index,
-            command_tx,
-            status_rx,
-        })
+        build_started_instance_core(plugin_index, plugin_name, plugin_path, instance_id).await
     }
 
     #[instrument]
@@ -788,6 +818,136 @@ impl PluginManager {
         plugin.set_enabled(false);
         Ok(())
     }
+    pub async fn fire_event_detached(
+        plugin_manager: Arc<tokio::sync::Mutex<PluginManager>>,
+        event: BackendEvent,
+    ) -> Result<Vec<u64>, Error> {
+        // ----- Phase 1: prepare under lock -----
+        let plans: Vec<(usize, String, PathBuf, u64, String)> = {
+            let pm = plugin_manager.lock().await;
+
+            let raw_plans = pm.prepare_fire_event(&event)?;
+
+            let event_name = match &event {
+                BackendEvent::EntryCreated { .. } => "created",
+                BackendEvent::EntryUpdated { .. } => "updated",
+                BackendEvent::EntryDeleted { .. } => "deleted",
+                BackendEvent::OnSchedule { .. } => "schedule",
+                BackendEvent::Manual { .. } => "manual",
+            }
+            .to_string();
+
+            let event_path = match &event {
+                BackendEvent::EntryCreated { path }
+                | BackendEvent::EntryUpdated { path }
+                | BackendEvent::EntryDeleted { path } => path.clone(),
+                BackendEvent::OnSchedule { path, .. } => path.clone(),
+                BackendEvent::Manual { plugin_name } => plugin_name.clone(),
+            };
+
+            raw_plans
+                .into_iter()
+                .map(|(plugin_index, plugin_path, instance_id)| {
+                    let plugin_name = pm
+                        .registered
+                        .get(plugin_index)
+                        .map(|p| p.name().clone())
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    let data = serde_json::json!({
+                        "event": event_name,
+                        "path": event_path,
+                        "plugin_path": plugin_path.to_string_lossy(),
+                    })
+                    .to_string();
+
+                    (plugin_index, plugin_name, plugin_path, instance_id, data)
+                })
+                .collect()
+        };
+
+        // ----- Phase 2: build without lock -----
+        let mut built: Vec<(u64, PluginHandle)> = Vec::new();
+        for (plugin_index, plugin_name, plugin_path, instance_id, data) in plans {
+            let handle = build_started_instance_core_with_data(
+                plugin_index,
+                plugin_name,
+                &plugin_path,
+                instance_id,
+                data,
+            )
+            .await?;
+            built.push((instance_id, handle));
+        }
+
+        // ----- Phase 3: commit under lock -----
+        let mut started = Vec::new();
+        let mut pm = plugin_manager.lock().await;
+        for (instance_id, handle) in built {
+            pm.commit_started_instance(instance_id, handle)?;
+            started.push(instance_id);
+        }
+
+        Ok(started)
+    }
+
+    // TODO remove
+    pub async fn fire_event(&mut self, event: BackendEvent) -> Result<Vec<u64>, Error> {
+        let Some(kind) = event.trigger_kind() else {
+            return Ok(Vec::new());
+        };
+
+        // passende Plugins sammeln (Indices), damit wir nicht gleichzeitig mut/immut borrow-chaos bekommen
+        let plugin_indices: Vec<usize> = self
+            .registered
+            .iter()
+            .enumerate()
+            .filter(|(_i, p)| p.enabled() && p.valid())
+            .filter(|(_i, p)| match (kind, p.trigger()) {
+                (TriggerKind::OnEntryCreate, Trigger::OnEntryCreate) => true,
+                (TriggerKind::OnEntryUpdate, Trigger::OnEntryUpdate) => true,
+                (TriggerKind::OnEntryDelete, Trigger::OnEntryDelete) => true,
+                (TriggerKind::OnSchedule, Trigger::OnSchedule(_)) => true,
+                _ => false,
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        let mut started = Vec::new();
+
+        for plugin_index in plugin_indices {
+            let instance_id = chrono::Utc::now().timestamp_micros().max(0) as u64;
+
+            let plugin_path = self.registered[plugin_index].path().clone();
+
+            // For schedule runs, pass a stable "global path" + plugin path as payload.
+            // OnSchedule has no entry path; we use watch_dir (/data) as the primary path.
+            let data = if kind == TriggerKind::OnSchedule {
+                serde_json::json!({
+                    "event": "schedule",
+                    "path": "/data",
+                    "watch_dir": "/data",
+                    "plugin_path": plugin_path.to_string_lossy(),
+                })
+                .to_string()
+            } else {
+                String::new()
+            };
+
+            let handle = if kind == TriggerKind::OnSchedule {
+                self.build_started_instance_with_data(plugin_index, &plugin_path, instance_id, data)
+                    .await?
+            } else {
+                self.build_started_instance(plugin_index, &plugin_path, instance_id)
+                    .await?
+            };
+
+            self.commit_started_instance(instance_id, handle)?;
+            started.push(instance_id);
+        }
+
+        Ok(started)
+    }
 }
 
 async fn send_runner_cmd(
@@ -818,7 +978,7 @@ async fn send_runner_cmd(
         .map_err(|e| Error::CustomError(format!("{ERR_FAILED_FLUSH_CMD_PREFIX}{e}")))?;
     Ok(())
 }
-#[instrument(skip(child, child_stdin, stdout_rx, command_rx, status_tx))]
+#[instrument(skip(child, child_stdin, stdout_rx, command_rx, status_tx, progress_tx))]
 async fn run_instance_actor(
     instance_id: InstanceID,
     plugin_name: String,
@@ -827,6 +987,7 @@ async fn run_instance_actor(
     mut stdout_rx: mpsc::Receiver<RunnerMsg>,
     mut command_rx: mpsc::Receiver<PluginCommand>,
     status_tx: watch::Sender<InstanceState>,
+    progress_tx: watch::Sender<f32>,
 ) {
     enum PendingReply {
         Unit(oneshot::Sender<Result<(), Error>>, String),
@@ -884,47 +1045,23 @@ async fn run_instance_actor(
                 match msg {
                     Some(msg) => {
                         if msg.instance_id != instance_id { continue; }
-                        if let Some(request_id) = msg.request_id {
-                            if let Some(pending) = pending_acks.remove(&request_id) {
-                                match pending {
-                                    PendingReply::Unit(reply, cmd) => {
-                                        if msg.ok.unwrap_or(false) {
-                                            // Update state for pause/resume/stop acknowledgements
-                                            match cmd.as_str() {
-                                                CMD_PAUSE => { status_tx.send(InstanceState::Paused).ok(); }
-                                                CMD_RESUME => { status_tx.send(InstanceState::Running).ok(); }
-                                                CMD_STOP => { status_tx.send(InstanceState::Stopped).ok(); }
-                                                _ => {}
-                                            }
-                                            let _ = reply.send(Ok(()));
-                                        } else {
-                                            let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
-                                            let _ = reply.send(Err(Error::CustomError(err)));
-                                        }
-                                    }
-                                    PendingReply::Json(reply) => {
-                                        if msg.ok.unwrap_or(false) {
-                                            if let Some(result) = &msg.result {
-                                                let _ = reply.send(Ok(result.clone()));
-                                            } else {
-                                                // send empty object if no result present
-                                                let _ = reply.send(Ok(serde_json::Value::Null));
-                                            }
-                                        } else {
-                                            let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
-                                            let _ = reply.send(Err(Error::CustomError(err)));
-                                        }
+                        if let Some(ev) = &msg.event {
+                            // NEW: progress events from plugin
+                            if ev == "progress" {
+                                if let Some(val) = &msg.result {
+                                    if let Some(p) = val.get("progress").and_then(|v| v.as_f64()) {
+                                        let clamped = p.clamp(0.0, 1.0) as f32;
+                                        let _ = progress_tx.send(clamped);
                                     }
                                 }
+                                continue;
                             }
-                        }
-                        if let Some(ev) = &msg.event {
+
                             // Special handling for logs emitted from plugin (via Python logging)
                             if ev == "log" {
                                 if let Some(val) = &msg.result {
                                     if let Some(level) = val.get("level").and_then(|v| v.as_str()) {
                                         let message = val.get("msg").and_then(|v| v.as_str()).unwrap_or_default();
-                                        // plugin::plugin_name.instance_id
                                         let logger_name = format!("plugin.{}.{}", instance_id, level.to_lowercase());
                                         match level {
                                             "DEBUG" => debug!("{} {}", logger_name, message),
@@ -942,8 +1079,42 @@ async fn run_instance_actor(
                             if ev == "exited" {
                                 let final_state = if msg.ok.unwrap_or(false) { InstanceState::Completed } else { InstanceState::Failed };
                                 status_tx.send(final_state).ok();
+                                let _ = progress_tx.send(1.0);
                                 info!("plugin instance {} ('{}') exited with state {:?}", instance_id, plugin_name, final_state);
                                 break;
+                            }
+                        }
+
+                        if let Some(request_id) = msg.request_id {
+                            if let Some(pending) = pending_acks.remove(&request_id) {
+                          match pending {
+                                    PendingReply::Unit(reply, cmd) => {
+                                        if msg.ok.unwrap_or(false) {
+                                            match cmd.as_str() {
+                                                CMD_PAUSE => { status_tx.send(InstanceState::Paused).ok(); }
+                                                CMD_RESUME => { status_tx.send(InstanceState::Running).ok(); }
+                                                CMD_STOP => { status_tx.send(InstanceState::Stopped).ok(); }
+                                                _ => {}
+                                            }
+                                            let _ = reply.send(Ok(()));
+                                        } else {
+                                            let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+                                            let _ = reply.send(Err(Error::CustomError(err)));
+                                        }
+                                    }
+                                    PendingReply::Json(reply) => {
+                                        if msg.ok.unwrap_or(false) {
+                                            if let Some(result) = &msg.result {
+                                                let _ = reply.send(Ok(result.clone()));
+                                            } else {
+                                                let _ = reply.send(Ok(serde_json::Value::Null));
+                                            }
+                                        } else {
+                                            let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+                                            let _ = reply.send(Err(Error::CustomError(err)));
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -956,10 +1127,240 @@ async fn run_instance_actor(
                     _ => InstanceState::Failed,
                 };
                 status_tx.send(s).ok();
+                let _ = progress_tx.send(1.0);
                 info!("python runner process for instance {} ('{}') exited with state {:?}", instance_id, plugin_name, s);
                 break;
             }
         }
     }
     let _ = child.kill().await;
+}
+
+// TODO clean up
+// NEW: spawn runner WITH data
+#[instrument]
+async fn spawn_runner_core_with_data(
+    plugin_path: &PathBuf,
+    instance_id: InstanceID,
+    data: &str,
+) -> Result<(Child, ChildStdin, mpsc::Receiver<RunnerMsg>), Error> {
+    let runner_path = PathBuf::from(RUNNER_PATH);
+
+    debug!(
+        "Spawning python runner: exe='{}' runner='{:?}' plugin_path='{:?}' instance_id={} data_bytes={}",
+        PYTHON_EXECUTABLE,
+        runner_path,
+        plugin_path,
+        instance_id,
+        data.len()
+    );
+
+    let mut child = Command::new(PYTHON_EXECUTABLE)
+        .arg(PYTHON_UNBUFFERED_FLAG)
+        .arg(runner_path)
+        .arg(ARG_PLUGIN_PATH)
+        .arg(plugin_path)
+        .arg(ARG_INSTANCE_ID)
+        .arg(instance_id.to_string())
+        .arg("--data")
+        .arg(data)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| Error::CustomError(format!("{ERR_FAILED_SPAWN_PY_PREFIX}{e}")))?;
+
+    let child_stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| Error::CustomError(ERR_FAILED_OPEN_STDIN.to_string()))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| Error::CustomError(ERR_FAILED_OPEN_STDOUT.to_string()))?;
+
+    if let Some(stderr) = child.stderr.take() {
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                error!(LOG_PY_STDERR_PREFIX, line);
+            }
+        });
+    }
+
+    let (tx, rx) = mpsc::channel::<RunnerMsg>(128);
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            match serde_json::from_str::<RunnerMsg>(&line) {
+                Ok(msg) => {
+                    if tx.send(msg).await.is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    debug!(line = %line, error = %e, "python stdout (non-json)");
+                }
+            }
+        }
+    });
+
+    Ok((child, child_stdin, rx))
+}
+
+#[instrument]
+async fn spawn_runner_core(
+    plugin_path: &PathBuf,
+    instance_id: InstanceID,
+) -> Result<(Child, ChildStdin, mpsc::Receiver<RunnerMsg>), Error> {
+    spawn_runner_core_with_data(plugin_path, instance_id, "").await
+}
+
+#[instrument]
+pub async fn build_started_instance_core(
+    plugin_index: usize,
+    plugin_name: String,
+    plugin_path: &PathBuf,
+    instance_id: InstanceID,
+) -> Result<PluginHandle, Error> {
+    let (child, mut child_stdin, mut stdout_rx) =
+        spawn_runner_core(plugin_path, instance_id).await?;
+    let (command_tx, command_rx) = mpsc::channel(32);
+    let (status_tx, status_rx) = watch::channel(InstanceState::Running);
+
+    // NEW
+    let (progress_tx, progress_rx) = watch::channel(0.0_f32);
+
+    // Perform initial start handshake before spawning the actor
+    let request_id = format!("{}-0", instance_id);
+    send_runner_cmd(instance_id, &mut child_stdin, CMD_START, &request_id).await?;
+
+    // Wait for CMD_START ACK (or init_error)
+    timeout(TIMEOUT_START_ACK, async {
+        while let Some(msg) = stdout_rx.recv().await {
+            if msg.instance_id != instance_id {
+                continue;
+            }
+
+            if msg.event.as_deref() == Some(EVENT_INIT_ERROR) {
+                let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+                let trace = msg.trace.unwrap_or_default();
+                return Err(Error::CustomError(format!(
+                    "python runner init_error: {err}\n{trace}"
+                )));
+            }
+
+            if msg.request_id == Some(request_id.clone()) {
+                return if msg.ok.unwrap_or(false) {
+                    Ok(())
+                } else {
+                    Err(Error::CustomError(
+                        msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string()),
+                    ))
+                };
+            }
+        }
+        Err(Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))
+    })
+    .await
+    .map_err(|_| {
+        Error::CustomError(format!(
+            "Start handshake timed out after {:?}",
+            TIMEOUT_START_ACK
+        ))
+    })??;
+
+    tokio::spawn(run_instance_actor(
+        instance_id,
+        plugin_name.clone(),
+        child,
+        child_stdin,
+        stdout_rx,
+        command_rx,
+        status_tx,
+        progress_tx,
+    ));
+
+    Ok(PluginHandle {
+        plugin_index,
+        command_tx,
+        status_rx,
+        progress_rx,
+    })
+}
+
+#[instrument]
+pub async fn build_started_instance_core_with_data(
+    plugin_index: usize,
+    plugin_name: String,
+    plugin_path: &PathBuf,
+    instance_id: InstanceID,
+    data: String,
+) -> Result<PluginHandle, Error> {
+    let (child, mut child_stdin, mut stdout_rx) =
+        spawn_runner_core_with_data(plugin_path, instance_id, &data).await?;
+
+    let (command_tx, command_rx) = mpsc::channel(32);
+    let (status_tx, status_rx) = watch::channel(InstanceState::Running);
+
+    // NEW
+    let (progress_tx, progress_rx) = watch::channel(0.0_f32);
+
+    // Perform initial start handshake before spawning the actor
+    let request_id = format!("{}-0", instance_id);
+    send_runner_cmd(instance_id, &mut child_stdin, CMD_START, &request_id).await?;
+
+    // Wait for CMD_START ACK (or init_error)
+    timeout(TIMEOUT_START_ACK, async {
+        while let Some(msg) = stdout_rx.recv().await {
+            if msg.instance_id != instance_id {
+                continue;
+            }
+
+            if msg.event.as_deref() == Some(EVENT_INIT_ERROR) {
+                let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+                let trace = msg.trace.unwrap_or_default();
+                return Err(Error::CustomError(format!(
+                    "python runner init_error: {err}\n{trace}"
+                )));
+            }
+
+            if msg.request_id == Some(request_id.clone()) {
+                return if msg.ok.unwrap_or(false) {
+                    Ok(())
+                } else {
+                    Err(Error::CustomError(
+                        msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string()),
+                    ))
+                };
+            }
+        }
+        Err(Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))
+    })
+    .await
+    .map_err(|_| {
+        Error::CustomError(format!(
+            "Start handshake timed out after {:?}",
+            TIMEOUT_START_ACK
+        ))
+    })??;
+
+    tokio::spawn(run_instance_actor(
+        instance_id,
+        plugin_name.clone(),
+        child,
+        child_stdin,
+        stdout_rx,
+        command_rx,
+        status_tx,
+        progress_tx,
+    ));
+
+    Ok(PluginHandle {
+        plugin_index,
+        command_tx,
+        status_rx,
+        progress_rx,
+    })
 }
