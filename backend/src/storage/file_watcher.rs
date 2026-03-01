@@ -13,9 +13,7 @@ use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl, SelectableHelper};
 use rocket::futures::StreamExt;
 use tokio::time;
 use tracing::{debug, error, instrument, warn};
-use tracing_subscriber::field::debug;
 use walkdir::WalkDir;
-const MODIFIED_GRACE_PERIOD: Duration = Duration::from_secs(10);
 
 // NEW: plugin manager type
 use crate::plugin_manager::manager::{
@@ -285,7 +283,7 @@ pub async fn scan_once(
     storage_manager: &StorageManager,
     plugin_manager: Arc<Mutex<PluginManager>>, // NEW
 ) -> Result<(), StorageError> {
-    debug!("starting one-time filesystem scan");
+    // debug!("starting one-time filesystem scan");
     let conn = storage_manager.db_connection_pool().get().await?;
     let db_contents: HashSet<_> = conn
         .interact(move |conn| files::table.select(File::as_select()).load::<File>(conn))
@@ -336,6 +334,7 @@ pub async fn scan_once(
         .map(|f| std::path::PathBuf::from(&f.path))
         .collect();
     // TODO with sync_remove
+    // TODO with plugin events
     conn.interact(move |conn| {
         for file in to_add {
             diesel::insert_into(files::table)

@@ -181,7 +181,7 @@ def main() -> int:
         plugin_impl = getattr(module, PLUGIN_IMPL)
         # TODO check
         # Instanz erzeugen (bevorzugt inkl. instance_id)
-        plugin = plugin_impl(args.plugin_path, args.data, instance_id)
+        plugin = plugin_impl(args.plugin_path, args.data)
 
         # NEW: smoke test - if progress API exists, emit an initial progress tick
         try:

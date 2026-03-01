@@ -97,22 +97,6 @@ fn parse_trigger(py_trigger: Option<&str>) -> Result<Trigger, Error> {
     }
 }
 
-// baut json aus instanz/request_id und cmd
-#[instrument]
-fn build_cmd_request(instance_id: InstanceID, request_id: &str, cmd: &str) -> serde_json::Value {
-    let mut req = serde_json::Map::new();
-    req.insert(
-        JSON_KEY_INSTANCE_ID.to_string(),
-        serde_json::Value::from(instance_id),
-    );
-    req.insert(
-        JSON_KEY_REQUEST_ID.to_string(),
-        serde_json::Value::from(request_id),
-    );
-    req.insert(JSON_KEY_CMD.to_string(), serde_json::Value::from(cmd));
-    serde_json::Value::Object(req)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum InstanceState {
     Running,
@@ -393,67 +377,6 @@ impl PluginManager {
         self.running.insert(instance_id, handle);
         debug!("Committed started instance {}", instance_id);
         Ok(())
-    }
-
-    // Start Python Runner
-    #[instrument]
-    async fn spawn_runner(
-        &self,
-        plugin_path: &PathBuf,
-        instance_id: InstanceID,
-    ) -> Result<(Child, ChildStdin, mpsc::Receiver<RunnerMsg>), Error> {
-        let runner_path = PathBuf::from(RUNNER_PATH);
-
-        let mut child = Command::new(PYTHON_EXECUTABLE)
-            .arg(PYTHON_UNBUFFERED_FLAG)
-            .arg(runner_path)
-            .arg(ARG_PLUGIN_PATH)
-            .arg(plugin_path)
-            .arg(ARG_INSTANCE_ID)
-            .arg(instance_id.to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| Error::CustomError(format!("{ERR_FAILED_SPAWN_PY_PREFIX}{e}")))?;
-
-        let child_stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| Error::CustomError(ERR_FAILED_OPEN_STDIN.to_string()))?;
-
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| Error::CustomError(ERR_FAILED_OPEN_STDOUT.to_string()))?;
-
-        if let Some(stderr) = child.stderr.take() {
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    error!(LOG_PY_STDERR_PREFIX, line);
-                }
-            });
-        }
-
-        let (tx, rx) = mpsc::channel::<RunnerMsg>(128);
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                match serde_json::from_str::<RunnerMsg>(&line) {
-                    Ok(msg) => {
-                        if tx.send(msg).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        debug!(line = %line, error = %e, "python stdout (non-json)");
-                    }
-                }
-            }
-        });
-
-        Ok((child, child_stdin, rx))
     }
 
     /// Snapshot for schedule daemon: all enabled+valid schedule plugins.
@@ -1080,8 +1003,16 @@ async fn run_instance_actor(
                                 let final_state = if msg.ok.unwrap_or(false) { InstanceState::Completed } else { InstanceState::Failed };
                                 status_tx.send(final_state).ok();
                                 let _ = progress_tx.send(1.0);
+                                if final_state == InstanceState::Failed {
+                                    if let Some(err) = &msg.error {
+                                    error!("plugin instance {} ('{}') exited with error: {}", instance_id, plugin_name, err);
+                                    } else {
+                                    error!("plugin instance {} ('{}') exited with failure (no error message)", instance_id, plugin_name);
+                                    };
+                                } else {
                                 info!("plugin instance {} ('{}') exited with state {:?}", instance_id, plugin_name, final_state);
                                 break;
+                                }
                             }
                         }
 

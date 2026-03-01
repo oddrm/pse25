@@ -215,9 +215,6 @@ pub async fn file_is_custom_metadata(path: &Path) -> Result<bool, StorageError> 
 
 #[instrument]
 pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
-    let file = tokio::fs::File::open(path)
-        .await
-        .map_err(|e| StorageError::IoError(e.into()))?;
     debug!("Reading MCAP file: {:?}", path);
     // debug!("File metadata: {:?}", file.metadata().await);
     // debug!("Extracting topics from MCAP file: {:?}", path);
