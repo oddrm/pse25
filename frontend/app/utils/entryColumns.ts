@@ -1,4 +1,5 @@
 export enum Sorting {
+    Status = "Status",
     Name = "Name",
     Path = "Path",
     Size = "Size",

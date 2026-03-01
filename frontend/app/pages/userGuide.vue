@@ -1,5 +1,5 @@
 <template>
-  <div class="max-w-4xl mx-auto px-6 py-10">
+  <div class="max-w-4xl mx-auto px-6 py-14">
 
     <h1 class="text-3xl font-bold mb-6">
       ROSBag Manager — User guide
