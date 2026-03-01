@@ -325,7 +325,7 @@ impl StorageManager {
                     .optional()
             })
             .await??;
-        debug!("Queried entry by path: {:?}", entry);
+        // debug!("Queried entry by path: {:?}", entry);
         Ok(entry)
     }
 
