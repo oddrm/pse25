@@ -183,7 +183,6 @@ def main() -> int:
 
         # bekommt Faktory/ Klasse
         plugin_impl = getattr(module, PLUGIN_IMPL)
-        # TODO check
         # Instanz erzeugen (bevorzugt inkl. instance_id)
         plugin = plugin_impl(args.plugin_path, args.data)
 

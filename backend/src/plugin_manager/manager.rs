@@ -814,7 +814,6 @@ impl PluginManager {
         Ok(started)
     }
 
-    // TODO remove
     pub async fn fire_event(&mut self, event: BackendEvent) -> Result<Vec<u64>, Error> {
         let Some(kind) = event.trigger_kind() else {
             return Ok(Vec::new());
