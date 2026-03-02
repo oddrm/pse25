@@ -1,48 +1,24 @@
-#![allow(unused)]
-
-use crate::{
-    routes,
-    schema::{files, sensors::entry_id},
-};
+use crate::routes;
 use itertools::Itertools;
 use std::{
     collections::HashSet,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    thread,
-    time::Duration,
 };
 // use crate::schema::metadata::dsl::{entry_id as metadata_entry_id, metadata};
 use crate::storage::models::*;
-use crate::{
-    error::{Error, StorageError},
-    schema,
-};
+use crate::{error::StorageError, schema};
 
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use deadpool::Runtime;
 use deadpool_diesel::postgres::{Manager, Pool};
 use diesel::prelude::*;
-use diesel_async::AsyncPgConnection;
-use dotenvy::Iter;
-use notify::{
-    RecursiveMode, Watcher,
-    event::{CreateKind, EventAttributes},
-};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rocket::futures::StreamExt;
 use rocket::futures::stream;
-use rocket::futures::{FutureExt, StreamExt};
-use tokio::sync::oneshot;
-use tokio::sync::{
-    mpsc::{self, Receiver, Sender},
-    watch,
-};
-use tokio_stream::wrappers::ReceiverStream;
-use tracing::{debug, error, info, instrument, warn};
-use tracing_subscriber::field::debug;
+use tracing::{debug, info, instrument, warn};
 
 pub type Map<K, V> = std::collections::HashMap<K, V>;
 pub type TxID = u64;

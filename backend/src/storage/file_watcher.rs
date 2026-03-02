@@ -9,8 +9,8 @@ use crate::{
     storage::{parsing, storage_manager::StorageManager},
 };
 use chrono::{DateTime, Utc};
-use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl, SelectableHelper};
-use rocket::futures::StreamExt;
+use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl, SelectableHelper, backend};
+use rocket::futures::{StreamExt, stream};
 use tokio::time;
 use tracing::{debug, error, instrument, warn};
 use walkdir::WalkDir;
@@ -51,7 +51,6 @@ async fn fire_plugin_event(
             })
             .collect()
     };
-
     // Phase 2: build without lock
     let mut built: Vec<(u64, crate::plugin_manager::manager::PluginHandle)> = Vec::new();
     for (plugin_index, plugin_name, plugin_path, instance_id) in plans {
@@ -91,6 +90,7 @@ async fn sync_file_added_or_modified(
     storage_manager: &StorageManager,
     plugin_manager: Arc<Mutex<PluginManager>>,
     path: &Path,
+    created: bool,
 ) -> Result<(), StorageError> {
     let is_mcap = parsing::file_is_mcap(path);
     let is_custom_metadata = parsing::file_is_custom_metadata(path).await?;
@@ -98,6 +98,16 @@ async fn sync_file_added_or_modified(
         "Syncing added/modified file {:?}, is_mcap: {}, is_custom_metadata: {}",
         path, is_mcap, is_custom_metadata
     );
+    let backend_event = if created {
+        BackendEvent::EntryCreated {
+            path: path.to_string_lossy().to_string(),
+        }
+    } else {
+        BackendEvent::EntryUpdated {
+            path: path.to_string_lossy().to_string(),
+        }
+    };
+    fire_plugin_event(plugin_manager.clone(), backend_event, None).await;
     // If this is an MCAP, insert/update the entry in the DB
     if is_mcap {
         if let Err(e) =
@@ -128,6 +138,7 @@ async fn sync_file_added_or_modified(
             }
         }
     }
+
     Ok(())
 }
 
@@ -306,19 +317,18 @@ pub async fn scan_once(
         .collect::<Result<HashSet<String>, StorageError>>()?;
 
     let to_add: Vec<File> = {
-        let stream =
-            rocket::futures::stream::iter(dir_contents.difference(&db_contents).cloned().map(
-                async move |p_clone| {
-                    let path = PathBuf::from(&p_clone);
-                    let is_mcap = parsing::file_is_mcap(&path);
-                    let is_custom_metadata = parsing::file_is_custom_metadata(&path).await;
-                    Ok(File {
-                        path: p_clone.clone(),
-                        is_mcap,
-                        is_custom_metadata: is_custom_metadata?,
-                    })
-                },
-            ));
+        let stream = stream::iter(dir_contents.difference(&db_contents).cloned().map(
+            async move |p_clone| {
+                let path = PathBuf::from(&p_clone);
+                let is_mcap = parsing::file_is_mcap(&path);
+                let is_custom_metadata = parsing::file_is_custom_metadata(&path).await;
+                Ok(File {
+                    path: p_clone.clone(),
+                    is_mcap,
+                    is_custom_metadata: is_custom_metadata?,
+                })
+            },
+        ));
         let results: Vec<Result<File, StorageError>> = stream.buffer_unordered(10).collect().await;
         results
             .into_iter()
@@ -333,74 +343,103 @@ pub async fn scan_once(
         .filter(|f| f.is_mcap)
         .map(|f| std::path::PathBuf::from(&f.path))
         .collect();
-    // TODO with sync_remove
-    // TODO with plugin events
+
+    let to_remove_clone = to_remove.clone();
     conn.interact(move |conn| {
         for file in to_add {
             diesel::insert_into(files::table)
                 .values(file)
                 .execute(conn)?;
         }
-        for path in to_remove {
+        for path in to_remove_clone {
             diesel::delete(files::table.filter(files::path.eq(path))).execute(conn)?;
         }
         Ok::<(), diesel::result::Error>(())
     })
     .await??;
 
-    // sync newly added MCAP files into entries/topics/etc.
-    for p in mcap_paths.into_iter() {
+    stream::iter(mcap_paths.into_iter().map(|p| {
         let sm = storage_manager.clone();
         let pm = plugin_manager.clone();
-        if let Err(e) = sync_file_added_or_modified(&sm, pm, &p).await {
-            error!("Failed to sync discovered MCAP {:?}: {:?}", p, e);
+        async move {
+            if let Err(e) = sync_file_added_or_modified(&sm, pm.clone(), &p, true).await {
+                error!("Failed to sync discovered MCAP {:?}: {:?}", p, e);
+            }
         }
-    }
+    }))
+    .buffer_unordered(10)
+    .collect::<Vec<()>>()
+    .await;
+
+    stream::iter(to_remove.into_iter().map(|p| {
+        let sm = storage_manager.clone();
+        let pm = plugin_manager.clone();
+        async move {
+            let pathbuf = PathBuf::from(&p);
+            // only consider MCAP files for removal (metadata-only files don't have entries)
+            if !parsing::file_is_mcap(&pathbuf) {
+                return;
+            }
+            sync_file_removed(&sm, pm.clone(), &pathbuf).await;
+        }
+    }))
+    .buffer_unordered(10)
+    .collect::<Vec<()>>()
+    .await;
 
     // Re-check potentially modified MCAP files that exist both in DB and on disk.
     // Compare filesystem modification time to the entry's `updated_at` and
     // re-run sync if the file is newer than the stored entry.
     let intersection: Vec<String> = db_contents.intersection(&dir_contents).cloned().collect();
 
-    for p in intersection.into_iter() {
-        let pathbuf = PathBuf::from(&p);
-        // only consider MCAP files
-        if !parsing::file_is_mcap(&pathbuf) {
-            continue;
-        }
+    stream::iter(intersection.into_iter().map(|p| {
+        let sm_outer = storage_manager.clone();
+        let pm_outer = plugin_manager.clone();
+        async move {
+            let pathbuf = PathBuf::from(&p);
+            // only consider MCAP files
+            if !parsing::file_is_mcap(&pathbuf) {
+                return;
+            }
 
-        match tokio::fs::metadata(&pathbuf).await {
-            Ok(meta) => {
-                let file_size = meta.len() as i64;
-                let mtime_dt_opt: Option<DateTime<Utc>> = match meta.modified() {
-                    Ok(mtime_sys) => Some(DateTime::<Utc>::from(mtime_sys)),
-                    Err(e) => {
-                        error!("Failed to get modified time for {:?}: {:?}", pathbuf, e);
+            match tokio::fs::metadata(&pathbuf).await {
+                Ok(meta) => {
+                    let file_size = meta.len() as i64;
+                    let mtime_dt_opt: Option<DateTime<Utc>> = match meta.modified() {
+                        Ok(mtime_sys) => Some(DateTime::<Utc>::from(mtime_sys)),
+                        Err(e) => {
+                            error!("Failed to get modified time for {:?}: {:?}", pathbuf, e);
 
-                        None
-                    }
-                };
+                            None
+                        }
+                    };
 
-                // fetch entry by path
-                if let Ok(Some(entry)) = storage_manager
-                    .get_entry_by_path(p.clone(), storage_manager.start_transaction())
-                    .await
-                {
-                    // Re-sync when file size changed (handles copy completion where mtime may be older),
-                    // or when mtime is newer than DB updated_at.
-                    let mtime_newer = mtime_dt_opt.map_or(false, |t| t > entry.updated_at);
-                    if file_size != entry.size || mtime_newer {
-                        let sm = storage_manager.clone();
-                        if let Err(e) =
-                            sync_file_added_or_modified(&sm, plugin_manager.clone(), &pathbuf).await
-                        {
-                            error!("Failed to re-sync modified MCAP {:?}: {:?}", pathbuf, e);
+                    // fetch entry by path
+                    if let Ok(Some(entry)) = sm_outer
+                        .get_entry_by_path(p.clone(), sm_outer.start_transaction())
+                        .await
+                    {
+                        // Re-sync when file size changed (handles copy completion where mtime may be older),
+                        // or when mtime is newer than DB updated_at.
+                        let mtime_newer = mtime_dt_opt.map_or(false, |t| t > entry.updated_at);
+                        if file_size != entry.size || mtime_newer {
+                            let sm = sm_outer.clone();
+                            if let Err(e) =
+                                sync_file_added_or_modified(&sm, pm_outer.clone(), &pathbuf, false)
+                                    .await
+                            {
+                                error!("Failed to re-sync modified MCAP {:?}: {:?}", pathbuf, e);
+                            }
                         }
                     }
                 }
+                Err(e) => error!("Failed to stat file {:?}: {:?}", pathbuf, e),
             }
-            Err(e) => error!("Failed to stat file {:?}: {:?}", pathbuf, e),
         }
-    }
+    }))
+    .buffer_unordered(10)
+    .collect::<Vec<()>>()
+    .await;
+
     Ok(())
 }
