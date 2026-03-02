@@ -11,6 +11,7 @@ use backend::storage::storage_manager::StorageManager;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::{env, time::Duration};
+use tracing::debug;
 use tracing::instrument;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::Layer;
@@ -101,7 +102,6 @@ async fn main() {
         });
     }
 
-    // TODO implement using the actual schedule
     // --- Schedule Supervisor (rescan-safe) ---
     {
         use chrono::{DateTime, Utc};
@@ -198,7 +198,7 @@ async fn main() {
                         schedule: schedule_clone.clone(),
                         path: "/data".to_string(),
                     };
-
+                    debug!("Firing schedule event for '{}'", key);
                     let fire_res = tokio::time::timeout(
                         Duration::from_secs(10),
                         PluginManager::fire_event_detached(pm.clone(), event),

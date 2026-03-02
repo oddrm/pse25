@@ -17,5 +17,3 @@ plugins:
     enabled: true
 
 # muss unter plugins_dir/config
-
-# TODO implement compress myself

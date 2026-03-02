@@ -1057,9 +1057,93 @@ async fn run_instance_actor(
                     Ok(s) if s.success() => InstanceState::Completed,
                     _ => InstanceState::Failed,
                 };
+                // Notify listeners about final state immediately
                 status_tx.send(s).ok();
                 let _ = progress_tx.send(1.0);
                 info!("python runner process for instance {} ('{}') exited with state {:?}", instance_id, plugin_name, s);
+
+                // Drain any remaining messages from the stdout receiver for a short grace
+                // period so the final log/exited messages the plugin emitted are not lost
+                // due to a race between process exit and the reader task.
+                let drain_timeout = Duration::from_millis(1000);
+                loop {
+                    match timeout(drain_timeout, stdout_rx.recv()).await {
+                        Ok(Some(msg)) => {
+                            // reuse same handling as in the main loop for messages
+                            if msg.instance_id != instance_id { continue; }
+                            if let Some(ev) = &msg.event {
+                                if ev == "progress" {
+                                    if let Some(val) = &msg.result {
+                                        if let Some(p) = val.get("progress").and_then(|v| v.as_f64()) {
+                                            let clamped = p.clamp(0.0, 1.0) as f32;
+                                            let _ = progress_tx.send(clamped);
+                                        }
+                                    }
+                                    continue;
+                                }
+
+                                if ev == "log" {
+                                    if let Some(val) = &msg.result {
+                                        if let Some(level) = val.get("level").and_then(|v| v.as_str()) {
+                                            let message = val.get("msg").and_then(|v| v.as_str()).unwrap_or_default();
+                                            let logger_name = format!("plugin.{}.{}", instance_id, level.to_lowercase());
+                                            match level {
+                                                "DEBUG" => debug!("{} {}", logger_name, message),
+                                                "INFO" => info!("{} {}", logger_name, message),
+                                                "WARN" | "WARNING" => warn!("{} {}", logger_name, message),
+                                                "ERROR" | "CRITICAL" => error!("{} {}", logger_name, message),
+                                                _ => debug!("{} {}", logger_name, message),
+                                            }
+                                        }
+                                    }
+                                    continue;
+                                }
+
+                                debug!(LOG_RUNNER_EVENT, instance_id, ev);
+                                if ev == "exited" {
+                                    // already handled via status above, just log if necessary
+                                    continue;
+                                }
+                            }
+
+                            if let Some(request_id) = msg.request_id {
+                                if let Some(pending) = pending_acks.remove(&request_id) {
+                                    match pending {
+                                        PendingReply::Unit(reply, cmd) => {
+                                            if msg.ok.unwrap_or(false) {
+                                                match cmd.as_str() {
+                                                    CMD_PAUSE => { status_tx.send(InstanceState::Paused).ok(); }
+                                                    CMD_RESUME => { status_tx.send(InstanceState::Running).ok(); }
+                                                    CMD_STOP => { status_tx.send(InstanceState::Stopped).ok(); }
+                                                    _ => {}
+                                                }
+                                                let _ = reply.send(Ok(()));
+                                            } else {
+                                                let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+                                                let _ = reply.send(Err(Error::CustomError(err)));
+                                            }
+                                        }
+                                        PendingReply::Json(reply) => {
+                                            if msg.ok.unwrap_or(false) {
+                                                if let Some(result) = &msg.result {
+                                                    let _ = reply.send(Ok(result.clone()));
+                                                } else {
+                                                    let _ = reply.send(Ok(serde_json::Value::Null));
+                                                }
+                                            } else {
+                                                let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+                                                let _ = reply.send(Err(Error::CustomError(err)));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // no more messages or timeout -> stop draining
+                        Ok(None) | Err(_) => break,
+                    }
+                }
+
                 break;
             }
         }

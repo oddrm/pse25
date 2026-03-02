@@ -8,6 +8,7 @@ import threading
 import traceback
 from pathlib import Path
 from typing import Any, Final, Literal, NotRequired, TypedDict
+import time
 import logging
 
 
@@ -46,6 +47,9 @@ RESULT_STARTED = "started"
 
 STATUS_RUNNING = "running"
 STATUS_STOPPED = "stopped"
+
+# Minimum time (seconds) a plugin process should live to ensure logs are observed
+MIN_LIFETIME_SECONDS = 3.0
 
 
 # Rückgabe Status
@@ -216,6 +220,7 @@ def main() -> int:
     }
 
     def run_worker():
+        start_time = time.monotonic()
         try:
             # run!
             res = plugin.run(args.data)
@@ -225,7 +230,15 @@ def main() -> int:
             run_result[ERROR] = str(exception)
             run_result[TRACE] = traceback.format_exc()
         finally:
-            # stoppen
+            # Ensure plugin process lives at least MIN_LIFETIME_SECONDS so
+            # log messages and other IPC have time to be forwarded.
+            try:
+                elapsed = time.monotonic() - start_time
+                if elapsed < MIN_LIFETIME_SECONDS:
+                    time.sleep(MIN_LIFETIME_SECONDS - elapsed)
+            except Exception:
+                pass
+            # Signal completion after ensured lifetime
             run_done.set()
             # worker finished; main thread will emit final exited message
             pass
