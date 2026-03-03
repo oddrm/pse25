@@ -4,12 +4,12 @@ import { fetchSequences, fetchEntries } from "~/utils/dbQueries"
 import { addSequence, updateSequence, removeSequence } from "~/utils/dbQueries"
 import { Sorting } from "~/utils/entryColumns"
 
-const STORAGE_KEY = "sequences_v1"
-
 export const useSequencesStore = defineStore("sequences", {
   state: () => ({
     sequences: [] as Sequence[],
     _inited: false,
+    // track which entry IDs we've already loaded sequences for
+    loaded_entry_ids: [] as number[],
   }),
 
   getters: {
@@ -24,44 +24,32 @@ export const useSequencesStore = defineStore("sequences", {
       this._inited = true
 
       if (!process.client) return
+    },
 
-      // Load from backend as primary source of truth
-      try {
-        // TODO match with rest of search
-        const [entries, num_pages] = await fetchEntries('', Sorting.Name, true, 0, 50000)
-        let allSeqs: Sequence[] = []
-        for (const e of entries) {
-          const map = await fetchSequences(e.id)
+    // Load sequences only for the provided entry IDs. If `force` is true,
+    // refetch even when we've loaded them before. For multi-user edits we
+    // prefer fresh data and avoid long-lived caching.
+    async loadForEntries(entryIDs: number[], force = false) {
+      if (!process.client) return
+      const uniqueIDs = Array.from(new Set(entryIDs))
+      const toLoad = force ? uniqueIDs : uniqueIDs.filter(id => !this.loaded_entry_ids.includes(id))
+      if (toLoad.length === 0) return
+
+      for (const id of toLoad) {
+        try {
+          const map = await fetchSequences(id)
           const values = Object.values(map) as Sequence[]
-          values.forEach((s) => {
-            if (!allSeqs.some(existing => existing.id === s.id)) {
-              allSeqs.push(s)
-            }
-          })
-        }
-        this.sequences = allSeqs
-      } catch (err) {
-        console.error("Error loading sequences from backend:", err)
-        // Fallback to localStorage if backend fails
-        const saved = localStorage.getItem(STORAGE_KEY)
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved)
-            this.sequences = parsed.map((s: any) => ({
-              ...s,
-              entry_id: s.entry_id || s.entryID,
-              id: s.id ?? 0
-            }))
-          } catch {
-            this.sequences = []
+          // Replace any sequences for this entry to avoid stale duplicates
+          this.sequences = this.sequences.filter(s => s.entry_id !== id)
+          for (const s of values) {
+            this.sequences.push(s)
           }
+          // mark as loaded
+          if (!this.loaded_entry_ids.includes(id)) this.loaded_entry_ids.push(id)
+        } catch (err) {
+          console.error(`[SequenceStore] Error loading sequences for entry ${id}:`, err)
         }
       }
-
-      // Automatically save to localStorage when changes occur
-      this.$subscribe((_mutation, state) => {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.sequences))
-      })
     },
 
     async add(payload: Omit<Sequence, "id" | "created_at" | "updated_at">) {
@@ -86,6 +74,8 @@ export const useSequencesStore = defineStore("sequences", {
           updated_at: new Date().toISOString(),
           ...payload
         })
+        // Refresh authoritative state for this entry (multi-user safety)
+        await this.loadForEntries([payload.entry_id], true)
       } catch (err) {
         console.error('Error adding sequence:', err)
       }
@@ -107,6 +97,8 @@ export const useSequencesStore = defineStore("sequences", {
           ...updatedSeq,
           updated_at: new Date().toISOString()
         }
+        // Refresh authoritative state for this entry (multi-user safety)
+        await this.loadForEntries([updatedSeq.entry_id], true)
       } catch (err) {
         console.error('Error updating sequence:', err)
       }
@@ -123,7 +115,8 @@ export const useSequencesStore = defineStore("sequences", {
 
       try {
         await removeSequence(seq.entry_id, id)
-        this.sequences = this.sequences.filter(s => s.id !== id)
+        // Refresh authoritative state for this entry (multi-user safety)
+        await this.loadForEntries([seq.entry_id], true)
       } catch (err) {
         console.error('[SequenceStore] Error removing sequence:', err)
       }

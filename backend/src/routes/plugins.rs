@@ -1,15 +1,14 @@
+use std::path::PathBuf;
+
 use crate::AppState;
 use crate::error::Error;
 use rocket::serde::json::Json;
 use rocket::{State, get, post, put, response::status};
 
 use tokio::time::{Duration, timeout};
-use tracing::{debug, instrument};
+use tracing::debug;
 
 const PM_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
-
-// Optional (Route-Level): harte Obergrenze für "langsame" Operationen.
-// Das ist unabhängig vom Lock-Timeout und schützt euch vor ewig laufenden Requests.
 const ROUTE_OP_TIMEOUT: Duration = Duration::from_secs(10);
 
 async fn lock_plugin_manager(
@@ -35,31 +34,49 @@ pub struct PluginInfo {
     valid: bool,
     instance_id: Option<u64>,
     state: Option<crate::plugin_manager::manager::InstanceState>,
+    progress: Option<f32>,
 }
 
-#[post("/plugins/<plugin_name>/start")]
+#[post("/plugins/<plugin_name>/start", data = "<payload>")]
 pub async fn start_plugin_instance(
     state: &State<AppState>,
     plugin_name: &str,
+    payload: Option<Json<serde_json::Value>>,
 ) -> Result<Json<u64>, Error> {
     let instance_id = chrono::Utc::now().timestamp_micros().max(0) as u64;
 
-    // Phase 1: global lock kurz halten
+    let mut val = payload
+        .map(|p| p.into_inner())
+        .unwrap_or(serde_json::Value::Null);
+    if !val.is_object() {
+        val = serde_json::Value::Object(serde_json::Map::new());
+    }
+
+    debug!(
+        "start_plugin_instance: plugin='{}' instance_id={} payload_json={}",
+        plugin_name, instance_id, val
+    );
+
+    let data_str = val.to_string();
+    debug!(
+        "start_plugin_instance: runner data_bytes={} data={}",
+        data_str.len(),
+        data_str
+    );
+
     let (plugin_index, plugin_path) = {
         let pm = lock_plugin_manager(state).await?;
         pm.prepare_start(plugin_name)?
     };
 
-    // Phase 2: langsame Arbeit ohne globalen lock
     let handle = timeout(ROUTE_OP_TIMEOUT, async {
         let pm = lock_plugin_manager(state).await?;
-        pm.build_started_instance(plugin_index, &plugin_path, instance_id)
+        pm.build_started_instance_with_data(plugin_index, &plugin_path, instance_id, data_str)
             .await
     })
     .await
     .map_err(|_| Error::CustomError(format!("start timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
 
-    // Phase 3: commit wieder kurz unter globalem lock
     {
         let mut pm = lock_plugin_manager(state).await?;
         pm.commit_started_instance(instance_id, handle)?;
@@ -108,7 +125,9 @@ pub async fn register_plugins(state: &State<AppState>) -> Result<status::NoConte
         pm.history.clear();
         pm.registered.clear();
         // perform registration into the now-empty manager
-        pm.register_plugins(std::path::PathBuf::from("/plugins"))?;
+        pm.register_plugins(PathBuf::from("/plugins")).unwrap();
+        pm.load_config_and_apply("/plugins/config/plugins.yaml")
+            .unwrap();
     }
 
     Ok(status::NoContent)
@@ -204,12 +223,16 @@ pub async fn get_plugin_instances(state: &State<AppState>) -> Result<Json<Vec<Pl
 
     let mut results: Vec<PluginInfo> = Vec::new();
 
-    // currently running (including Paused/Completed/Failed)
     for (p, instance_id, status) in pm.get_running_instances() {
-        // treat disabled plugins as non-registered => skip their instances
         if !p.enabled() {
             continue;
         }
+
+        let progress = pm
+            .running
+            .get(&instance_id)
+            .map(|h| *h.progress_rx.borrow());
+
         results.push(PluginInfo {
             name: p.name().clone(),
             description: p.description().clone(),
@@ -219,12 +242,11 @@ pub async fn get_plugin_instances(state: &State<AppState>) -> Result<Json<Vec<Pl
             valid: p.valid(),
             instance_id: Some(instance_id),
             state: Some(status),
+            progress,
         });
     }
 
-    // include stopped/recorded instances from history
     for (p, instance_id, status) in pm.get_history_instances() {
-        // skip instances for disabled plugins as well
         if !p.enabled() {
             continue;
         }
@@ -237,13 +259,13 @@ pub async fn get_plugin_instances(state: &State<AppState>) -> Result<Json<Vec<Pl
             valid: p.valid(),
             instance_id: Some(instance_id),
             state: Some(status),
+            progress: None,
         });
     }
 
     Ok(Json(results))
 }
 
-// Die GETs bleiben ok: sie locken kurz und awaiten nichts "Langsames".
 #[get("/plugins/registered")]
 pub async fn get_registered_plugins(
     state: &State<AppState>,
@@ -263,6 +285,7 @@ pub async fn get_registered_plugins(
             valid: p.valid(),
             instance_id: None,
             state: None,
+            progress: None,
         })
         .collect();
 

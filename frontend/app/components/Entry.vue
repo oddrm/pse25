@@ -17,7 +17,8 @@
     <td @click.stop class="">
       <EntryPlugins :entry="{
         entryID: props.id,
-        name: props.name
+        name: props.name,
+        path: props.path
       }" />
     </td>
 

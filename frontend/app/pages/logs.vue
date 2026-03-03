@@ -22,30 +22,32 @@
         <button @click="fetchLogs" class="btn btn-ghost btn-sm btn-square ml-1" :disabled="loading" title="Refresh">
           <Icon name="mdi:refresh" :class="{ 'animate-spin': loading }" class="text-lg" />
         </button>
+        <span class="text-sm font-medium opacity-70 ml-4 w-max">Auto-refresh:</span>
+        <input type="checkbox" class="checkbox checkbox-primary" v-model="autorefresh" />
       </div>
     </div>
+  </div>
 
-    <div v-if="error" class="alert alert-error mb-4 shadow-sm">
-      <Icon name="mdi:alert-circle" />
-      <span>{{ error }}</span>
+  <div v-if="error" class="alert alert-error mb-4 shadow-sm">
+    <Icon name="mdi:alert-circle" />
+    <span>{{ error }}</span>
+  </div>
+
+  <div class="overflow-x-auto">
+    <div v-if="logs.length === 0 && !loading" class="text-center py-20 opacity-50">
+      <Icon name="mdi:clipboard-text-outline" class="text-6xl mb-2" />
+      <p>No log entries found.</p>
     </div>
 
-    <div class="overflow-x-auto">
-      <div v-if="logs.length === 0 && !loading" class="text-center py-20 opacity-50">
-        <Icon name="mdi:clipboard-text-outline" class="text-6xl mb-2" />
-        <p>No log entries found.</p>
-      </div>
-
-      <div v-for="(log, index) in logs" :key="index" class="mb-1 font-mono text-[10px] sm:text-xs">
-        <div :class="getLogLevelClass(log.level)" class="p-1 px-2 rounded-md flex gap-3 items-start border">
-          <span class="opacity-50 shrink-0 select-none pt-0.5">{{ formatTimestamp(log.timestamp) }}</span>
-          <span :class="getLevelTextClass(log.level)" class="font-bold w-12 shrink-0 text-center uppercase pt-0.5">
-            {{ log.level }}
-          </span>
-          <span class="break-all flex-grow whitespace-pre-wrap text-base-content">
-            <span v-if="log.location" class="opacity-30 mr-2">[{{ log.location }}]</span>{{ log.message }}
-          </span>
-        </div>
+    <div v-for="(log, index) in logs" :key="index" class="mb-1 font-mono text-[10px] sm:text-xs">
+      <div :class="getLogLevelClass(log.level)" class="p-1 px-2 rounded-md flex gap-3 items-start border">
+        <span class="opacity-50 shrink-0 select-none pt-0.5">{{ formatTimestamp(log.timestamp) }}</span>
+        <span :class="getLevelTextClass(log.level)" class="font-bold w-12 shrink-0 text-center uppercase pt-0.5">
+          {{ log.level }}
+        </span>
+        <span class="break-all grow whitespace-pre-wrap text-base-content">
+          <span v-if="log.location" class="opacity-30 mr-2">[{{ log.location }}]</span>{{ log.message }}
+        </span>
       </div>
     </div>
   </div>
@@ -58,6 +60,8 @@ import { storeToRefs } from 'pinia'
 
 const logsStore = useLogsStore()
 const { logs, loading, error, levelFilter, limit } = storeToRefs(logsStore)
+
+const autorefresh = ref(true)
 
 const fetchLogs = () => logsStore.fetchLogs()
 
@@ -100,6 +104,15 @@ let interval: any = null
 onMounted(() => {
   fetchLogs()
   interval = setInterval(fetchLogs, 1000)
+})
+
+watch(autorefresh, (newVal) => {
+  if (newVal) {
+    fetchLogs()
+    interval = setInterval(fetchLogs, 1000)
+  } else {
+    if (interval) clearInterval(interval)
+  }
 })
 
 onUnmounted(() => {

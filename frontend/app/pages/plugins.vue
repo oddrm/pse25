@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { usePluginsStore } from '../../stores/pluginStore'
+import { useLocalStorage } from '@vueuse/core'
 
 const pluginsStore = usePluginsStore()
 
@@ -8,17 +9,20 @@ onMounted(() => {
   pluginsStore.loadPlugins()
 })
 
-// Nur den Store aufrufen, keine lokale Simulation!
+const pluginInput = useLocalStorage('pluginInput', '')
+
 const runGlobal = (id: number) => {
-  pluginsStore.startPlugin(id)
+  pluginsStore.startPlugin(id, undefined, pluginInput.value)
 }
 </script>
 
 <template>
-  <div class="bg-base-100 rounded-box shadow overflow-hidden border border-base-300 pt-14">
-    <div class="p-4 flex justify-end">
+  <div class="bg-base-100 rounded-box shadow border border-base-300 pt-14 p-10">
+    <div class="p-4 flex justify-between gap-8">
+      <textarea placeholder="Plugin Input" class="textarea w-full" v-model="pluginInput" />
       <button class="btn btn-sm btn-secondary" @click="pluginsStore.registerPlugins()">Rescan plugins</button>
     </div>
+
     <table class="table w-full">
       <thead>
         <tr class="bg-base-200 border-b border-base-300 text-base-content">
@@ -66,7 +70,7 @@ const runGlobal = (id: number) => {
           <td class="p-4 text-right">
             <button class="btn btn-primary btn-sm font-medium disabled:btn-ghost" :disabled="plugin.isGlobalRunning"
               @click="runGlobal(plugin.id)">
-              Auf alle anwenden
+              Execute
             </button>
           </td>
         </tr>
