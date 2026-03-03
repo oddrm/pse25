@@ -678,7 +678,7 @@ impl PluginManager {
             let (tx, rx) = oneshot::channel();
             let send_res = handle.command_tx.try_send(PluginCommand::CheckLiveness(tx));
             let unresponsive = match send_res {
-                Ok(()) => match timeout(Duration::from_secs(2), rx).await {
+                Ok(()) => match timeout(Duration::from_secs(5), rx).await {
                     Ok(Ok(Ok(_json))) => false,
                     _ => true,
                 },
