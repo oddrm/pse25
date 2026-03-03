@@ -116,11 +116,11 @@ const runPluginOnEntry = async (plugin: PluginItem) => {
           :disabled="isPluginRunningForThisEntry(plugin.name)" @click="runPluginOnEntry(plugin)">
           <span class="font-normal text-base-content">{{ plugin.name }}</span>
           <span v-if="isPluginRunningForThisEntry(plugin.name)"
-            class="text-[10px] text-blue-500 uppercase font-bold mt-1">Verarbeite...</span>
+            class="text-[10px] text-blue-500 uppercase font-bold mt-1">Processing...</span>
         </button>
       </div>
       <div v-else class="p-3 text-xs text-base-content/60 text-center">
-        Keine Plugins verfügbar
+        No plugins available
       </div>
     </div>
   </Teleport>
