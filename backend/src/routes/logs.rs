@@ -39,8 +39,7 @@ pub fn get_logs(level: Option<String>, limit: Option<usize>) -> Json<Vec<LogEntr
     let limit = limit.unwrap_or(100);
     let level_filter = level.map(|l| l.to_uppercase());
 
-    // We collect all entries and then take the last N
-    // This is because multi-line logs make it hard to count backwards efficiently
+
     let mut all_entries = Vec::new();
 
     for entry in files_to_process {
@@ -129,7 +128,6 @@ fn level_matches(entry: &LogEntry, filter: &Option<String>) -> bool {
 }
 
 fn parse_log_line(line: &str) -> Option<LogEntry> {
-    // Standard tracing output: 2026-02-17T00:44:14.720103Z DEBUG ThreadId(05) ...rest...
 
     if line.len() < 30 || !line.as_bytes()[0].is_ascii_digit() {
         return None;

@@ -1,6 +1,6 @@
 <template>
   <div class="min-h-screen">
-    <!-- LEFT SIDEBAR -->
+    <!-- left sidebar -->
     <aside class="fixed left-0 top-5 h-screen w-80 bg-base-200 p-4 pt-6 overflow-y-auto">
       <ul class="menu">
         <li class="menu-title"><span>Navigation</span></li>
@@ -37,14 +37,14 @@
       </ul>
     </aside>
 
-    <!-- RIGHT CONTENT -->
+    <!-- right content -->
     <main class="ml-80 pt-15 px-6 py-14">
       <div class="max-w-4xl mx-auto">
         <h1 class="text-3xl font-bold mb-6">
           ROSBag Manager — User Guide
         </h1>
 
-        <!-- GENERAL -->
+        <!-- General -->
         <section id="allgemein" class="mb-10 scroll-mt-10">
           <h2 class="text-2xl font-semibold mb-4">General</h2>
           <p class="mb-4">1. Open the Table section to view entries.</p>
@@ -52,7 +52,7 @@
           <p class="mb-4">3. Check the Logs to ensure actions were executed without errors.</p>
         </section>
 
-        <!-- TABLE -->
+        <!-- Table -->
         <section id="table" class="mb-10 scroll-mt-10">
           <h2 class="text-2xl font-semibold mb-4">1. Table</h2>
 
@@ -110,7 +110,7 @@
           </p>
         </section>
 
-        <!-- PLUGINS -->
+        <!-- Plugins -->
         <section id="plugins" class="mb-10 scroll-mt-10">
           <h2 class="text-2xl font-semibold mb-4">2. Plugins</h2>
 
@@ -168,7 +168,7 @@
           </p>
         </section>
 
-        <!-- LOGS -->
+        <!-- Logs -->
         <section id="logs" class="mb-10 scroll-mt-10">
           <h2 class="text-2xl font-semibold mb-4">3. Logs</h2>
           <p class="mb-3">

@@ -59,7 +59,7 @@ const isEditing = ref(false)
 const editString = ref("")
 const inputRef = ref<HTMLInputElement | null>(null)
 
-// --- MODUS WECHSELN ---
+// Modus wechseln
 
 const startEditing = async () => {
   // Array zu String umwandeln: ["a", "b"] -> "a, b"
