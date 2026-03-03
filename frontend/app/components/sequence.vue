@@ -10,10 +10,10 @@
         <tr>
           <th class="w-32">Name</th>
           <th class="w-24">Start</th>
-          <th class="w-24">Ende</th>
+          <th class="w-24">End</th>
           <th>Description</th>
           <th class="w-40">Tags</th>
-          <th class="w-20 text-right">Aktionen</th>
+          <th class="w-20 text-right">Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -41,7 +41,7 @@
           </td>
         </tr>
         <tr v-if="sequences.length === 0">
-          <td colspan="6" class="text-center text-base-content/40 text-sm py-4">Keine Sequenzen vorhanden</td>
+          <td colspan="6" class="text-center text-base-content/40 text-sm py-4">No sequences available</td>
         </tr>
       </tbody>
     </table>
@@ -49,17 +49,16 @@
     <dialog ref="modalRef" class="modal">
       <div class="modal-box w-11/12 max-w-lg overflow-visible">
         <h3 class="font-bold text-lg mb-6 border-b pb-2">
-          {{ isEditing ? 'Sequenz bearbeiten' : 'Neue Sequenz erstellen' }}
+          {{ isEditing ? 'Edit sequence' : 'Create new sequence' }}
         </h3>
 
         <div class="form-control w-full mb-4">
           <label class="label py-1"><span class="label-text font-bold">Name</span></label>
-          <input class="input input-sm input-bordered w-full" placeholder="z.B. Loop Closure" v-model="formName" />
+          <input class="input input-sm input-bordered w-full" placeholder="e.g. Loop Closure" v-model="formName" />
         </div>
 
         <div class="px-2 mb-6 mt-8">
-          <label class="label py-1 mb-2"><span class="label-text font-bold label-text-alt">Zeitraum
-              auswählen</span></label>
+          <label class="label py-1 mb-2"><span class="label-text font-bold label-text-alt">Select time range</span></label>
 
           <Slider :model-value="[currentStartTime, currentEndTime]" @slide="updateFromSlider" :min="0"
             :max="props.totalDuration > 0 ? props.totalDuration : 1" :step="1" :tooltips="false"
@@ -73,25 +72,25 @@
 
         <div class="flex gap-4 mb-4">
           <div class="form-control w-1/2">
-            <label class="label py-1"><span class="label-text font-bold">Startzeit</span></label>
+            <label class="label py-1"><span class="label-text font-bold">Start time</span></label>
             <div class="join w-full">
               <input type="number" min="0" class="input input-sm input-bordered join-item w-1/2 text-center font-mono"
                 placeholder="Min" v-model="startMin" />
               <span class="bg-base-200 flex items-center px-1 font-bold">:</span>
               <input type="number" min="0" max="59"
-                class="input input-sm input-bordered join-item w-1/2 text-center font-mono" placeholder="Sek"
+                class="input input-sm input-bordered join-item w-1/2 text-center font-mono" placeholder="Sec"
                 v-model="startSec" />
             </div>
           </div>
 
           <div class="form-control w-1/2">
-            <label class="label py-1"><span class="label-text font-bold">Endzeit</span></label>
+            <label class="label py-1"><span class="label-text font-bold">End time</span></label>
             <div class="join w-full">
               <input type="number" min="0" class="input input-sm input-bordered join-item w-1/2 text-center font-mono"
                 placeholder="Min" v-model="endMin" />
               <span class="bg-base-200 flex items-center px-1 font-bold">:</span>
               <input type="number" min="0" max="59"
-                class="input input-sm input-bordered join-item w-1/2 text-center font-mono" placeholder="Sek"
+                class="input input-sm input-bordered join-item w-1/2 text-center font-mono" placeholder="Sec"
                 v-model="endSec" />
             </div>
           </div>
@@ -103,7 +102,7 @@
         </div>
 
         <div class="form-control w-full mb-4">
-          <label class="label py-1"><span class="label-text font-bold">Beschreibung</span></label>
+          <label class="label py-1"><span class="label-text font-bold">Description</span></label>
           <textarea class="textarea textarea-bordered w-full h-20" v-model="formDesc"></textarea>
         </div>
 
@@ -112,9 +111,9 @@
             Dauer: {{ formatSeconds(currentEndTime - currentStartTime) }}
           </div>
           <div class="gap-2 flex">
-            <button class="btn btn-sm" @click="closeModal">Abbrechen</button>
+            <button class="btn btn-sm" @click="closeModal">Cancel</button>
             <button class="btn btn-sm btn-primary" @click="saveSequence">
-              {{ isEditing ? 'Speichern' : 'Erstellen' }}
+              {{ isEditing ? 'Save' : 'Create' }}
             </button>
           </div>
         </div>

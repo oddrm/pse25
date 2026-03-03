@@ -16,12 +16,12 @@
       <button 
         @click="startEditing" 
         class="btn btn-xs btn-ghost btn-circle text-gray-500 hover:text-primary tooltip tooltip-right"
-        data-tip="Tags bearbeiten"
+        data-tip="Edit tags"
       >
         <Icon name="solar:pen-new-square-linear" size="16" />
       </button>
 
-      <span v-if="tags.length === 0" class="text-xs text-gray-400 italic">Keine Tags</span>
+      <span v-if="tags.length === 0" class="text-xs text-gray-400 italic">No tags</span>
     </div>
 
     <div v-else class="join w-full max-w-md">
@@ -29,7 +29,7 @@
         ref="inputRef"
         v-model="editString"
         class="input input-sm input-bordered join-item w-full"
-        placeholder="Tags mit Komma trennen (z.B. Wald, Fehler)"
+        placeholder="Separate tags with commas (e.g. Forest, Error)"
         @keydown.enter="saveTags"
         @keydown.esc="cancelEdit"
       />
