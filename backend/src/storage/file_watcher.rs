@@ -107,9 +107,9 @@ async fn sync_file_added_or_modified(
             path: path.to_string_lossy().to_string(),
         }
     };
-    fire_plugin_event(plugin_manager.clone(), backend_event, None).await;
     // If this is an MCAP, insert/update the entry in the DB
     if is_mcap {
+        fire_plugin_event(plugin_manager.clone(), backend_event, None).await;
         if let Err(e) =
             parsing::insert_entry_into_db(storage_manager, path, plugin_manager.clone()).await
         {
