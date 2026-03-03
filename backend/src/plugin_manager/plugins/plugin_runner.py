@@ -158,6 +158,20 @@ def main() -> int:
         class JsonHandler(logging.Handler):
             def emit(self, record: logging.LogRecord) -> None:
                 try:
+                    # for progress: logger.info("PROGRESS: x=%d", x)
+
+                    if record.msg.startswith("PROGRESS:"):
+                        progress_str = record.msg[len("PROGRESS:") :].strip()
+                        write_msg(
+                            {
+                                INSTANCE_ID: instance_id,
+                                EVENT: "progress",
+                                RESULT: {
+                                    "progress": float(progress_str),
+                                },
+                            }
+                        )
+                        pass
                     write_msg(
                         {
                             INSTANCE_ID: instance_id,
@@ -169,8 +183,20 @@ def main() -> int:
                             },
                         }
                     )
-                except Exception:
+                    # pass
+                except Exception as e:
                     # never raise from logging
+                    write_msg(
+                        {
+                            INSTANCE_ID: instance_id,
+                            EVENT: "log",
+                            RESULT: {
+                                "level": "ERROR",
+                                "msg": str(e),
+                                "logger": record.name,
+                            },
+                        }
+                    )
                     pass
 
         # Configure root logger to use our handler (avoid duplicate handlers)

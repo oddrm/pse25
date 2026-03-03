@@ -12,6 +12,7 @@ onMounted(() => {
 const runGlobal = (id: number) => {
   pluginsStore.startPlugin(id)
 }
+// TODO: String Input
 </script>
 
 <template>
@@ -66,7 +67,7 @@ const runGlobal = (id: number) => {
           <td class="p-4 text-right">
             <button class="btn btn-primary btn-sm font-medium disabled:btn-ghost" :disabled="plugin.isGlobalRunning"
               @click="runGlobal(plugin.id)">
-              Auf alle anwenden
+              Execute
             </button>
           </td>
         </tr>

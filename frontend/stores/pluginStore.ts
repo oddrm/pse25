@@ -64,7 +64,7 @@ export const usePluginsStore = defineStore('plugins', {
             const id = String(p.instance_id ?? '')
             const existing = existingById[id]
             const state = p.state ?? ''
-            const progress = state === 'Completed' || state === 'Failed' || state === 'Stopped' || state === 'Unresponsive' ? 100 : 0
+            const progress = Math.floor((p.progress ?? 0) * 100)
             return {
               runId: id,
               pluginName: p.name,
@@ -83,7 +83,7 @@ export const usePluginsStore = defineStore('plugins', {
 
             const globalInstances = instances.filter(i => i.entryName === '')
             if (globalInstances.length > 0) {
-              plugin.isGlobalRunning = globalInstances.some(i => i.progress < 100)
+              plugin.isGlobalRunning = globalInstances.some(i => i.state === 'Running' || i.state === 'Paused')
               // const avg = Math.round(globalInstances.reduce((s, i) => s + i.progress, 0) / globalInstances.length)
               plugin.globalProgress = globalInstances[0]?.progress || 0
             } else {

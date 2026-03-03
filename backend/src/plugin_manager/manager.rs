@@ -1072,6 +1072,7 @@ async fn run_instance_actor(
                             if msg.instance_id != instance_id { continue; }
                             if let Some(ev) = &msg.event {
                                 if ev == "progress" {
+                                    debug!("Received late progress event from instance {} after process exit: {:?}", instance_id, msg);
                                     if let Some(val) = &msg.result {
                                         if let Some(p) = val.get("progress").and_then(|v| v.as_f64()) {
                                             let clamped = p.clamp(0.0, 1.0) as f32;
