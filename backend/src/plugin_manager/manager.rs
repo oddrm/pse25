@@ -918,7 +918,6 @@ async fn run_instance_actor(
 
     let mut pending_acks: HashMap<String, PendingReply> = HashMap::new();
     let mut next_request_seq = 1u64;
-
     loop {
         tokio::select! {
             cmd = command_rx.recv() => {
@@ -1211,6 +1210,10 @@ async fn spawn_runner_core_with_data(
             match serde_json::from_str::<RunnerMsg>(&line) {
                 Ok(msg) => {
                     if tx.send(msg).await.is_err() {
+                        error!(
+                            "Failed to send runner message to actor for instance {}: channel closed",
+                            instance_id
+                        );
                         break;
                     }
                 }
@@ -1239,8 +1242,7 @@ pub async fn build_started_instance_core(
     plugin_path: &PathBuf,
     instance_id: InstanceID,
 ) -> Result<PluginHandle, Error> {
-    let (child, mut child_stdin, mut stdout_rx) =
-        spawn_runner_core(plugin_path, instance_id).await?;
+    let (child, mut child_stdin, stdout_rx) = spawn_runner_core(plugin_path, instance_id).await?;
     let (command_tx, command_rx) = mpsc::channel(32);
     let (status_tx, status_rx) = watch::channel(InstanceState::Running);
 
@@ -1251,41 +1253,40 @@ pub async fn build_started_instance_core(
     let request_id = format!("{}-0", instance_id);
     send_runner_cmd(instance_id, &mut child_stdin, CMD_START, &request_id).await?;
 
-    // Wait for CMD_START ACK (or init_error)
-    timeout(TIMEOUT_START_ACK, async {
-        while let Some(msg) = stdout_rx.recv().await {
-            if msg.instance_id != instance_id {
-                continue;
-            }
+    // // Wait for CMD_START ACK (or init_error)
+    // timeout(TIMEOUT_START_ACK, async {
+    //     while let Some(msg) = stdout_rx.recv().await {
+    //         if msg.instance_id != instance_id {
+    //             continue;
+    //         }
 
-            if msg.event.as_deref() == Some(EVENT_INIT_ERROR) {
-                let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
-                let trace = msg.trace.unwrap_or_default();
-                return Err(Error::CustomError(format!(
-                    "python runner init_error: {err}\n{trace}"
-                )));
-            }
+    //         if msg.event.as_deref() == Some(EVENT_INIT_ERROR) {
+    //             let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+    //             let trace = msg.trace.unwrap_or_default();
+    //             return Err(Error::CustomError(format!(
+    //                 "python runner init_error: {err}\n{trace}"
+    //             )));
+    //         }
 
-            if msg.request_id == Some(request_id.clone()) {
-                return if msg.ok.unwrap_or(false) {
-                    Ok(())
-                } else {
-                    Err(Error::CustomError(
-                        msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string()),
-                    ))
-                };
-            }
-        }
-        Err(Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))
-    })
-    .await
-    .map_err(|_| {
-        Error::CustomError(format!(
-            "Start handshake timed out after {:?}",
-            TIMEOUT_START_ACK
-        ))
-    })??;
-
+    //         if msg.request_id == Some(request_id.clone()) {
+    //             return if msg.ok.unwrap_or(false) {
+    //                 Ok(())
+    //             } else {
+    //                 Err(Error::CustomError(
+    //                     msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string()),
+    //                 ))
+    //             };
+    //         }
+    //     }
+    //     Err(Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))
+    // })
+    // .await
+    // .map_err(|_| {
+    //     Error::CustomError(format!(
+    //         "Start handshake timed out after {:?}",
+    //         TIMEOUT_START_ACK
+    //     ))
+    // })??;
     tokio::spawn(run_instance_actor(
         instance_id,
         plugin_name.clone(),
@@ -1313,7 +1314,7 @@ pub async fn build_started_instance_core_with_data(
     instance_id: InstanceID,
     data: String,
 ) -> Result<PluginHandle, Error> {
-    let (child, mut child_stdin, mut stdout_rx) =
+    let (child, mut child_stdin, stdout_rx) =
         spawn_runner_core_with_data(plugin_path, instance_id, &data).await?;
 
     let (command_tx, command_rx) = mpsc::channel(32);
@@ -1326,41 +1327,40 @@ pub async fn build_started_instance_core_with_data(
     let request_id = format!("{}-0", instance_id);
     send_runner_cmd(instance_id, &mut child_stdin, CMD_START, &request_id).await?;
 
-    // Wait for CMD_START ACK (or init_error)
-    timeout(TIMEOUT_START_ACK, async {
-        while let Some(msg) = stdout_rx.recv().await {
-            if msg.instance_id != instance_id {
-                continue;
-            }
+    // // Wait for CMD_START ACK (or init_error)
+    // timeout(TIMEOUT_START_ACK, async {
+    //     while let Some(msg) = stdout_rx.recv().await {
+    //         if msg.instance_id != instance_id {
+    //             continue;
+    //         }
 
-            if msg.event.as_deref() == Some(EVENT_INIT_ERROR) {
-                let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
-                let trace = msg.trace.unwrap_or_default();
-                return Err(Error::CustomError(format!(
-                    "python runner init_error: {err}\n{trace}"
-                )));
-            }
+    //         if msg.event.as_deref() == Some(EVENT_INIT_ERROR) {
+    //             let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
+    //             let trace = msg.trace.unwrap_or_default();
+    //             return Err(Error::CustomError(format!(
+    //                 "python runner init_error: {err}\n{trace}"
+    //             )));
+    //         }
 
-            if msg.request_id == Some(request_id.clone()) {
-                return if msg.ok.unwrap_or(false) {
-                    Ok(())
-                } else {
-                    Err(Error::CustomError(
-                        msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string()),
-                    ))
-                };
-            }
-        }
-        Err(Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))
-    })
-    .await
-    .map_err(|_| {
-        Error::CustomError(format!(
-            "Start handshake timed out after {:?}",
-            TIMEOUT_START_ACK
-        ))
-    })??;
-
+    //         if msg.request_id == Some(request_id.clone()) {
+    //             return if msg.ok.unwrap_or(false) {
+    //                 Ok(())
+    //             } else {
+    //                 Err(Error::CustomError(
+    //                     msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string()),
+    //                 ))
+    //             };
+    //         }
+    //     }
+    //     Err(Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))
+    // })
+    // .await
+    // .map_err(|_| {
+    //     Error::CustomError(format!(
+    //         "Start handshake timed out after {:?}",
+    //         TIMEOUT_START_ACK
+    //     ))
+    // })??;
     tokio::spawn(run_instance_actor(
         instance_id,
         plugin_name.clone(),
