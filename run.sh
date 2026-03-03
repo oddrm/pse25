@@ -76,7 +76,7 @@ case "$CMD" in
 
   prod)
     echo "Starting production compose stack..."
-    DATA_PATH="${DATA_PATH:-./test_data}" docker compose -f compose.prod.yaml up --build
+    DATA_PATH="${DATA_PATH:-./test_data}" docker compose -f compose.prod.yaml up --build --no-attach db
     ;;
 
   *)

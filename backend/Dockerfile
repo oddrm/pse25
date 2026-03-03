@@ -34,14 +34,14 @@ RUN --mount=type=cache,target=/build/target \
     touch src/main.rs; \
     # Build all binaries and download mcap CLI from GitHub releases
     cargo build --release --bins || cargo build --release; \
-        mkdir -p /usr/local/cargo/bin; \
-        curl -fsSL -o /usr/local/cargo/bin/mcap "https://github.com/foxglove/mcap/releases/download/releases/mcap-cli/v0.0.61/mcap-linux-amd64"; \
-        chmod +x /usr/local/cargo/bin/mcap; \
+        mkdir -p /usr/local/bin; \
+        curl -fsSL -o /usr/local/bin/mcap "https://github.com/foxglove/mcap/releases/download/releases/mcap-cli/v0.0.61/mcap-linux-amd64"; \
+        chmod +x /usr/local/bin/mcap; \
     objcopy --compress-debug-sections target/release/$pkg ./main
 
 ################################################################################
 
-FROM docker.io/debian:bookworm-slim
+FROM docker.io/rust:latest
 
 # 2. Install runtime dependencies (libpq5 is required to run the binary)
 RUN apt-get update && apt-get install -y \
@@ -56,21 +56,16 @@ WORKDIR /app
 
 ## copy the main binary
 COPY --from=build /build/main ./
-
-## copy the mcap CLI downloaded in the builder into the runtime image
-COPY --from=build /usr/local/cargo/bin/mcap /usr/local/bin/mcap
-
-## copy runtime assets which may or may not exist
-COPY --from=build /build/Rocket.tom[l] ./static
-COPY --from=build /build/stati[c] ./static
-COPY --from=build /build/template[s] ./templates
+COPY --from=build /usr/local/cargo/bin /usr/local/cargo/bin
+COPY --from=build /usr/local/bin/mcap /usr/local/bin/mcap
+ENV PATH="/usr/local/cargo/bin:/usr/local/bin:${PATH}"
 
 # Install curl so the container healthcheck (curl) works during runtime
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir /data
 
-## runtime checks removed
+COPY . .
 
 ## ensure the container listens globally on port 8080
 ENV ROCKET_ADDRESS=0.0.0.0

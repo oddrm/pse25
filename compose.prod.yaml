@@ -33,14 +33,7 @@ services:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
-      - LOG_LEVEL=info
-      - LOG_TO_FILE=true
-    develop:
-      watch:
-        - action: rebuild
-          path: backend
-          ignore:
-            - backend/target
+      - LOG_LEVEL=warn
     volumes:
       - ./logs:/logs
       - ${DATA_PATH:-./test_data}:/data
