@@ -54,7 +54,7 @@ defineEmits<{
   (e: 'select', id: entryID): void
 }>()
 
-// LOKALER STATE FÜR TAGS (Ersatz für Store)
+// Lokaler state für tags (Ersatz für Store)
 // Wir erstellen eine Kopie, damit wir sie bearbeiten können.
 const localTags = ref<string[]>([...props.tags])
 

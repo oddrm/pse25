@@ -140,7 +140,7 @@ onMounted(async () => { await store.init(); await store.loadForEntries([props.en
 watch(() => props.entryID, async (id) => { if (process.client) await store.loadForEntries([id]) })
 const sequences = computed(() => store.byEntry(props.entryID))
 
-// --- STATE ---
+// state
 const currentStartTime = ref(0);
 const currentEndTime = ref(0);
 const formName = ref("");
@@ -151,7 +151,7 @@ const isEditing = ref(false);
 const editingId = ref<number | null>(null);
 const modalRef = ref<HTMLDialogElement | null>(null);
 
-// --- ECHTZEIT SLIDER UPDATE ---
+// echtzeit Slider update
 // @slide sorgt für Aktualisierung während des Ziehens
 const updateFromSlider = (val: any) => {
   // Da @slide ein Array [number, number] liefert:
@@ -159,7 +159,7 @@ const updateFromSlider = (val: any) => {
   currentEndTime.value = val[1];
 }
 
-// --- COMPUTED INPUTS ---
+// computed inputs
 // Verknüpfung der getrennten Input-Felder (Min/Sek) mit den zentralen Sekunden-Werten
 const startMin = computed({
   get: () => Math.floor(currentStartTime.value / 60),
@@ -194,7 +194,7 @@ const endSec = computed({
 });
 
 
-// --- Helper Functions ---
+// Helper Functions
 const formatSeconds = (totalSeconds: number | null) => {
   if (totalSeconds == null) return "00:00";
   const m = Math.floor(totalSeconds / 60);

@@ -1,22 +1,22 @@
 <template>
   <div class="relative w-full h-screen">
 
-    <!--  MAIN  -->
+    <!-- Main -->
     <div class="transition-all duration-300" :class="infoOpen ? 'w-2/3' : 'w-full'">
 
-      <!-- ---------- Plugin Status Header ---------- -->
+      <!-- Plugin Status Header -->
       <PluginStatusHeader />
 
-      <!-- ---------- Table / Entry Selection ---------- -->
+      <!-- Table / Entry Selection -->
       <Table @select="openInfo" />
     </div>
 
 
-    <!--RIGHT INFO CURTAIN -->
+    <!--right info curtain -->
     <div class="fixed top-0 right-0 h-full transition-all duration-300 bg-base-200 pt-10"
       :class="infoOpen ? 'w-1/3' : 'w-2'">
 
-      <!-- ---------- Info Curtain OPEN ---------- -->
+      <!-- Info Curtain open -->
       <div v-if="infoOpen" class="h-full relative">
 
         <!-- Close Button -->
@@ -29,7 +29,7 @@
       </div>
 
 
-      <!-- ---------- Info Curtain CLOSED ---------- -->
+      <!-- Info Curtain closed -->
       <div v-else @click="infoOpen = true" class="absolute left-[-2.0rem] top-1/2 -translate-y-1/2 pt-12">
         <Icon icon="octicon:triangle-left" class="w-10 h-10 text-blue-800" />
       </div>
