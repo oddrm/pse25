@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 use std::path::Path;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use crate::error::Error;
 
@@ -86,6 +86,16 @@ fn prepare_module_import<'py>(
     sys_path
         .call_method1(PY_SYS_PATH_INSERT, (0, parent.to_string_lossy().as_ref()))
         .map_err(|e| Error::CustomError(format!("{PY_SYS_PATH_INSERT_FAILED_PREFIX}{e}")))?;
+
+    // Ensure a fresh import: remove any cached module from sys.modules so
+    // updates to the plugin file (e.g., changed PLUGIN_DESCRIPTION) are picked up.
+    if let Ok(modules) = sys.getattr("modules") {
+        let _ = modules.call_method1("pop", (module_name.as_str(), py.None()));
+        debug!(
+            "Removed module '{}' from sys.modules to force fresh import",
+            module_name
+        );
+    }
 
     // Import des Plugins in Python-Form
     let module = py.import(&module_name).map_err(|e| {

@@ -8,6 +8,7 @@ import threading
 import traceback
 from pathlib import Path
 from typing import Any, Final, Literal, NotRequired, TypedDict
+import time
 import logging
 
 
@@ -46,6 +47,9 @@ RESULT_STARTED = "started"
 
 STATUS_RUNNING = "running"
 STATUS_STOPPED = "stopped"
+
+# Minimum time (seconds) a plugin process should live to ensure logs are observed
+MIN_LIFETIME_SECONDS = 3.0
 
 
 # Rückgabe Status
@@ -154,6 +158,20 @@ def main() -> int:
         class JsonHandler(logging.Handler):
             def emit(self, record: logging.LogRecord) -> None:
                 try:
+                    # for progress: logger.info("PROGRESS: x=%d", x)
+
+                    if record.msg.startswith("PROGRESS:"):
+                        progress_str = record.msg[len("PROGRESS:") :].strip()
+                        write_msg(
+                            {
+                                INSTANCE_ID: instance_id,
+                                EVENT: "progress",
+                                RESULT: {
+                                    "progress": float(progress_str),
+                                },
+                            }
+                        )
+                        pass
                     write_msg(
                         {
                             INSTANCE_ID: instance_id,
@@ -165,8 +183,20 @@ def main() -> int:
                             },
                         }
                     )
-                except Exception:
+                    # pass
+                except Exception as e:
                     # never raise from logging
+                    write_msg(
+                        {
+                            INSTANCE_ID: instance_id,
+                            EVENT: "log",
+                            RESULT: {
+                                "level": "ERROR",
+                                "msg": str(e),
+                                "logger": record.name,
+                            },
+                        }
+                    )
                     pass
 
         # Configure root logger to use our handler (avoid duplicate handlers)
@@ -176,10 +206,19 @@ def main() -> int:
         json_handler.setFormatter(logging.Formatter("%(message)s"))
         root_logger.addHandler(json_handler)
         root_logger.setLevel(logging.DEBUG)
-        # bekommt Faktory/ Klase
+
+        # bekommt Faktory/ Klasse
         plugin_impl = getattr(module, PLUGIN_IMPL)
-        # Instanz erzeugen
-        plugin = plugin_impl(args.plugin_path)
+        # Instanz erzeugen (bevorzugt inkl. instance_id)
+        plugin = plugin_impl(args.plugin_path, args.data)
+
+        # NEW: smoke test - if progress API exists, emit an initial progress tick
+        try:
+            if hasattr(plugin, "report_progress"):
+                plugin.report_progress(0.0, "started")
+        except Exception:
+            pass
+
     except Exception as e:
         write_msg(
             {
@@ -206,6 +245,7 @@ def main() -> int:
     }
 
     def run_worker():
+        start_time = time.monotonic()
         try:
             # run!
             res = plugin.run(args.data)
@@ -215,7 +255,15 @@ def main() -> int:
             run_result[ERROR] = str(exception)
             run_result[TRACE] = traceback.format_exc()
         finally:
-            # stoppen
+            # Ensure plugin process lives at least MIN_LIFETIME_SECONDS so
+            # log messages and other IPC have time to be forwarded.
+            try:
+                elapsed = time.monotonic() - start_time
+                if elapsed < MIN_LIFETIME_SECONDS:
+                    time.sleep(MIN_LIFETIME_SECONDS - elapsed)
+            except Exception:
+                pass
+            # Signal completion after ensured lifetime
             run_done.set()
             # worker finished; main thread will emit final exited message
             pass

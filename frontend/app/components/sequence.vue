@@ -123,7 +123,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue"
+import { ref, computed, onMounted, watch } from "vue"
 import { useSequencesStore } from "../../stores/sequenceStore"
 import type { Sequence } from "~/utils/sequence"
 import Slider from '@vueform/slider'
@@ -136,7 +136,8 @@ const props = defineProps<{
 }>()
 
 const store = useSequencesStore()
-onMounted(() => { store.init() })
+onMounted(async () => { await store.init(); await store.loadForEntries([props.entryID]) })
+watch(() => props.entryID, async (id) => { if (process.client) await store.loadForEntries([id]) })
 const sequences = computed(() => store.byEntry(props.entryID))
 
 // --- STATE ---

@@ -1,48 +1,24 @@
-#![allow(unused)]
-
-use crate::{
-    routes,
-    schema::{files, sensors::entry_id},
-};
+use crate::routes;
 use itertools::Itertools;
 use std::{
     collections::HashSet,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    thread,
-    time::Duration,
 };
 // use crate::schema::metadata::dsl::{entry_id as metadata_entry_id, metadata};
 use crate::storage::models::*;
-use crate::{
-    error::{Error, StorageError},
-    schema,
-};
+use crate::{error::StorageError, schema};
 
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use deadpool::Runtime;
 use deadpool_diesel::postgres::{Manager, Pool};
 use diesel::prelude::*;
-use diesel_async::AsyncPgConnection;
-use dotenvy::Iter;
-use notify::{
-    RecursiveMode, Watcher,
-    event::{CreateKind, EventAttributes},
-};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rocket::futures::StreamExt;
 use rocket::futures::stream;
-use rocket::futures::{FutureExt, StreamExt};
-use tokio::sync::oneshot;
-use tokio::sync::{
-    mpsc::{self, Receiver, Sender},
-    watch,
-};
-use tokio_stream::wrappers::ReceiverStream;
-use tracing::{debug, error, info, instrument, warn};
-use tracing_subscriber::field::debug;
+use tracing::{debug, info, instrument, warn};
 
 pub type Map<K, V> = std::collections::HashMap<K, V>;
 pub type TxID = u64;
@@ -181,7 +157,7 @@ impl StorageManager {
         })
         .await??;
 
-        debug!("Updated entry {}", entry_id_);
+        // debug!("Updated entry {}", entry_id_);
         Ok(())
     }
 
@@ -334,7 +310,7 @@ impl StorageManager {
                     .optional()
             })
             .await??;
-        debug!("Queried entry by id {}: {:?}", entry_id_, entry);
+        // debug!("Queried entry by id {}: {:?}", entry_id_, entry);
         Ok(entry)
     }
 
@@ -374,10 +350,10 @@ impl StorageManager {
             })
             .await??;
         let sequences_map = sequences.into_iter().map(|s| (s.id, s)).collect();
-        debug!(
-            "Queried sequences for entry_id {}: {:?}",
-            entry_id_, sequences_map
-        );
+        // debug!(
+        //     "Queried sequences for entry_id {}: {:?}",
+        //     entry_id_, sequences_map
+        // );
         Ok(sequences_map)
     }
 
@@ -397,10 +373,10 @@ impl StorageManager {
             })
             .await??;
         let sensors_map = sensors.into_iter().map(|s| (s.id, s)).collect();
-        debug!(
-            "Queried sensors for entry_id {}: {:?}",
-            entry_id_, sensors_map
-        );
+        // debug!(
+        //     "Queried sensors for entry_id {}: {:?}",
+        //     entry_id_, sensors_map
+        // );
         Ok(sensors_map)
     }
 
@@ -415,7 +391,7 @@ impl StorageManager {
             })
             .await??;
         let sensors_map = sensors.into_iter().map(|s| (s.id, s)).collect();
-        debug!("Queried all sensors: {:?}", sensors_map);
+        // debug!("Queried all sensors: {:?}", sensors_map);
         Ok(sensors_map)
     }
 
@@ -435,7 +411,7 @@ impl StorageManager {
             })
             .await??;
         let topics_map = topics.into_iter().map(|s| (s.id, s)).collect();
-        debug!("Queried topics for entry_id {}", entry_id_);
+        // debug!("Queried topics for entry_id {}", entry_id_);
         Ok(topics_map)
     }
 
@@ -491,7 +467,7 @@ impl StorageManager {
                 .execute(conn)
         })
         .await??;
-        debug!("Updated topic {}", topic_id);
+        // debug!("Updated topic {}", topic_id);
         Ok(())
     }
 
@@ -503,7 +479,7 @@ impl StorageManager {
                 .execute(conn)
         })
         .await??;
-        debug!("Removed topic with id {}", topic_id);
+        // debug!("Removed topic with id {}", topic_id);
         Ok(())
     }
 
@@ -599,7 +575,7 @@ impl StorageManager {
             .execute(conn)
         })
         .await??;
-        debug!("Updated sensor {}", sensor_id);
+        // debug!("Updated sensor {}", sensor_id);
         Ok(())
     }
 
@@ -613,7 +589,7 @@ impl StorageManager {
             .execute(conn)
         })
         .await??;
-        debug!("Removed sensor with id {}", sensor_id);
+        // debug!("Removed sensor with id {}", sensor_id);
         Ok(())
     }
 
@@ -676,7 +652,7 @@ impl StorageManager {
             .execute(conn)
         })
         .await??;
-        debug!("Updated sequences");
+        // debug!("Updated sequences");
         Ok(())
     }
 

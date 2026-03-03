@@ -1,12 +1,15 @@
 
 # Welche Plugins und welche Schalter?
 plugins:
-  - name: plugin_a
+  - name: append_42
     enabled: true
-  - name: plugin_b
-    enabled: false
+  - name: compress
+    enabled: true
+  - name: foo
+    enabled: true
+  - name: loop
+    enabled: true
+  - name: seed_test_data
+    enabled: true
 
-#  // In Server-Init (z.B. main.rs oder setup-Code)
-#  let mut plugin_manager = PluginManager::new();
-#  plugin_manager.register_plugins(plugins_dir)?;
-#  plugin_manager.load_config_and_apply("config/plugins.yaml")?;
+# muss unter plugins_dir/config

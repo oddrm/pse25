@@ -1,9 +1,6 @@
-#![allow(unused)]
-use crate::error::Error;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use rocket::serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 
 pub type EntryID = i64;
 pub type SequenceID = i64;

@@ -18,6 +18,7 @@ const props = defineProps<{
   entry: {
     entryID: number
     name: string
+    path: string
   }
 }>()
 
@@ -75,7 +76,7 @@ const toggleDropdown = async () => {
 
 const isPluginRunningForThisEntry = (pluginName: string) => {
   return pluginsStore.runningPlugins.some(
-    (r) => r.pluginName === pluginName && r.entryName === props.entry.name
+    (r) => r.pluginName === pluginName && r.entryName === props.entry.path
   )
 };
 
@@ -89,7 +90,7 @@ const runPluginOnEntry = async (plugin: PluginItem) => {
   // 2. Den Intervall-Fortschritt
   // 3. Den Eintrag in runningPlugins
   // 4. Das saubere Beenden nach X Sekunden
-  await pluginsStore.startPlugin(plugin.id, props.entry.name)
+  await pluginsStore.startPlugin(plugin.id, props.entry.path)
 }
 </script>
 

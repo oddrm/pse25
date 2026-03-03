@@ -1,10 +1,7 @@
-#![allow(unused)]
-
 use deadpool_diesel::{InteractError, postgres::PoolError};
 use diesel::ConnectionError;
 use rocket::http::Status;
 use rocket::response::{self, Responder};
-use rocket::serde::json::Json;
 use serde::Serialize;
 
 #[derive(Debug)]

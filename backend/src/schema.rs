@@ -10,7 +10,6 @@ diesel::table! {
     entries (id) {
         // inherent data
         id -> BigInt,
-        // TODO set file name
         name -> Varchar,
         path -> Varchar,
         size -> BigInt,
