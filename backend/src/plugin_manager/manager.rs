@@ -962,7 +962,7 @@ async fn run_instance_actor(
                 }
             }
             msg = stdout_rx.recv() => {
-                debug!("Received message from runner for instance {}: {:?}", instance_id, msg);
+                // debug!("Received message from runner for instance {}: {:?}", instance_id, msg);
                 match msg {
                     Some(msg) => {
                         if msg.instance_id != instance_id { continue; }

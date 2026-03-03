@@ -11,5 +11,7 @@ plugins:
     enabled: true
   - name: seed_test_data
     enabled: true
+  - name: metadata_yaml_export
+    enabled: true
 
 # muss unter plugins_dir/config

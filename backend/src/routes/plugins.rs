@@ -125,9 +125,8 @@ pub async fn register_plugins(state: &State<AppState>) -> Result<status::NoConte
         pm.history.clear();
         pm.registered.clear();
         // perform registration into the now-empty manager
-        pm.register_plugins(PathBuf::from("/plugins")).unwrap();
-        pm.load_config_and_apply("/plugins/config/plugins.yaml")
-            .unwrap();
+        pm.register_plugins(PathBuf::from("/plugins"))?;
+        pm.load_config_and_apply("/plugins/config/plugins.yaml")?;
     }
 
     Ok(status::NoContent)

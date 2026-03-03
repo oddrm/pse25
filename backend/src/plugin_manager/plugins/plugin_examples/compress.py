@@ -20,18 +20,12 @@ class PluginImpl(BasePlugin):
             return STOPPED
 
         parsed = None
-        if isinstance(data, str):
-            # Try JSON first, fall back to treating the string as the entry path
-            try:
-                parsed = json.loads(data)
-            except Exception:
-                parsed = {"entry_path": data}
-        elif isinstance(data, dict):
-            parsed = data
-        else:
+        try:
+            parsed = json.loads(data)
+        except Exception:
             logger.error(
-                "Plugin 'compress' received unsupported data type: %s",
-                type(data),
+                "Plugin 'metadata_yaml_export' failed to parse input data as JSON: %s",
+                data,
             )
             return STOPPED
 

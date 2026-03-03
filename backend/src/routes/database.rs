@@ -228,7 +228,7 @@ pub async fn get_entry(
     }
 }
 
-#[get("/paths/<path>/tx/<txid>")]
+#[get("/paths/tx/<txid>?<path>")]
 pub async fn get_entry_by_path(
     state: &State<AppState>,
     path: String,
