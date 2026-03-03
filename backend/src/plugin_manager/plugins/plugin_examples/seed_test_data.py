@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 
 from plugin_base import BasePlugin
 
-PLUGIN_NAME = "seed_test_data_plugin"
+PLUGIN_NAME = "seed_test_data"
 PLUGIN_DESCRIPTION = (
     "Seeds test data by copying MCAP/YAML recursively into /data "
     "(which is mounted to the project ./test_data)."
@@ -31,7 +31,9 @@ def _is_interesting(p: Path) -> bool:
 
 
 class PluginImpl(BasePlugin):
-    def _copy_file_atomic_cooperative(self, src: Path, dst: Path, chunk_bytes: int) -> None:
+    def _copy_file_atomic_cooperative(
+        self, src: Path, dst: Path, chunk_bytes: int
+    ) -> None:
         """
         Atomic copy using *.partial + replace(), but cooperatively checks pause/stop during the copy.
         """
@@ -70,7 +72,11 @@ class PluginImpl(BasePlugin):
 
                 # light progress log every ~64 MiB
                 if copied % (64 * 1024 * 1024) < chunk_bytes:
-                    log.info("copy progress: %s -> %.1f%%", src.name, (copied / max(total, 1)) * 100.0)
+                    log.info(
+                        "copy progress: %s -> %.1f%%",
+                        src.name,
+                        (copied / max(total, 1)) * 100.0,
+                    )
 
             fdst.flush()
 
@@ -107,14 +113,20 @@ class PluginImpl(BasePlugin):
         dry_run = bool(payload.get("dry_run", False))
         limit = int(payload.get("limit", 0) or 0)
         overwrite = bool(payload.get("overwrite", False))
-        chunk_bytes = int(payload.get("chunk_bytes", 1024 * 1024) or (1024 * 1024))  # default 1 MiB
-        chunk_bytes = max(64 * 1024, min(chunk_bytes, 16 * 1024 * 1024))  # clamp 64 KiB..16 MiB
+        chunk_bytes = int(
+            payload.get("chunk_bytes", 1024 * 1024) or (1024 * 1024)
+        )  # default 1 MiB
+        chunk_bytes = max(
+            64 * 1024, min(chunk_bytes, 16 * 1024 * 1024)
+        )  # clamp 64 KiB..16 MiB
 
         mode = str(payload.get("source_mode", SOURCE_MODE)).strip().lower()
         if mode not in ("host", "project"):
             return "error: source_mode must be 'host' or 'project'"
 
-        source_dir = (HOST_SOURCE_DIR if mode == "host" else PROJECT_SOURCE_DIR).resolve()
+        source_dir = (
+            HOST_SOURCE_DIR if mode == "host" else PROJECT_SOURCE_DIR
+        ).resolve()
         dest_dir = DEST_DIR.resolve()
 
         if not source_dir.exists() or not source_dir.is_dir():
@@ -142,11 +154,15 @@ class PluginImpl(BasePlugin):
             log.info("file %d/%d: %s", i, len(files), rel)
 
             if dst.exists() and not overwrite:
-                skipped.append({"src": str(src), "dst": str(dst), "reason": "already_exists"})
+                skipped.append(
+                    {"src": str(src), "dst": str(dst), "reason": "already_exists"}
+                )
                 continue
 
             if limit > 0 and count_copied >= limit:
-                skipped.append({"src": str(src), "dst": str(dst), "reason": "limit_reached"})
+                skipped.append(
+                    {"src": str(src), "dst": str(dst), "reason": "limit_reached"}
+                )
                 continue
 
             try:

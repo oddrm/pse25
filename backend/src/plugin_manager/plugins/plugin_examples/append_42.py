@@ -2,7 +2,6 @@ PLUGIN_NAME = "append_42"
 PLUGIN_DESCRIPTION = "Append 42 to description of all entries"
 PLUGIN_TRIGGER = "manual"
 STOPPED = "stopped"
-
 from plugin_base import BasePlugin, TICK_SECONDS
 import logging
 import urllib.request
@@ -33,13 +32,13 @@ class PluginImpl(BasePlugin):
                 return resp.getcode()
 
         txid = 0
-        entries = get_json(f"/entries?txid={txid}")
+        entries = get_json(f"/entries?txid={txid}")[0]
+        logger.info("append_42 got %d entries", len(entries))
         for e in entries:
             if self.should_stop():
                 logger.info("append_42 stopping on request")
                 break
             self.wait_while_paused()
-
             eid = e.get("id")
             if eid is None:
                 continue
