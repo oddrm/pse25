@@ -75,7 +75,8 @@
             • Black – Not filled
           </p>
           <p class="mb-4">
-            You can sort entries by status, name, link, or platform. To quickly find a specific entry, use the search bar.
+            You can sort entries by status, name, link, or platform. To quickly find a specific entry, use the search
+            bar.
           </p>
           <p class="mb-4">
             Plugins can be executed per entry. For more details, see the
@@ -86,7 +87,8 @@
             Entry Info
           </h3>
           <p class="mb-4">
-            Click any row to open the <b>Entry Info</b> panel on the left side. It contains general metadata for the selected entry.
+            Click any row to open the <b>Entry Info</b> panel on the left side. It contains general metadata for the
+            selected entry.
           </p>
           <p class="mb-4">
             In the Entry Info panel you can:
@@ -103,7 +105,8 @@
             Sequences
           </h3>
           <p class="mb-4">
-            On the right side of each entry row, there is a dropdown button. Clicking it shows all sequences linked to that entry.
+            On the right side of each entry row, there is a dropdown button. Clicking it shows all sequences linked to
+            that entry.
           </p>
           <p class="mb-4">
             In the sequences view you can create new sequences and delete existing ones.
@@ -129,8 +132,10 @@
           </p>
           <ul class="list-disc pl-6 mb-4 space-y-2">
             <li><b>Start</b> — Manual plugins can be started directly from the detail view of an entry.</li>
-            <li><b>Pause &amp; Resume</b> — If a plugin supports cooperative multitasking, you can pause and resume it later.</li>
-            <li><b>Stop</b> — You can stop a running instance at any time; the system will attempt graceful termination.</li>
+            <li><b>Pause &amp; Resume</b> — If a plugin supports cooperative multitasking, you can pause and resume it
+              later.</li>
+            <li><b>Stop</b> — You can stop a running instance at any time; the system will attempt graceful termination.
+            </li>
           </ul>
 
           <h3 id="plugins-triggers" class="text-xl font-semibold mt-6 mb-2">
@@ -142,8 +147,10 @@
           <ul class="list-disc pl-6 mb-4 space-y-1">
             <li><b>Manual</b> — Runs only when you explicitly click “Run” in the frontend.</li>
             <li><b>OnEntryCreate</b> — Triggered when a new MCAP file is registered in the system.</li>
-            <li><b>OnEntryUpdate / Delete</b> — Triggered when metadata is modified or when an entry is deleted.</li>
-            <li><b>OnSchedule (Scheduled)</b> — Runs on a fixed schedule (e.g., every night at 2:00 AM), using a cron expression.</li>
+            <li><b>OnEntryUpdate / Delete</b> — Triggered when a MCAP file is modified (this does not trigger on delete
+              or create)</li>
+            <li><b>OnSchedule (Scheduled)</b> — Runs on a fixed schedule (e.g., every night at 2:00 AM), using a cron
+              expression.</li>
           </ul>
 
           <h3 id="plugins-monitoring" class="text-xl font-semibold mt-6 mb-2">
@@ -164,7 +171,8 @@
           <p>
             Before a plugin can be used, it must be registered and enabled in the system.
             Administrators can enable or disable plugins through a central configuration file.
-            Invalid plugins — for example, those missing required components — are automatically marked and cannot be started.
+            Invalid plugins — for example, those missing required components — are automatically marked and cannot be
+            started.
           </p>
         </section>
 
@@ -177,10 +185,10 @@
           <p class="mb-3">
             It is recommended to regularly check the logs to ensure that all actions were executed successfully.
             All logs can be filtered in the top-right corner by category:
-            "Debug & Above", "Info & Above", "Warn & Above" and  "Error".
+            "Debug & Above", "Info & Above", "Warn & Above" and "Error".
           </p>
           <p class="mb-3">
-            Additionally, the log view does not display all at once. 
+            Additionally, the log view does not display all at once.
             You can choose to display only the most recent 50, 100, 500, or 1000 log entries.
           </p>
         </section>
