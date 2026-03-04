@@ -42,7 +42,7 @@ import { useSequencesStore } from "../../stores/sequenceStore";
 import { watch } from "vue";
 
 const page = ref(1);
-const pageSize = ref(4);
+const pageSize = ref(20);
 const offset = computed(() => (page.value - 1) * pageSize.value);
 
 
