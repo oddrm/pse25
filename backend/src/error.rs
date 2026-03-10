@@ -4,12 +4,22 @@ use rocket::http::Status;
 use rocket::response::{self, Responder};
 use serde::Serialize;
 
+/// Zentrale Fehlerart der Anwendung.
+///
+/// Diese Enum bündelt Fehler aus verschiedenen Teilsystemen,
+/// damit API-Routen und interne Funktionen einheitlich mit
+/// `Result<T, Error>` arbeiten können.
 #[derive(Debug)]
 pub enum Error {
+    /// Fehler aus dem Storage-/Datenbank-Bereich.
     StorageError(StorageError),
+    /// Fehler beim Parsen von Eingabedaten.
     ParsingError(String),
+    /// Fehler aus File-Watcher/Polling.
     PollingError(notify::Error),
+    /// Frei formulierbarer Anwendungsfehler.
     CustomError(String),
+    /// Allgemeiner I/O-Fehler.
     IoError(std::io::Error),
 }
 
@@ -25,18 +35,27 @@ impl From<notify::Error> for Error {
     }
 }
 
+/// Einfaches JSON-Fehlerformat für HTTP-Antworten.
+/// Aktuell im Code nicht aktiv verwendet, aber als Struktur vorbereitet.
 #[derive(Debug, Serialize)]
 struct ErrorResponse {
     error: String,
 }
 
 impl Error {
+    /// Ordnet einen internen Fehler einem HTTP-Statuscode plus
+    /// benutzerfreundlicher Nachricht zu.
+    ///
+    /// Diese Methode ist nützlich, wenn Fehler sauber nach außen
+    /// übersetzt werden sollen.
     fn to_status_and_message(&self) -> (Status, String) {
         match self {
             Error::ParsingError(msg) => (Status::BadRequest, msg.clone()),
 
             Error::CustomError(msg) => {
-                // Spezieller Fall: "PluginManager lock timeout" => nicht stapeln, sondern retry.
+                // Spezieller Fall:
+                // "busy"/"lock timeout" ist oft ein temporäres Problem,
+                // deshalb 503 statt 400.
                 if msg.to_lowercase().contains("lock timeout")
                     || msg.to_lowercase().contains("busy")
                 {
@@ -51,7 +70,7 @@ impl Error {
                 StorageError::AlreadyExists(msg) => (Status::Conflict, msg.clone()),
                 StorageError::DecodingError(msg) => (Status::BadRequest, msg.clone()),
 
-                // DB/Pool: in der Praxis oft temporär => 503
+                // Verbindungs-/Poolprobleme sind häufig temporär.
                 StorageError::ConnectionError(_) | StorageError::PoolError(_) => (
                     Status::ServiceUnavailable,
                     "Database temporarily unavailable".to_string(),
@@ -77,6 +96,10 @@ impl Error {
     }
 }
 
+/// Macht `Error` direkt als Rocket-Responder verwendbar.
+///
+/// Dadurch können Routen einfach `Result<T, Error>` zurückgeben,
+/// und Rocket baut automatisch eine HTTP-Antwort daraus.
 impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
     fn respond_to(self, req: &'r rocket::Request<'_>) -> response::Result<'o> {
         let (status, message) = match self {

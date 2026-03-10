@@ -65,10 +65,20 @@ const TIMEOUT_RESUME_ACK: Duration = Duration::from_secs(2);
 type InstanceID = u64;
 
 // ---------- helpers (module-internal) ----------
+/// Wandelt den Trigger-String aus dem Python-Plugin in den internen Rust-Typ um.
+///
+/// Unterstützt:
+/// - `manual`
+/// - `on_entry_create`
+/// - `on_entry_update`
+/// - `on_entry_delete`
+/// - `on_schedule:<cron-ausdruck>`
+///
+/// Bei Schedules werden sowohl 5-Feld- als auch 6-Feld-Cron-Ausdrücke akzeptiert.
+/// Falls nur 5 Felder angegeben sind, wird automatisch `0` Sekunden ergänzt.
 #[instrument]
 fn parse_trigger(py_trigger: Option<&str>) -> Result<Trigger, Error> {
     match py_trigger {
-        // Trigger extrahieren
         Some(TRIGGER_MANUAL) | None => Ok(Trigger::Manual),
         Some(TRIGGER_ON_ENTRY_CREATE) => Ok(Trigger::OnEntryCreate),
         Some(TRIGGER_ON_ENTRY_UPDATE) => Ok(Trigger::OnEntryUpdate),
@@ -76,9 +86,7 @@ fn parse_trigger(py_trigger: Option<&str>) -> Result<Trigger, Error> {
         Some(other) if other.starts_with(TRIGGER_ON_SCHEDULE_PREFIX) => {
             let raw = other.trim_start_matches(TRIGGER_ON_SCHEDULE_PREFIX).trim();
 
-            // Unterstütze sowohl 5-Feld (min hour day mon dow) als auch 6-Feld
-            // (sec min hour day mon dow).
-            // Wenn 5 Felder angegeben sind, interpretieren wir das als "sekunden=0".
+            // 5 Felder => Sekundenfeld ergänzen
             let field_count = raw.split_whitespace().count();
             let cron_expr = match field_count {
                 5 => format!("0 {raw}"),
@@ -93,34 +101,47 @@ fn parse_trigger(py_trigger: Option<&str>) -> Result<Trigger, Error> {
 
             Ok(Trigger::OnSchedule(schedule))
         }
+        // Unbekannte Trigger werden defensiv als "manual" behandelt.
         _ => Ok(Trigger::Manual),
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum InstanceState {
+    /// Instanz läuft aktiv.
     Running,
+    /// Instanz wurde pausiert.
     Paused,
+    /// Instanz wurde gestoppt.
     Stopped,
+    /// Instanz ist regulär zu Ende gelaufen.
     Completed,
+    /// Instanz ist mit Fehler beendet worden.
     Failed,
-    /// Instance did not respond to liveness checks and was forcefully terminated
+    /// Instanz reagierte nicht mehr auf Status-/Steueranfragen.
     Unresponsive,
 }
 
 #[derive(Debug, Deserialize)]
 struct RunnerMsg {
+    /// Zu welcher Plugin-Instanz gehört die Nachricht?
     instance_id: u64,
+    /// Optional: Zu welcher Request-ID gehört die Antwort?
     #[serde(default)]
     request_id: Option<String>,
+    /// Optionales Erfolg-Flag für ACK-Antworten.
     #[serde(default)]
     ok: Option<bool>,
+    /// Optionales JSON-Ergebnis, z. B. für `status`.
     #[serde(default)]
     result: Option<serde_json::Value>,
+    /// Optionaler Fehlertext.
     #[serde(default)]
     error: Option<String>,
+    /// Optionaler Stacktrace.
     #[serde(default)]
     trace: Option<String>,
+    /// Optionaler Event-Name wie `log`, `progress`, `exited`.
     #[serde(default)]
     event: Option<String>,
 }
@@ -139,26 +160,36 @@ pub struct PluginsConfig {
 
 #[derive(Debug)]
 pub enum PluginCommand {
+    /// Stop-Kommando mit Antwortkanal.
     Stop(oneshot::Sender<Result<(), Error>>),
+    /// Pause-Kommando mit Antwortkanal.
     Pause(oneshot::Sender<Result<(), Error>>),
+    /// Resume-Kommando mit Antwortkanal.
     Resume(oneshot::Sender<Result<(), Error>>),
-    /// Send a status request to the runner and return the JSON result
+    /// Status-/Liveness-Anfrage; liefert JSON zurück.
     CheckLiveness(oneshot::Sender<Result<serde_json::Value, Error>>),
 }
 
 #[derive(Debug, Clone)]
 pub struct PluginHandle {
+    /// Index des Plugins in `registered`.
     pub plugin_index: usize,
+    /// Kanal, über den der Actor Steuerkommandos erhält.
     pub command_tx: mpsc::Sender<PluginCommand>,
+    /// Watch-Kanal für den aktuellen Zustand der Instanz.
     pub status_rx: watch::Receiver<InstanceState>,
+    /// Watch-Kanal für Fortschrittswerte von 0.0 bis 1.0.
     pub progress_rx: watch::Receiver<f32>,
 }
 
 #[derive(Debug)]
 pub struct PluginManager {
+    /// Alle registrierten Plugins.
     pub registered: Vec<Plugin>,
+    /// Aktuell laufende Instanzen.
     pub running: HashMap<InstanceID, PluginHandle>,
-    // history of stopped/finished instances: maps instance_id -> (plugin_index, state)
+    /// Historie beendeter Instanzen:
+    /// instance_id -> (plugin_index, letzter Zustand)
     pub history: HashMap<InstanceID, (usize, InstanceState)>,
 }
 
@@ -745,7 +776,11 @@ impl PluginManager {
         plugin_manager: Arc<tokio::sync::Mutex<PluginManager>>,
         event: BackendEvent,
     ) -> Result<Vec<u64>, Error> {
-        // ----- Phase 1: prepare under lock -----
+        // Phase 1:
+        // Unter Lock nur schnell vorbereiten:
+        // - passende Plugins bestimmen
+        // - Instanz-IDs planen
+        // - Payload für jedes Plugin erzeugen
         let plans: Vec<(usize, String, PathBuf, u64, String)> = {
             let pm = plugin_manager.lock().await;
 
@@ -777,6 +812,7 @@ impl PluginManager {
                         .map(|p| p.name().clone())
                         .unwrap_or_else(|| "unknown".to_string());
 
+                    // Payload, die an das Python-Plugin weitergereicht wird.
                     let data = serde_json::json!({
                         "event": event_name,
                         "path": event_path,
@@ -789,7 +825,9 @@ impl PluginManager {
                 .collect()
         };
 
-        // ----- Phase 2: build without lock -----
+        // Phase 2:
+        // Instanzen bauen, OHNE den globalen PluginManager-Lock zu halten.
+        // Das ist wichtig, weil Prozessstarts und IPC-Aufbau länger dauern können.
         let mut built: Vec<(u64, PluginHandle)> = Vec::new();
         for (plugin_index, plugin_name, plugin_path, instance_id, data) in plans {
             let handle = build_started_instance_core_with_data(
@@ -803,7 +841,8 @@ impl PluginManager {
             built.push((instance_id, handle));
         }
 
-        // ----- Phase 3: commit under lock -----
+        // Phase 3:
+        // Fertige Handles wieder unter Lock in `running` eintragen.
         let mut started = Vec::new();
         let mut pm = plugin_manager.lock().await;
         for (instance_id, handle) in built {
@@ -878,6 +917,11 @@ async fn send_runner_cmd(
     cmd: &str,
     request_id: &str,
 ) -> Result<(), Error> {
+    // Das Protokoll zwischen Rust und Python ist zeilenbasiertes JSON.
+    // Jede Anfrage enthält:
+    // - instance_id: an welche Instanz geht das Kommando?
+    // - request_id: damit Antworten eindeutig zugeordnet werden können
+    // - cmd: das eigentliche Kommando
     let mut req = serde_json::Map::new();
     req.insert(
         JSON_KEY_INSTANCE_ID.to_string(),
@@ -888,16 +932,22 @@ async fn send_runner_cmd(
         serde_json::Value::from(request_id),
     );
     req.insert(JSON_KEY_CMD.to_string(), serde_json::Value::from(cmd));
+
     let req = serde_json::Value::Object(req);
     let line = req.to_string() + "\n";
+
+    // JSON-Zeile an den Python-Prozess senden.
     stdin
         .write_all(line.as_bytes())
         .await
         .map_err(|e| Error::CustomError(format!("{ERR_FAILED_SEND_CMD_PREFIX}{e}")))?;
+
+    // Explizit flushen, damit die Nachricht sofort rausgeht.
     stdin
         .flush()
         .await
         .map_err(|e| Error::CustomError(format!("{ERR_FAILED_FLUSH_CMD_PREFIX}{e}")))?;
+
     Ok(())
 }
 #[instrument(skip(child, child_stdin, stdout_rx, command_rx, status_tx, progress_tx))]
@@ -911,6 +961,9 @@ async fn run_instance_actor(
     status_tx: watch::Sender<InstanceState>,
     progress_tx: watch::Sender<f32>,
 ) {
+    // PendingReply speichert offene Requests, auf deren ACK wir noch warten.
+    // Dadurch kann eine spätere Antwort aus Python korrekt dem ursprünglichen
+    // Stop/Pause/Resume/Status-Aufruf zugeordnet werden.
     enum PendingReply {
         Unit(oneshot::Sender<Result<(), Error>>, String),
         Json(oneshot::Sender<Result<serde_json::Value, Error>>),
@@ -918,13 +971,17 @@ async fn run_instance_actor(
 
     let mut pending_acks: HashMap<String, PendingReply> = HashMap::new();
     let mut next_request_seq = 1u64;
+
     loop {
         tokio::select! {
+            // Zweig 1:
+            // Befehle aus Rust entgegennehmen und an den Python-Runner weiterleiten.
             cmd = command_rx.recv() => {
                 match cmd {
                     Some(PluginCommand::Stop(reply)) => {
                         let request_id = format!("{}-{}", instance_id, next_request_seq);
                         next_request_seq += 1;
+
                         if let Err(e) = send_runner_cmd(instance_id, &mut child_stdin, CMD_STOP, &request_id).await {
                             let _ = reply.send(Err(e));
                         } else {
@@ -934,6 +991,7 @@ async fn run_instance_actor(
                     Some(PluginCommand::Pause(reply)) => {
                         let request_id = format!("{}-{}", instance_id, next_request_seq);
                         next_request_seq += 1;
+
                         if let Err(e) = send_runner_cmd(instance_id, &mut child_stdin, CMD_PAUSE, &request_id).await {
                             let _ = reply.send(Err(e));
                         } else {
@@ -943,6 +1001,7 @@ async fn run_instance_actor(
                     Some(PluginCommand::Resume(reply)) => {
                         let request_id = format!("{}-{}", instance_id, next_request_seq);
                         next_request_seq += 1;
+
                         if let Err(e) = send_runner_cmd(instance_id, &mut child_stdin, CMD_RESUME, &request_id).await {
                             let _ = reply.send(Err(e));
                         } else {
@@ -952,22 +1011,28 @@ async fn run_instance_actor(
                     Some(PluginCommand::CheckLiveness(reply)) => {
                         let request_id = format!("{}-{}", instance_id, next_request_seq);
                         next_request_seq += 1;
+
                         if let Err(e) = send_runner_cmd(instance_id, &mut child_stdin, CMD_STATUS, &request_id).await {
                             let _ = reply.send(Err(e));
                         } else {
                             pending_acks.insert(request_id, PendingReply::Json(reply));
                         }
                     }
+                    // Wenn der Befehlskanal geschlossen wird, kann der Actor enden.
                     None => break,
                 }
             }
+
+            // Zweig 2:
+            // Nachrichten vom Python-Runner verarbeiten.
             msg = stdout_rx.recv() => {
-                // debug!("Received message from runner for instance {}: {:?}", instance_id, msg);
                 match msg {
                     Some(msg) => {
+                        // Sicherheitscheck: nur Nachrichten für diese Instanz verarbeiten.
                         if msg.instance_id != instance_id { continue; }
+
                         if let Some(ev) = &msg.event {
-                            // NEW: progress events from plugin
+                            // Fortschritts-Events aktualisieren den watch-Kanal.
                             if ev == "progress" {
                                 if let Some(val) = &msg.result {
                                     if let Some(p) = val.get("progress").and_then(|v| v.as_f64()) {
@@ -978,12 +1043,13 @@ async fn run_instance_actor(
                                 continue;
                             }
 
-                            // Special handling for logs emitted from plugin (via Python logging)
+                            // Log-Events aus Python in Rust-Logs übersetzen.
                             if ev == "log" {
                                 if let Some(val) = &msg.result {
                                     if let Some(level) = val.get("level").and_then(|v| v.as_str()) {
                                         let message = val.get("msg").and_then(|v| v.as_str()).unwrap_or_default();
                                         let logger_name = format!("plugin.{}.{}", instance_id, level.to_lowercase());
+
                                         match level {
                                             "DEBUG" => debug!("{} {}", logger_name, message),
                                             "INFO" => info!("{} {}", logger_name, message),
@@ -997,28 +1063,39 @@ async fn run_instance_actor(
                             }
 
                             debug!(LOG_RUNNER_EVENT, instance_id, ev);
+
+                            // Abschluss-Event:
+                            // Plugin ist fertig und liefert finalen Zustand.
                             if ev == "exited" {
-                                let final_state = if msg.ok.unwrap_or(false) { InstanceState::Completed } else { InstanceState::Failed };
+                                let final_state = if msg.ok.unwrap_or(false) {
+                                    InstanceState::Completed
+                                } else {
+                                    InstanceState::Failed
+                                };
+
                                 status_tx.send(final_state).ok();
                                 let _ = progress_tx.send(1.0);
+
                                 if final_state == InstanceState::Failed {
                                     if let Some(err) = &msg.error {
-                                    error!("plugin instance {} ('{}') exited with error: {}", instance_id, plugin_name, err);
+                                        error!("plugin instance {} ('{}') exited with error: {}", instance_id, plugin_name, err);
                                     } else {
-                                    error!("plugin instance {} ('{}') exited with failure (no error message)", instance_id, plugin_name);
+                                        error!("plugin instance {} ('{}') exited with failure (no error message)", instance_id, plugin_name);
                                     };
                                 } else {
-                                info!("plugin instance {} ('{}') exited with state {:?}", instance_id, plugin_name, final_state);
-                                break;
+                                    info!("plugin instance {} ('{}') exited with state {:?}", instance_id, plugin_name, final_state);
+                                    break;
                                 }
                             }
                         }
 
+                        // ACK-Antworten offenen Requests zuordnen.
                         if let Some(request_id) = msg.request_id {
                             if let Some(pending) = pending_acks.remove(&request_id) {
-                          match pending {
+                                match pending {
                                     PendingReply::Unit(reply, cmd) => {
                                         if msg.ok.unwrap_or(false) {
+                                            // Erfolgreiche Steuerkommandos aktualisieren den Status lokal.
                                             match cmd.as_str() {
                                                 CMD_PAUSE => { status_tx.send(InstanceState::Paused).ok(); }
                                                 CMD_RESUME => { status_tx.send(InstanceState::Running).ok(); }
@@ -1047,28 +1124,34 @@ async fn run_instance_actor(
                             }
                         }
                     }
+                    // stdout-Kanal geschlossen -> Actor beendet sich.
                     None => break,
                 }
             }
+
+            // Zweig 3:
+            // Child-Prozess selbst ist beendet.
             exit_status = child.wait() => {
                 let s = match exit_status {
                     Ok(s) if s.success() => InstanceState::Completed,
                     _ => InstanceState::Failed,
                 };
-                // Notify listeners about final state immediately
+
                 status_tx.send(s).ok();
                 let _ = progress_tx.send(1.0);
+
                 info!("python runner process for instance {} ('{}') exited with state {:?}", instance_id, plugin_name, s);
 
-                // Drain any remaining messages from the stdout receiver for a short grace
-                // period so the final log/exited messages the plugin emitted are not lost
-                // due to a race between process exit and the reader task.
+                // Danach noch kurz späte stdout-Nachrichten einsammeln,
+                // damit letzte Logs/Events nicht verloren gehen.
                 let drain_timeout = Duration::from_millis(1000);
                 loop {
                     match timeout(drain_timeout, stdout_rx.recv()).await {
                         Ok(Some(msg)) => {
-                            // reuse same handling as in the main loop for messages
                             if msg.instance_id != instance_id { continue; }
+
+                            // Hier wird dieselbe Art Nachricht verarbeitet wie oben,
+                            // nur in einer kurzen Nachlaufphase.
                             if let Some(ev) = &msg.event {
                                 if ev == "progress" {
                                     debug!("Received late progress event from instance {} after process exit: {:?}", instance_id, msg);
@@ -1086,6 +1169,7 @@ async fn run_instance_actor(
                                         if let Some(level) = val.get("level").and_then(|v| v.as_str()) {
                                             let message = val.get("msg").and_then(|v| v.as_str()).unwrap_or_default();
                                             let logger_name = format!("plugin.{}.{}", instance_id, level.to_lowercase());
+
                                             match level {
                                                 "DEBUG" => debug!("{} {}", logger_name, message),
                                                 "INFO" => info!("{} {}", logger_name, message),
@@ -1098,9 +1182,8 @@ async fn run_instance_actor(
                                     continue;
                                 }
 
-                                debug!(LOG_RUNNER_EVENT, instance_id, ev);
                                 if ev == "exited" {
-                                    // already handled via status above, just log if necessary
+                                    // Bereits über den Prozess-Exit behandelt.
                                     continue;
                                 }
                             }
@@ -1120,7 +1203,7 @@ async fn run_instance_actor(
                                             } else {
                                                 let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
                                                 let _ = reply.send(Err(Error::CustomError(err)));
-                                            }
+                        }
                                         }
                                         PendingReply::Json(reply) => {
                                             if msg.ok.unwrap_or(false) {
@@ -1147,6 +1230,9 @@ async fn run_instance_actor(
             }
         }
     }
+
+    // Sicherheitsnetz:
+    // Wenn noch ein Child-Prozess existiert, wird er am Ende beendet.
     let _ = child.kill().await;
 }
 
@@ -1169,6 +1255,11 @@ async fn spawn_runner_core_with_data(
         data.len()
     );
 
+    // Startet den Python-Runner als separaten Prozess.
+    // Kommunikation läuft über:
+    // - stdin  -> Kommandos an Python
+    // - stdout -> JSON-Nachrichten zurück zu Rust
+    // - stderr -> reine Fehler-/Debugausgabe
     let mut child = Command::new(PYTHON_EXECUTABLE)
         .arg(PYTHON_UNBUFFERED_FLAG)
         .arg(runner_path)
@@ -1194,6 +1285,7 @@ async fn spawn_runner_core_with_data(
         .take()
         .ok_or_else(|| Error::CustomError(ERR_FAILED_OPEN_STDOUT.to_string()))?;
 
+    // stderr des Python-Prozesses separat in die Rust-Logs spiegeln.
     if let Some(stderr) = child.stderr.take() {
         tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
@@ -1203,6 +1295,9 @@ async fn spawn_runner_core_with_data(
         });
     }
 
+    // stdout-Reader:
+    // Liest jede JSON-Zeile und schickt sie in einen Tokio-Kanal,
+    // aus dem später der Actor liest.
     let (tx, rx) = mpsc::channel::<RunnerMsg>(128);
     tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
@@ -1217,6 +1312,7 @@ async fn spawn_runner_core_with_data(
                         break;
                     }
                 }
+                // Nicht-JSON auf stdout wird nur geloggt.
                 Err(e) => {
                     debug!(line = %line, error = %e, "python stdout (non-json)");
                 }
@@ -1314,53 +1410,25 @@ pub async fn build_started_instance_core_with_data(
     instance_id: InstanceID,
     data: String,
 ) -> Result<PluginHandle, Error> {
+    // 1. Python-Runner-Prozess starten
     let (child, mut child_stdin, stdout_rx) =
         spawn_runner_core_with_data(plugin_path, instance_id, &data).await?;
 
+    // 2. Interne Kommunikationskanäle für den Actor aufbauen
     let (command_tx, command_rx) = mpsc::channel(32);
     let (status_tx, status_rx) = watch::channel(InstanceState::Running);
-
-    // NEW
     let (progress_tx, progress_rx) = watch::channel(0.0_f32);
 
-    // Perform initial start handshake before spawning the actor
+    // 3. Initiales Start-Kommando an den Runner senden.
+    // Erst dadurch startet der eigentliche Worker-Thread in Python.
     let request_id = format!("{}-0", instance_id);
     send_runner_cmd(instance_id, &mut child_stdin, CMD_START, &request_id).await?;
 
-    // // Wait for CMD_START ACK (or init_error)
-    // timeout(TIMEOUT_START_ACK, async {
-    //     while let Some(msg) = stdout_rx.recv().await {
-    //         if msg.instance_id != instance_id {
-    //             continue;
-    //         }
-
-    //         if msg.event.as_deref() == Some(EVENT_INIT_ERROR) {
-    //             let err = msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string());
-    //             let trace = msg.trace.unwrap_or_default();
-    //             return Err(Error::CustomError(format!(
-    //                 "python runner init_error: {err}\n{trace}"
-    //             )));
-    //         }
-
-    //         if msg.request_id == Some(request_id.clone()) {
-    //             return if msg.ok.unwrap_or(false) {
-    //                 Ok(())
-    //             } else {
-    //                 Err(Error::CustomError(
-    //                     msg.error.unwrap_or_else(|| ERR_UNKNOWN_ERROR.to_string()),
-    //                 ))
-    //             };
-    //         }
-    //     }
-    //     Err(Error::CustomError(ERR_PY_STDOUT_CLOSED.to_string()))
-    // })
-    // .await
-    // .map_err(|_| {
-    //     Error::CustomError(format!(
-    //         "Start handshake timed out after {:?}",
-    //         TIMEOUT_START_ACK
-    //     ))
-    // })??;
+    // 4. Den Instanz-Actor im Hintergrund starten.
+    // Er verwaltet ab jetzt:
+    // - eingehende Steuerkommandos
+    // - ausgehende Runner-Nachrichten
+    // - Status- und Fortschrittsupdates
     tokio::spawn(run_instance_actor(
         instance_id,
         plugin_name.clone(),
@@ -1372,6 +1440,7 @@ pub async fn build_started_instance_core_with_data(
         progress_tx,
     ));
 
+    // 5. Handle zurückgeben, mit dem der Rest des Systems die Instanz steuern kann.
     Ok(PluginHandle {
         plugin_index,
         command_tx,

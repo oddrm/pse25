@@ -1,17 +1,38 @@
 
-# Welche Plugins und welche Schalter?
+# Konfigurationsdatei für den Plugin-Manager.
+#
+# Hier wird festgelegt:
+# - welche Plugins bekannt sein sollen
+# - ob sie beim Laden aktiviert (`enabled: true`) oder deaktiviert sind
+#
+# Wichtig:
+# Der Name muss zum registrierten Plugin-Namen passen.
+
 plugins:
+  # Beispiel-Plugin:
+  # Wird beim Laden aktiviert und kann danach direkt verwendet werden.
   - name: append_42
     enabled: true
+
+  # Komprimiert eine ausgewählte MCAP-Datei.
   - name: compress
     enabled: true
+
+  # Platzhalter-/Test-Plugin.
   - name: foo
     enabled: true
+
+  # Langlaufendes Test-Plugin mit Fortschrittsmeldungen.
   - name: loop
     enabled: true
+
+  # Kopiert rekursiv Testdaten in das Zielverzeichnis.
   - name: seed_test_data
     enabled: true
+
+  # Exportiert Metadaten eines Eintrags als YAML-Datei.
   - name: metadata_yaml_export
     enabled: true
 
-# muss unter plugins_dir/config
+# Diese Datei muss unter `plugins_dir/config` liegen,
+# damit der Plugin-Manager sie beim Start laden kann.

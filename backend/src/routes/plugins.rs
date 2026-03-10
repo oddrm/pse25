@@ -8,7 +8,11 @@ use rocket::{State, get, post, put, response::status};
 use tokio::time::{Duration, timeout};
 use tracing::debug;
 
+/// Maximale Zeit, um den Plugin-Manager-Lock zu bekommen.
+/// So vermeiden wir, dass Requests unendlich warten.
 const PM_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Maximale Zeit für längere Plugin-Operationen wie Start/Stop/Pause/Resume.
 const ROUTE_OP_TIMEOUT: Duration = Duration::from_secs(10);
 
 async fn lock_plugin_manager(
@@ -24,6 +28,7 @@ async fn lock_plugin_manager(
         })
 }
 
+/// API-Darstellung eines Plugins bzw. einer Plugin-Instanz.
 #[derive(serde::Serialize)]
 pub struct PluginInfo {
     name: String,
@@ -37,6 +42,10 @@ pub struct PluginInfo {
     progress: Option<f32>,
 }
 
+/// Startet eine neue Instanz eines Plugins.
+///
+/// Optional kann JSON-Payload mitgegeben werden; diese wird serialisiert
+/// und an den Python-Runner durchgereicht.
 #[post("/plugins/<plugin_name>/start", data = "<payload>")]
 pub async fn start_plugin_instance(
     state: &State<AppState>,
@@ -87,13 +96,14 @@ pub async fn start_plugin_instance(
 
 #[put("/plugins/register")]
 pub async fn register_plugins(state: &State<AppState>) -> Result<status::NoContent, Error> {
-    // First: grab running handles under lock so we can stop them without holding the global lock
+    // Zuerst laufende Handles unter Lock kopieren, damit wir sie außerhalb
+    // des Locks stoppen können.
     let running_handles = {
         let pm = lock_plugin_manager(state).await?;
         pm.get_running_handles()
     };
 
-    // Attempt to stop each running instance (best-effort, without holding the lock)
+    // Laufende Instanzen best-effort stoppen.
     for (instance_id, handle) in running_handles {
         let stop_res = timeout(
             ROUTE_OP_TIMEOUT,
@@ -118,13 +128,12 @@ pub async fn register_plugins(state: &State<AppState>) -> Result<status::NoConte
         }
     }
 
-    // Now acquire lock and clear registered plugins, running map and history before re-registering
+    // Danach Zustand zurücksetzen und Plugins frisch einlesen.
     {
         let mut pm = lock_plugin_manager(state).await?;
         pm.running.clear();
         pm.history.clear();
         pm.registered.clear();
-        // perform registration into the now-empty manager
         pm.register_plugins(PathBuf::from("/plugins"))?;
         pm.load_config_and_apply("/plugins/config/plugins.yaml")?;
     }
@@ -132,6 +141,7 @@ pub async fn register_plugins(state: &State<AppState>) -> Result<status::NoConte
     Ok(status::NoContent)
 }
 
+/// Registriert genau ein Plugin anhand des übergebenen Pfads/Namens.
 #[put("/plugins/<plugin_name>/register")]
 pub async fn register_plugin(
     state: &State<AppState>,
@@ -142,12 +152,13 @@ pub async fn register_plugin(
     Ok(status::NoContent)
 }
 
+/// Stoppt eine laufende Plugin-Instanz.
 #[put("/plugins/<instance_id>/stop")]
 pub async fn stop_plugin_instance(
     state: &State<AppState>,
     instance_id: u64,
 ) -> Result<status::NoContent, Error> {
-    // Acquire a clone of the handle so we can call the async stop without holding the lock.
+    // Handle unter Lock holen, aber Stop selbst außerhalb ausführen.
     let handle = {
         let pm = lock_plugin_manager(state).await?;
         pm.get_instance_handle(instance_id)?
@@ -160,11 +171,11 @@ pub async fn stop_plugin_instance(
     .await
     .map_err(|_| Error::CustomError(format!("stop timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
 
-    // Record stopped instance in history and remove running handle under lock
+    // Nach erfolgreichem Stop die Instanz aus `running` entfernen
+    // und in die History übernehmen.
     {
         let mut pm = lock_plugin_manager(state).await?;
         if let Ok(handle) = pm.take_instance_handle(instance_id) {
-            // store plugin_index and Stopped state in history
             pm.record_history(
                 instance_id,
                 handle.plugin_index,
@@ -222,6 +233,7 @@ pub async fn get_plugin_instances(state: &State<AppState>) -> Result<Json<Vec<Pl
 
     let mut results: Vec<PluginInfo> = Vec::new();
 
+    // Laufende Instanzen inkl. Status und Fortschritt
     for (p, instance_id, status) in pm.get_running_instances() {
         if !p.enabled() {
             continue;
@@ -245,6 +257,7 @@ pub async fn get_plugin_instances(state: &State<AppState>) -> Result<Json<Vec<Pl
         });
     }
 
+    // Bereits beendete/entfernte Instanzen aus der Historie
     for (p, instance_id, status) in pm.get_history_instances() {
         if !p.enabled() {
             continue;
@@ -265,6 +278,7 @@ pub async fn get_plugin_instances(state: &State<AppState>) -> Result<Json<Vec<Pl
     Ok(Json(results))
 }
 
+/// Liefert alle registrierten und aktivierten Plugins zurück.
 #[get("/plugins/registered")]
 pub async fn get_registered_plugins(
     state: &State<AppState>,

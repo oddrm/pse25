@@ -20,9 +20,19 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
 #[macro_use]
 extern crate rocket;
 
+/// Einstiegspunkt der Anwendung.
+///
+/// Startet:
+/// - Logging
+/// - Datenbank/Storage
+/// - Plugin-Registrierung
+/// - File-Watcher
+/// - Hintergrundtasks für Reaping und Schedule-Ausführung
+/// - Rocket-Webserver
 #[instrument]
 #[rocket::main]
 async fn main() {
+    // Log-Level aus Umgebungsvariable lesen.
     let stdout_level = match env::var("LOG_LEVEL")
         .unwrap_or("debug".to_string())
         .as_str()
@@ -65,10 +75,14 @@ async fn main() {
         .init();
 
     tracing::info!("Logging initialized.");
+
+    // Datenbankverbindung vorbereiten.
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
     #[allow(unused_mut)]
     let mut storage_manager = StorageManager::new(&db_url).unwrap();
+
+    // Plugin-Manager initialisieren und Plugins aus dem Verzeichnis laden.
     let mut plugin_manager = PluginManager::new();
     plugin_manager
         .register_plugins(PathBuf::from("/plugins"))
@@ -77,8 +91,11 @@ async fn main() {
         .load_config_and_apply("/plugins/config/plugins.yaml")
         .unwrap();
 
+    // Gemeinsamer, asynchroner Zugriff auf den Plugin-Manager.
     let plugin_manager_arc = Arc::new(tokio::sync::Mutex::new(plugin_manager));
 
+    // File-Watcher starten, damit Dateisystem-Events in Backend-Events
+    // bzw. Storage-Aktionen übersetzt werden können.
     file_watcher::start_scanning(
         &storage_manager,
         plugin_manager_arc.clone(),
@@ -87,7 +104,8 @@ async fn main() {
     .await
     .unwrap();
 
-    // Spawn background watchdog to reap finished/unresponsive instances
+    // Hintergrundtask:
+    // räumt abgeschlossene oder unresponsive Plugin-Instanzen auf.
     {
         let pm_clone = plugin_manager_arc.clone();
         tokio::spawn(async move {
@@ -102,20 +120,24 @@ async fn main() {
         });
     }
 
-    // --- Schedule Supervisor (rescan-safe) ---
+    // Hintergrundtask:
+    // überwacht zeitgesteuerte Plugins und löst sie aus,
+    // sobald ihr nächster Schedule-Zeitpunkt erreicht ist.
     {
         use chrono::{DateTime, Utc};
         use std::collections::HashMap;
 
         let pm = plugin_manager_arc.clone();
         tokio::spawn(async move {
-            // key: canonical path string (stable across rescans)
+            // Speichert für jedes Plugin den nächsten geplanten Ausführungszeitpunkt.
+            // Schlüssel ist der Plugin-Pfad als stabiler Identifikator.
             let mut next_run: HashMap<String, DateTime<Utc>> = HashMap::new();
 
             loop {
                 tokio::time::sleep(Duration::from_secs(1)).await;
 
-                // Phase 1: snapshot schedules under lock (fast)
+                // Phase 1:
+                // Unter Lock Snapshot aller aktuell relevanten Schedule-Plugins holen.
                 let scheduled_snapshot: Vec<(String, DateTime<Utc>)> = {
                     let guard = pm.lock().await;
 
@@ -130,12 +152,13 @@ async fn main() {
                         let Trigger::OnSchedule(schedule) = p.trigger() else {
                             continue;
                         };
-                        // compute next time from "now"
+
                         if let Some(next_dt) = schedule.upcoming(Utc).next() {
                             let key = p.path().to_string_lossy().into_owned();
-                            // keep map entry if it exists; otherwise initialize
+
+                            // Bereits berechnete Werte möglichst beibehalten,
+                            // außer sie liegen inzwischen in der Vergangenheit.
                             let effective_next = next_run.get(&key).cloned().unwrap_or(next_dt);
-                            // if schedule changed or next is in the past too far, realign
                             let effective_next = if effective_next < now {
                                 next_dt
                             } else {
@@ -148,17 +171,17 @@ async fn main() {
                     out
                 };
 
-                // Clean up removed plugins from map (rescan-safe)
+                // Plugins entfernen, die nach einem Rescan nicht mehr existieren.
                 {
                     let keys_in_snapshot: std::collections::HashSet<_> =
                         scheduled_snapshot.iter().map(|(k, _)| k.clone()).collect();
                     next_run.retain(|k, _| keys_in_snapshot.contains(k));
                 }
 
-                // Phase 2: start due plugins without holding lock across await
+                // Phase 2:
+                // Fällige Plugins starten, ohne dabei dauerhaft den Lock zu halten.
                 let now = Utc::now();
                 for (key, planned_next) in scheduled_snapshot {
-                    // initialize if missing
                     next_run.entry(key.clone()).or_insert(planned_next);
 
                     let due = match next_run.get(&key) {
@@ -169,7 +192,8 @@ async fn main() {
                         continue;
                     }
 
-                    // Re-check + fetch current data under lock (index may have changed due to rescan)
+                    // Vor dem tatsächlichen Start erneut prüfen,
+                    // weil sich durch Rescans inzwischen etwas geändert haben kann.
                     let schedule_clone = {
                         let guard = pm.lock().await;
 
@@ -193,12 +217,14 @@ async fn main() {
                         schedule.clone()
                     };
 
-                    // Fire a backend event instead of directly starting instances
+                    // Statt direkt Instanzen zu bauen, wird ein Backend-Event gefeuert.
+                    // Das hält die Ausführung konsistent mit anderen Trigger-Arten.
                     let event = backend::plugin_manager::plugin::BackendEvent::OnSchedule {
                         schedule: schedule_clone.clone(),
                         path: "/data".to_string(),
                     };
                     debug!("Firing schedule event for '{}'", key);
+
                     let fire_res = tokio::time::timeout(
                         Duration::from_secs(10),
                         PluginManager::fire_event_detached(pm.clone(), event),
@@ -207,7 +233,7 @@ async fn main() {
 
                     match fire_res {
                         Ok(Ok(_instance_ids)) => {
-                            // ok
+                            // Erfolgreich gestartet.
                         }
                         Ok(Err(e)) => {
                             tracing::warn!("schedule fire_event failed for '{}': {:?}", key, e);
@@ -217,7 +243,7 @@ async fn main() {
                         }
                     }
 
-                    // Compute next run after firing (realign using current schedule)
+                    // Nächsten Run-Zeitpunkt neu berechnen.
                     if let Some(next_dt) = schedule_clone.upcoming(Utc).next() {
                         next_run.insert(key.clone(), next_dt);
                     }
@@ -226,7 +252,7 @@ async fn main() {
         });
     }
 
-    // web server
+    // Rocket-Webserver starten und alle Routen registrieren.
     rocket::build()
         .mount(
             "/",
