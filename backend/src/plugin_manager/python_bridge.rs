@@ -5,6 +5,9 @@ use tracing::{debug, warn};
 use crate::error::Error;
 
 // -------------------- constants --------------------
+// Fehlertexte und Python-Konstanten sind bewusst zentral definiert,
+// damit sie an einer Stelle gepflegt werden können und die eigentliche
+// Logik darunter besser lesbar bleibt.
 const ERR_PLUGIN_NO_PARENT_DIR: &str = "Plugin path has no parent directory";
 const ERR_INVALID_PLUGIN_FILENAME: &str = "Invalid plugin filename";
 
@@ -49,19 +52,30 @@ const WARN_MISSING_PLUGIN_TRIGGER_PREFIX: &str = "Plugin '";
 const WARN_MISSING_PLUGIN_TRIGGER_SUFFIX: &str =
     "': missing PLUGIN_TRIGGER constant (will default to 'manual')";
 
-// --- helpers ---
+/// Bereitet den Import eines Python-Plugin-Moduls vor.
+///
+/// Aufgabe dieser Funktion:
+/// 1. Modulnamen aus dem Dateinamen ableiten
+/// 2. Plugin-Verzeichnis in `sys.path` eintragen
+/// 3. evtl. gecachte Modulversion aus `sys.modules` entfernen
+/// 4. Modul frisch importieren
+///
+/// Das ist wichtig, damit Änderungen an Plugin-Dateien auch ohne Neustart
+/// korrekt neu eingelesen werden können.
 fn prepare_module_import<'py>(
     py: Python<'py>,
     plugin_file: &Path,
 ) -> Result<(Bound<'py, PyModule>, String), Error> {
-    // Verzeichnis wo Plugin liegt
+    // Verzeichnis, in dem die Plugin-Datei liegt.
+    // Dieses Verzeichnis muss später in `sys.path`, damit Python das Modul findet.
     let parent = plugin_file
         .parent()
         .ok_or_else(|| Error::CustomError(ERR_PLUGIN_NO_PARENT_DIR.to_string()))?;
 
-    // Dateiname ohne Endung
+    // Dateiname ohne Endung, z. B. `my_plugin.py` -> `my_plugin`.
+    // Dieser Name wird als Python-Modulname verwendet.
     let module_name = plugin_file
-        .file_stem() // ohne Dateiendung
+        .file_stem()
         .and_then(|s| s.to_str())
         .ok_or_else(|| Error::CustomError(ERR_INVALID_PLUGIN_FILENAME.to_string()))?
         .to_string();
@@ -72,23 +86,25 @@ fn prepare_module_import<'py>(
         parent.display()
     );
 
-    // Modul sys
+    // Importiere das Python-Systemmodul `sys`.
     let sys = py
         .import(PY_MOD_SYS)
         .map_err(|e| Error::CustomError(format!("{PY_IMPORT_SYS_FAILED_PREFIX}{e}")))?;
 
-    // Liste in Python mit Suchpfaden für Imports
+    // Hole `sys.path`, also die Liste der Suchpfade für Python-Imports.
     let sys_path = sys
         .getattr(PY_SYS_PATH_ATTR)
         .map_err(|e| Error::CustomError(format!("{PY_SYS_PATH_ACCESS_FAILED_PREFIX}{e}")))?;
 
-    // Plugin-Ordner für Python sichtbar -> richtiger Code/ keine Namenskollisionen
+    // Füge den Plugin-Ordner an den Anfang ein, damit genau dieses Modul
+    // bevorzugt gefunden wird.
     sys_path
         .call_method1(PY_SYS_PATH_INSERT, (0, parent.to_string_lossy().as_ref()))
         .map_err(|e| Error::CustomError(format!("{PY_SYS_PATH_INSERT_FAILED_PREFIX}{e}")))?;
 
-    // Ensure a fresh import: remove any cached module from sys.modules so
-    // updates to the plugin file (e.g., changed PLUGIN_DESCRIPTION) are picked up.
+    // Wichtig für Hot-Reload-ähnliches Verhalten:
+    // Entferne das Modul aus `sys.modules`, damit Python es frisch lädt
+    // und nicht eine alte gecachte Version verwendet.
     if let Ok(modules) = sys.getattr("modules") {
         let _ = modules.call_method1("pop", (module_name.as_str(), py.None()));
         debug!(
@@ -97,7 +113,7 @@ fn prepare_module_import<'py>(
         );
     }
 
-    // Import des Plugins in Python-Form
+    // Jetzt das Plugin-Modul wirklich importieren.
     let module = py.import(&module_name).map_err(|e| {
         Error::CustomError(format!(
             "{PY_IMPORT_MODULE_FAILED_PREFIX}{module_name}{PY_IMPORT_MODULE_FAILED_SUFFIX}{e}"
@@ -109,6 +125,11 @@ fn prepare_module_import<'py>(
     Ok((module, module_name))
 }
 
+/// Liest optionale Konstanten aus dem Python-Modul aus.
+///
+/// Diese Funktion ist bewusst tolerant:
+/// Fehlt eine Konstante, wird `None` zurückgegeben statt eines Fehlers.
+/// So können Fallback-Werte verwendet werden.
 pub fn read_module_constants(
     plugin_file: &Path,
 ) -> Result<(Option<String>, Option<String>, Option<String>), Error> {
@@ -143,17 +164,15 @@ pub fn read_module_constants(
 }
 
 pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> {
-    // wieder in Python (Closure)
     Python::attach(|py| {
         debug!("validate_plugin_module: validating {:?}", plugin_file);
 
-        // Liste der Warnings
         let mut warnings: Vec<String> = Vec::new();
 
         let (module, module_name) = prepare_module_import(py, plugin_file)?;
 
-        // Hard requirements (sonst nicht startbar)
-        // -> Implementierung von PluginImpl und run()
+        // ---------------- Hard requirements ----------------
+        // Das Plugin muss eine `PluginImpl` bereitstellen.
         let plugin_impl = module.getattr(PY_ATTR_PLUGIN_IMPL).map_err(|e| {
             Error::CustomError(format!(
                 "{ERR_PLUGIN_HAS_NO_PLUGIN_IMPL_PREFIX}\
@@ -161,12 +180,13 @@ pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> 
             ))
         })?;
 
-        // Richtiges Format -> Klasse oder Factory-Funktion
+        // `PluginImpl` muss aufrufbar sein, also typischerweise eine Klasse
+        // oder Factory-Funktion.
         if !plugin_impl.is_callable() {
             return Err(Error::CustomError(ERR_PLUGIN_IMPL_NOT_CALLABLE.to_string()));
         }
 
-        // Zugriff auf run() Methode
+        // Danach prüfen wir, ob `run()` vorhanden ist.
         let run_attr = plugin_impl.getattr(PY_ATTR_RUN).map_err(|e| {
             Error::CustomError(format!(
                 "{ERR_PLUGIN_IMPL_HAS_NO_RUN_PREFIX}{module_name}{ERR_PLUGIN_IMPL_HAS_NO_RUN_MID}{e}"
@@ -179,7 +199,9 @@ pub fn validate_plugin_module(plugin_file: &Path) -> Result<Vec<String>, Error> 
             )));
         }
 
-        // Soft requirements (nur Warnungen) -> Existenz von Konstanten
+        // ---------------- Soft requirements ----------------
+        // Diese Angaben sind nützlich für Anzeige und Konfiguration,
+        // aber kein Start-Hindernis.
         if module.getattr(PY_ATTR_PLUGIN_NAME).is_err() {
             warnings.push(format!(
                 "{WARN_MISSING_PLUGIN_NAME_PREFIX}{module_name}{WARN_MISSING_PLUGIN_NAME_SUFFIX}"
