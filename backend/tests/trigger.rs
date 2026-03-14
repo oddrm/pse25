@@ -1,9 +1,10 @@
-//! Trigger tests use only the existing public API: BackendEvent, Plugin, Trigger, PluginManager.
-//! No reliance on parse_trigger_public or other test-only system code.
+//! Trigger tests: BackendEvent/TriggerKind and prepare_fire_event use public API only;
+//! parse_trigger tests use the existing parse_trigger_public (no system code changes).
 
 #[cfg(test)]
 mod tests {
-    use backend::plugin_manager::manager::PluginManager;
+    use backend::error::Error;
+    use backend::plugin_manager::manager::{parse_trigger_public, PluginManager};
     use backend::plugin_manager::plugin::{BackendEvent, Plugin, Trigger, TriggerKind};
     use std::path::PathBuf;
 
@@ -25,6 +26,58 @@ mod tests {
             BackendEvent::Manual { plugin_name: "p".to_string() }.trigger_kind(),
             None
         );
+    }
+
+    #[test]
+    fn parse_trigger_defaults_to_manual_when_none_or_manual() {
+        let t = parse_trigger_public(None).unwrap();
+        assert!(matches!(t, Trigger::Manual));
+
+        let t = parse_trigger_public(Some("manual")).unwrap();
+        assert!(matches!(t, Trigger::Manual));
+    }
+
+    #[test]
+    fn parse_trigger_parses_entry_triggers() {
+        assert!(matches!(
+            parse_trigger_public(Some("on_entry_create")).unwrap(),
+            Trigger::OnEntryCreate
+        ));
+        assert!(matches!(
+            parse_trigger_public(Some("on_entry_update")).unwrap(),
+            Trigger::OnEntryUpdate
+        ));
+        assert!(matches!(
+            parse_trigger_public(Some("on_entry_delete")).unwrap(),
+            Trigger::OnEntryDelete
+        ));
+    }
+
+    #[test]
+    fn parse_trigger_parses_on_schedule_with_5_fields_by_prefixing_seconds() {
+        let t = parse_trigger_public(Some("on_schedule: */5 * * * *")).unwrap();
+        match t {
+            Trigger::OnSchedule(s) => assert!(s.upcoming(chrono::Utc).next().is_some()),
+            _ => panic!("expected OnSchedule"),
+        }
+    }
+
+    #[test]
+    fn parse_trigger_parses_on_schedule_with_6_fields_as_is() {
+        let t = parse_trigger_public(Some("on_schedule: */10 * * * * *")).unwrap();
+        match t {
+            Trigger::OnSchedule(s) => assert!(s.upcoming(chrono::Utc).next().is_some()),
+            _ => panic!("expected OnSchedule"),
+        }
+    }
+
+    #[test]
+    fn parse_trigger_rejects_invalid_cron_expressions() {
+        let err = parse_trigger_public(Some("on_schedule: not a cron")).unwrap_err();
+        match err {
+            Error::CustomError(msg) => assert!(msg.to_lowercase().contains("invalid cron")),
+            _ => panic!("expected custom error"),
+        }
     }
 
     #[test]
