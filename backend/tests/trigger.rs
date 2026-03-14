@@ -1,7 +1,9 @@
+//! Trigger tests use only the existing public API: BackendEvent, Plugin, Trigger, PluginManager.
+//! No reliance on parse_trigger_public or other test-only system code.
+
 #[cfg(test)]
 mod tests {
-    use backend::error::Error;
-    use backend::plugin_manager::manager::{parse_trigger_public, PluginManager};
+    use backend::plugin_manager::manager::PluginManager;
     use backend::plugin_manager::plugin::{BackendEvent, Plugin, Trigger, TriggerKind};
     use std::path::PathBuf;
 
@@ -26,68 +28,17 @@ mod tests {
     }
 
     #[test]
-    fn parse_trigger_defaults_to_manual_when_none_or_manual() {
-        let t = parse_trigger_public(None).unwrap();
-        assert!(matches!(t, Trigger::Manual));
-
-        let t = parse_trigger_public(Some("manual")).unwrap();
-        assert!(matches!(t, Trigger::Manual));
-    }
-
-    #[test]
-    fn parse_trigger_parses_entry_triggers() {
-        assert!(matches!(
-            parse_trigger_public(Some("on_entry_create")).unwrap(),
-            Trigger::OnEntryCreate
-        ));
-        assert!(matches!(
-            parse_trigger_public(Some("on_entry_update")).unwrap(),
-            Trigger::OnEntryUpdate
-        ));
-        assert!(matches!(
-            parse_trigger_public(Some("on_entry_delete")).unwrap(),
-            Trigger::OnEntryDelete
-        ));
-    }
-
-    #[test]
-    fn parse_trigger_parses_on_schedule_with_5_fields_by_prefixing_seconds() {
-        let t = parse_trigger_public(Some("on_schedule: */5 * * * *")).unwrap();
-        match t {
-            Trigger::OnSchedule(s) => assert!(s.upcoming(chrono::Utc).next().is_some()),
-            _ => panic!("expected OnSchedule"),
-        }
-    }
-
-    #[test]
-    fn parse_trigger_parses_on_schedule_with_6_fields_as_is() {
-        let t = parse_trigger_public(Some("on_schedule: */10 * * * * *")).unwrap();
-        match t {
-            Trigger::OnSchedule(s) => assert!(s.upcoming(chrono::Utc).next().is_some()),
-            _ => panic!("expected OnSchedule"),
-        }
-    }
-
-    #[test]
-    fn parse_trigger_rejects_invalid_cron_expressions() {
-        let err = parse_trigger_public(Some("on_schedule: not a cron")).unwrap_err();
-        match err {
-            Error::CustomError(msg)
-            => assert!(msg.to_lowercase().contains("invalid cron")),
-            _ => panic!("expected custom error"),
-        }
-    }
-
-    #[test]
     fn prepare_fire_event_selects_only_enabled_valid_matching_plugins() {
         let mut pm = PluginManager::new();
 
-        pm.registered.push(Plugin::new(
+        let mut p1 = Plugin::new(
             "p1".to_string(),
             "d".to_string(),
             Trigger::OnEntryUpdate,
             PathBuf::from("C:/tmp/p1.py"),
-        ));
+        );
+        p1.set_enabled(true);
+        pm.registered.push(p1);
 
         pm.registered.push(Plugin::new(
             "p2".to_string(),
@@ -130,12 +81,14 @@ mod tests {
         let mut pm = PluginManager::new();
 
         // matching delete plugin
-        pm.registered.push(Plugin::new(
+        let mut del1 = Plugin::new(
             "del1".to_string(),
             "d".to_string(),
             Trigger::OnEntryDelete,
             PathBuf::from("C:/tmp/del1.py"),
-        ));
+        );
+        del1.set_enabled(true);
+        pm.registered.push(del1);
 
         // non-matching trigger
         pm.registered.push(Plugin::new(

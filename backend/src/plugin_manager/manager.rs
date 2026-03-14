@@ -97,6 +97,12 @@ fn parse_trigger(py_trigger: Option<&str>) -> Result<Trigger, Error> {
     }
 }
 
+/// Public wrapper for integration tests.
+#[doc(hidden)]
+pub fn parse_trigger_public(py_trigger: Option<&str>) -> Result<Trigger, Error> {
+    parse_trigger(py_trigger)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum InstanceState {
     Running,

@@ -766,3 +766,78 @@ impl std::fmt::Debug for StorageManager {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Datelike;
+
+    #[test]
+    fn test_contains_part() {
+        assert!(contains_part("Hello World", "world"));
+        assert!(contains_part("MCAP file", "mcap"));
+        assert!(!contains_part("Hello World", "foo"));
+        assert!(contains_part("path/to/entry", "entry"));
+    }
+
+    #[test]
+    fn test_opt_contains() {
+        assert!(opt_contains(&Some("platform_a".to_string()), "platform"));
+        assert!(!opt_contains(&Some("other".to_string()), "platform"));
+        assert!(!opt_contains(&None, "anything"));
+    }
+
+    #[test]
+    fn test_parse_search_date() {
+        // Unix timestamp
+        let dt = parse_search_date("1609459200"); // 2021-01-01 00:00:00 UTC
+        assert!(dt.is_some());
+        assert_eq!(dt.unwrap().year(), 2021);
+
+        // Date only YYYY-MM-DD
+        let dt = parse_search_date("2024-01-15");
+        assert!(dt.is_some());
+        assert_eq!(dt.unwrap().format("%Y-%m-%d").to_string(), "2024-01-15");
+
+        // Invalid date
+        assert!(parse_search_date("not-a-date").is_none());
+        assert!(parse_search_date("2024-13-01").is_none()); // invalid month
+    }
+
+    #[test]
+    fn test_entry_matches_date() {
+        let base = Utc.with_ymd_and_hms(2024, 6, 15, 12, 0, 0).unwrap();
+        let entry = Entry {
+            id: 1,
+            name: "E".to_string(),
+            path: "/p".to_string(),
+            size: 0,
+            created_at: base,
+            updated_at: base,
+            status: "Complete".to_string(),
+            time_machine: None,
+            platform_name: None,
+            platform_image_link: None,
+            scenario_name: None,
+            scenario_creation_time: None,
+            scenario_description: None,
+            sequence_duration: None,
+            sequence_distance: None,
+            sequence_lat_starting_point_deg: None,
+            sequence_lon_starting_point_deg: None,
+            weather_cloudiness: None,
+            weather_precipitation: None,
+            weather_precipitation_deposits: None,
+            weather_wind_intensity: None,
+            weather_road_humidity: None,
+            weather_fog: None,
+            weather_snow: None,
+            tags: vec![],
+        };
+        let search_same_day = Utc.with_ymd_and_hms(2024, 6, 15, 0, 0, 0).unwrap();
+        assert!(entry_matches_date(&entry, &search_same_day));
+
+        let search_other_day = Utc.with_ymd_and_hms(2024, 6, 16, 0, 0, 0).unwrap();
+        assert!(!entry_matches_date(&entry, &search_other_day));
+    }
+}

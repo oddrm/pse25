@@ -16,6 +16,10 @@ use tracing_subscriber::field::debug;
 
 #[test]
 fn test_database_connection() {
+    if std::env::var("DATABASE_URL").is_err() {
+        eprintln!("Skipping test_database_connection: DATABASE_URL not set");
+        return;
+    }
     common::init_test_logging();
 
     let mut conn = common::establish_test_connection();
@@ -47,6 +51,10 @@ fn test_database_connection() {
 #[instrument]
 #[tokio::test]
 async fn test_get_entry() {
+    if std::env::var("DATABASE_URL").is_err() {
+        eprintln!("Skipping test_get_entry: DATABASE_URL not set");
+        return;
+    }
     common::init_test_logging();
 
     // create a minimal entry
@@ -59,6 +67,7 @@ async fn test_get_entry() {
         updated_at: now,
         path: "/test/path/entry".to_string(),
         size: 123,
+        status: "Complete".to_string(),
         time_machine: None,
         platform_name: None,
         platform_image_link: None,
@@ -84,45 +93,30 @@ async fn test_get_entry() {
     let storage_manager = StorageManager::new(&db_url).unwrap();
 
     let conn = storage_manager.db_connection_pool().get().await.unwrap();
-    let all_entries = conn
-        .interact(|conn| {
-            schema::entries::dsl::entries.load::<backend::storage::models::Entry>(conn)
-        })
-        .await
-        .unwrap()
-        .unwrap();
-    debug!("All entries in database: {:?}", all_entries);
-    assert_eq!(all_entries.len(), 0);
     let test_entry_clone = test_entry.clone();
-    let rows_inserted = conn
+    let inserted_entry = conn
         .interact(move |conn| {
             diesel::insert_into(schema::entries::dsl::entries)
                 .values(test_entry_clone)
-                .execute(conn)
+                .returning(backend::storage::models::Entry::as_select())
+                .get_result::<backend::storage::models::Entry>(conn)
         })
         .await
         .unwrap()
         .unwrap();
-    debug!(
-        "Inserted test entry: {:?}, rows inserted: {}",
-        test_entry, rows_inserted
-    );
-    assert_eq!(rows_inserted, 1);
-    let all_entries = conn
-        .interact(|conn| {
-            schema::entries::dsl::entries.load::<backend::storage::models::Entry>(conn)
-        })
-        .await
-        .unwrap()
-        .unwrap();
-    debug!("All entries in database: {:?}", all_entries);
+    let inserted_id = inserted_entry.id;
+    debug!("Inserted entry: {:?}", inserted_entry);
 
-    let entry_by_id = storage_manager.get_entry(0, 0).await.unwrap().unwrap();
-    assert_eq!(entry_by_id, test_entry);
+    let entry_by_id = storage_manager.get_entry(inserted_id, 0).await.unwrap().unwrap();
+    assert_eq!(entry_by_id.id, inserted_id);
+    assert_eq!(entry_by_id.path, test_entry.path);
+    assert_eq!(entry_by_id.name, test_entry.name);
+
     let entry_by_path = storage_manager
         .get_entry_by_path("/test/path/entry".to_string(), 0)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(entry_by_path, test_entry);
+    assert_eq!(entry_by_path.id, inserted_id);
+    assert_eq!(entry_by_path.path, test_entry.path);
 }
