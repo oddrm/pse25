@@ -44,3 +44,15 @@ Wenn Sie das Programm im Production-Modus starten möchten, verwenden Sie:
 bzw.
 
 `DATA_PATH=/path/to/folder docker compose -f compose.prod.yaml up`
+
+## SAMBA/CIFS
+
+Dafür Docker Volume konfigurieren. cifs-tools muss auf dem host installiert sein. Beispielkonfiguration:
+
+```data:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//127.0.0.1/Data"
+      o: "username=samba,password=secret,vers=3.0"`
+```
