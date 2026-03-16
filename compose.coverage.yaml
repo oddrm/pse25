@@ -1,0 +1,5 @@
+services:
+  backend:
+    volumes:
+      - ./coverage:/coverage
+    command: ["bash", "/app/scripts/run_coverage_with_failures.sh"]

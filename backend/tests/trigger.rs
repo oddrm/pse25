@@ -1,3 +1,6 @@
+//! Trigger tests: BackendEvent/TriggerKind and prepare_fire_event use public API only;
+//! parse_trigger tests use the existing parse_trigger_public (no system code changes).
+
 #[cfg(test)]
 mod tests {
     use backend::error::Error;
@@ -72,8 +75,7 @@ mod tests {
     fn parse_trigger_rejects_invalid_cron_expressions() {
         let err = parse_trigger_public(Some("on_schedule: not a cron")).unwrap_err();
         match err {
-            Error::CustomError(msg)
-            => assert!(msg.to_lowercase().contains("invalid cron")),
+            Error::CustomError(msg) => assert!(msg.to_lowercase().contains("invalid cron")),
             _ => panic!("expected custom error"),
         }
     }
@@ -82,12 +84,14 @@ mod tests {
     fn prepare_fire_event_selects_only_enabled_valid_matching_plugins() {
         let mut pm = PluginManager::new();
 
-        pm.registered.push(Plugin::new(
+        let mut p1 = Plugin::new(
             "p1".to_string(),
             "d".to_string(),
             Trigger::OnEntryUpdate,
             PathBuf::from("C:/tmp/p1.py"),
-        ));
+        );
+        p1.set_enabled(true);
+        pm.registered.push(p1);
 
         pm.registered.push(Plugin::new(
             "p2".to_string(),
@@ -130,12 +134,14 @@ mod tests {
         let mut pm = PluginManager::new();
 
         // matching delete plugin
-        pm.registered.push(Plugin::new(
+        let mut del1 = Plugin::new(
             "del1".to_string(),
             "d".to_string(),
             Trigger::OnEntryDelete,
             PathBuf::from("C:/tmp/del1.py"),
-        ));
+        );
+        del1.set_enabled(true);
+        pm.registered.push(del1);
 
         // non-matching trigger
         pm.registered.push(Plugin::new(

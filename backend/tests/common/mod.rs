@@ -42,14 +42,13 @@ pub fn establish_test_connection() -> PgConnection {
         .unwrap_or_else(|_| panic!("Error connecting to test database"))
 }
 
-/// Clean up test data from database
+/// Clean up test data from database. Tolerates missing tables (e.g. older migrations).
 pub fn cleanup_test_data(conn: &mut PgConnection) {
     use diesel::sql_query;
 
-    // Clean up in reverse order of foreign key dependencies
-    sql_query("TRUNCATE TABLE sequences, sensors, entries, files CASCADE")
-        .execute(conn)
-        .expect("Failed to clean up test data");
+    // Truncate entries first (CASCADE will clear sequences, sensors, topics if they exist)
+    let _ = sql_query("TRUNCATE TABLE entries CASCADE").execute(conn);
+    let _ = sql_query("TRUNCATE TABLE files CASCADE").execute(conn);
 }
 
 /// Unique temp file path for tests.
@@ -73,12 +72,11 @@ pub fn create_yaml_config(contents: &str) -> PathBuf {
 pub async fn remove_all_data(storage_manager: &StorageManager) -> Result<(), StorageError> {
     let conn = storage_manager.db_connection_pool().get().await?;
     conn.interact(|conn| {
-        diesel::sql_query(
-            "TRUNCATE TABLE sequences, sensors, entries, files CASCADE",
-        )
-        .execute(conn)
+        let _ = diesel::sql_query("TRUNCATE TABLE entries CASCADE").execute(conn);
+        let _ = diesel::sql_query("TRUNCATE TABLE files CASCADE").execute(conn);
+        Ok::<(), diesel::result::Error>(())
     })
-    .await??;
+    .await?;
     debug!("Removed all data from database");
     Ok(())
 }

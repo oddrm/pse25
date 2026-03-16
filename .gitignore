@@ -32,3 +32,4 @@ devlogs
 .vscode
 __pycache__
 plugins_dir
+coverage
