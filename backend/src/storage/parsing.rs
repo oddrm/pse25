@@ -742,9 +742,16 @@ pub async fn insert_entry_into_db(
                 start_ts
             };
             let now = Utc::now();
+            let name = seq_node
+                .get("name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "Untitled".to_string());
             let sequence = Sequence {
                 id: 0,
                 entry_id: entry.id,
+                name,
                 description: desc,
                 start_timestamp: start_ts,
                 end_timestamp: end_ts,
@@ -796,9 +803,16 @@ pub async fn insert_entry_into_db(
                         .unwrap_or(0);
                     let end_ts = sub.get("end_time").and_then(|v| v.as_i64()).unwrap_or(0);
                     let now = Utc::now();
+                    let name = sub
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "Untitled".to_string());
                     let sequence = Sequence {
                         id: 0,
                         entry_id: entry.id,
+                        name,
                         description: desc,
                         start_timestamp: start_ts,
                         end_timestamp: end_ts,

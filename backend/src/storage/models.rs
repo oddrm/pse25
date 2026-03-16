@@ -75,6 +75,7 @@ pub struct Topic {
 pub struct Sequence {
     pub id: SequenceID,
     pub entry_id: i64,
+    pub name: String,
     pub description: String,
     pub start_timestamp: i64,
     pub end_timestamp: i64,

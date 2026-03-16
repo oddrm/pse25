@@ -55,6 +55,7 @@ export const useSequencesStore = defineStore("sequences", {
     async add(payload: Omit<Sequence, "id" | "created_at" | "updated_at">) {
       try {
         const webPayload: SequenceWeb = {
+          name: payload.name || "Untitled",
           description: payload.description,
           start_timestamp: payload.start_timestamp,
           end_timestamp: payload.end_timestamp,
@@ -87,6 +88,7 @@ export const useSequencesStore = defineStore("sequences", {
       if (index === -1) return
       try {
         const webPayload: SequenceWeb = {
+          name: updatedSeq.name || "Untitled",
           description: updatedSeq.description,
           start_timestamp: updatedSeq.start_timestamp,
           end_timestamp: updatedSeq.end_timestamp,
