@@ -59,10 +59,10 @@ fn entry_matches_date(entry: &Entry, date_time: &DateTime<Utc>) -> bool {
     entry.created_at.date_naive() == search_date
         || entry.updated_at.date_naive() == search_date
         || entry
-            .scenario_creation_time
-            .as_ref()
-            .map(|time| time.date_naive() == search_date)
-            .unwrap_or(false)
+        .scenario_creation_time
+        .as_ref()
+        .map(|time| time.date_naive() == search_date)
+        .unwrap_or(false)
 }
 
 #[derive(Clone)]
@@ -124,38 +124,38 @@ impl StorageManager {
             diesel::update(
                 schema::entries::dsl::entries.filter(schema::entries::dsl::id.eq(entry_id_)),
             )
-            .set((
-                schema::entries::dsl::time_machine.eq(entry_metadata.time_machine),
-                schema::entries::dsl::platform_name.eq(entry_metadata.platform_name.clone()),
-                schema::entries::dsl::platform_image_link
-                    .eq(entry_metadata.platform_image_link.clone()),
-                schema::entries::dsl::scenario_name.eq(entry_metadata.scenario_name.clone()),
-                schema::entries::dsl::scenario_creation_time
-                    .eq(entry_metadata.scenario_creation_time),
-                schema::entries::dsl::scenario_description
-                    .eq(entry_metadata.scenario_description.clone()),
-                schema::entries::dsl::sequence_duration.eq(entry_metadata.sequence_duration),
-                schema::entries::dsl::sequence_distance.eq(entry_metadata.sequence_distance),
-                schema::entries::dsl::sequence_lat_starting_point_deg
-                    .eq(entry_metadata.sequence_lat_starting_point_deg),
-                schema::entries::dsl::sequence_lon_starting_point_deg
-                    .eq(entry_metadata.sequence_lon_starting_point_deg),
-                schema::entries::dsl::weather_cloudiness
-                    .eq(entry_metadata.weather_cloudiness.clone()),
-                schema::entries::dsl::weather_precipitation
-                    .eq(entry_metadata.weather_precipitation.clone()),
-                schema::entries::dsl::weather_precipitation_deposits
-                    .eq(entry_metadata.weather_precipitation_deposits.clone()),
-                schema::entries::dsl::weather_wind_intensity
-                    .eq(entry_metadata.weather_wind_intensity.clone()),
-                schema::entries::dsl::weather_road_humidity
-                    .eq(entry_metadata.weather_road_humidity.clone()),
-                schema::entries::dsl::weather_fog.eq(entry_metadata.weather_fog),
-                schema::entries::dsl::weather_snow.eq(entry_metadata.weather_snow),
-            ))
-            .execute(conn)
+                .set((
+                    schema::entries::dsl::time_machine.eq(entry_metadata.time_machine),
+                    schema::entries::dsl::platform_name.eq(entry_metadata.platform_name.clone()),
+                    schema::entries::dsl::platform_image_link
+                        .eq(entry_metadata.platform_image_link.clone()),
+                    schema::entries::dsl::scenario_name.eq(entry_metadata.scenario_name.clone()),
+                    schema::entries::dsl::scenario_creation_time
+                        .eq(entry_metadata.scenario_creation_time),
+                    schema::entries::dsl::scenario_description
+                        .eq(entry_metadata.scenario_description.clone()),
+                    schema::entries::dsl::sequence_duration.eq(entry_metadata.sequence_duration),
+                    schema::entries::dsl::sequence_distance.eq(entry_metadata.sequence_distance),
+                    schema::entries::dsl::sequence_lat_starting_point_deg
+                        .eq(entry_metadata.sequence_lat_starting_point_deg),
+                    schema::entries::dsl::sequence_lon_starting_point_deg
+                        .eq(entry_metadata.sequence_lon_starting_point_deg),
+                    schema::entries::dsl::weather_cloudiness
+                        .eq(entry_metadata.weather_cloudiness.clone()),
+                    schema::entries::dsl::weather_precipitation
+                        .eq(entry_metadata.weather_precipitation.clone()),
+                    schema::entries::dsl::weather_precipitation_deposits
+                        .eq(entry_metadata.weather_precipitation_deposits.clone()),
+                    schema::entries::dsl::weather_wind_intensity
+                        .eq(entry_metadata.weather_wind_intensity.clone()),
+                    schema::entries::dsl::weather_road_humidity
+                        .eq(entry_metadata.weather_road_humidity.clone()),
+                    schema::entries::dsl::weather_fog.eq(entry_metadata.weather_fog),
+                    schema::entries::dsl::weather_snow.eq(entry_metadata.weather_snow),
+                ))
+                .execute(conn)
         })
-        .await??;
+            .await??;
 
         // debug!("Updated entry {}", entry_id_);
         Ok(())
@@ -235,7 +235,7 @@ impl StorageManager {
                     (matched, entry)
                 }
             }))
-            .buffer_unordered(10);
+                .buffer_unordered(10);
 
             let results: Vec<(bool, Entry)> = stream.collect::<Vec<_>>().await;
             results
@@ -466,7 +466,7 @@ impl StorageManager {
                 ))
                 .execute(conn)
         })
-        .await??;
+            .await??;
         // debug!("Updated topic {}", topic_id);
         Ok(())
     }
@@ -478,7 +478,7 @@ impl StorageManager {
             diesel::delete(schema::topics::dsl::topics.filter(schema::topics::dsl::id.eq(topic_id)))
                 .execute(conn)
         })
-        .await??;
+            .await??;
         // debug!("Removed topic with id {}", topic_id);
         Ok(())
     }
@@ -551,7 +551,7 @@ impl StorageManager {
                     .returning(entries_dsl::id)
                     .get_result::<EntryID>(conn)
             })
-            .await??
+                .await??
         };
         debug!("Added entry with id {}", entry_id_);
         Ok(entry_id_)
@@ -565,16 +565,16 @@ impl StorageManager {
             diesel::update(
                 schema::sensors::dsl::sensors.filter(schema::sensors::dsl::id.eq(sensor_id)),
             )
-            .set((
-                schema::sensors::dsl::sensor_name.eq(sensor.sensor_name),
-                schema::sensors::dsl::manufacturer.eq(sensor.manufacturer),
-                schema::sensors::dsl::sensor_type.eq(sensor.sensor_type),
-                schema::sensors::dsl::ros_topics.eq(sensor.ros_topics),
-                schema::sensors::dsl::custom_parameters.eq(sensor.custom_parameters),
-            ))
-            .execute(conn)
+                .set((
+                    schema::sensors::dsl::sensor_name.eq(sensor.sensor_name),
+                    schema::sensors::dsl::manufacturer.eq(sensor.manufacturer),
+                    schema::sensors::dsl::sensor_type.eq(sensor.sensor_type),
+                    schema::sensors::dsl::ros_topics.eq(sensor.ros_topics),
+                    schema::sensors::dsl::custom_parameters.eq(sensor.custom_parameters),
+                ))
+                .execute(conn)
         })
-        .await??;
+            .await??;
         // debug!("Updated sensor {}", sensor_id);
         Ok(())
     }
@@ -586,9 +586,9 @@ impl StorageManager {
             diesel::delete(
                 schema::sensors::dsl::sensors.filter(schema::sensors::dsl::id.eq(sensor_id)),
             )
-            .execute(conn)
+                .execute(conn)
         })
-        .await??;
+            .await??;
         // debug!("Removed sensor with id {}", sensor_id);
         Ok(())
     }
@@ -642,16 +642,16 @@ impl StorageManager {
                     .filter(schema::sequences::dsl::id.eq(sequence_id))
                     .filter(schema::sequences::dsl::entry_id.eq(entry_id_)),
             )
-            .set((
-                schema::sequences::dsl::description.eq(sequence.description),
-                schema::sequences::dsl::start_timestamp.eq(sequence.start_timestamp),
-                schema::sequences::dsl::end_timestamp.eq(sequence.end_timestamp),
-                schema::sequences::dsl::updated_at.eq(sequence.updated_at),
-                schema::sequences::dsl::tags.eq(sequence.tags),
-            ))
-            .execute(conn)
+                .set((
+                    schema::sequences::dsl::description.eq(sequence.description),
+                    schema::sequences::dsl::start_timestamp.eq(sequence.start_timestamp),
+                    schema::sequences::dsl::end_timestamp.eq(sequence.end_timestamp),
+                    schema::sequences::dsl::updated_at.eq(sequence.updated_at),
+                    schema::sequences::dsl::tags.eq(sequence.tags),
+                ))
+                .execute(conn)
         })
-        .await??;
+            .await??;
         // debug!("Updated sequences");
         Ok(())
     }
@@ -670,9 +670,9 @@ impl StorageManager {
                     .filter(schema::sequences::dsl::id.eq(sequence_id))
                     .filter(schema::sequences::dsl::entry_id.eq(entry_id_)),
             )
-            .execute(conn)
+                .execute(conn)
         })
-        .await??;
+            .await??;
         debug!(
             "Removed sequence with id {} for entry_id {}",
             sequence_id, entry_id_
@@ -714,7 +714,7 @@ impl StorageManager {
                 .bind::<diesel::sql_types::BigInt, _>(entry_id_)
                 .execute(conn)
         })
-        .await??;
+            .await??;
         debug!("Removed tag");
         Ok(())
     }

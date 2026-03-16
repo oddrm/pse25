@@ -395,7 +395,7 @@ pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
     } else {
         "No MCAP Info"
     }
-    .to_string();
+        .to_string();
 
     let entry = Entry {
         id: 0,
@@ -437,6 +437,67 @@ pub async fn get_entry_from_mcap(path: &Path) -> Result<Entry, StorageError> {
     // );
 
     Ok(entry)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_path(filename: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("pse25-{nanos}-{filename}"))
+    }
+
+    #[test]
+    fn file_is_mcap_accepts_case_insensitive_extensions() {
+        assert!(file_is_mcap(Path::new("recording.mcap")));
+        assert!(file_is_mcap(Path::new("recording.MCAP")));
+        assert!(!file_is_mcap(Path::new("recording.yaml")));
+        assert!(!file_is_mcap(Path::new("recording")));
+    }
+
+    #[tokio::test]
+    async fn file_is_custom_metadata_accepts_yaml_with_title_prefix() {
+        let path = unique_temp_path("metadata.yaml");
+        tokio::fs::write(&path, "title: Demo\nscenario: test\n")
+            .await
+            .unwrap();
+
+        let result = file_is_custom_metadata(&path).await.unwrap();
+
+        let _ = tokio::fs::remove_file(&path).await;
+        assert!(result);
+    }
+
+    #[tokio::test]
+    async fn file_is_custom_metadata_rejects_wrong_extension_and_missing_title() {
+        let wrong_ext = unique_temp_path("metadata.txt");
+        let no_title = unique_temp_path("metadata.yml");
+        tokio::fs::write(&wrong_ext, "title: Demo\n").await.unwrap();
+        tokio::fs::write(&no_title, "scenario: test\n").await.unwrap();
+
+        let wrong_ext_result = file_is_custom_metadata(&wrong_ext).await.unwrap();
+        let no_title_result = file_is_custom_metadata(&no_title).await.unwrap();
+
+        let _ = tokio::fs::remove_file(&wrong_ext).await;
+        let _ = tokio::fs::remove_file(&no_title).await;
+
+        assert!(!wrong_ext_result);
+        assert!(!no_title_result);
+    }
+
+    #[tokio::test]
+    async fn file_is_custom_metadata_returns_io_error_for_missing_yaml_file() {
+        let missing = unique_temp_path("missing.yaml");
+
+        let result = file_is_custom_metadata(&missing).await;
+
+        assert!(matches!(result, Err(StorageError::IoError(_))));
+    }
 }
 
 // Parse a metadata YAML file and return the serde_yaml::Value if successful.
@@ -540,12 +601,12 @@ pub async fn insert_entry_into_db(
                         crate::schema::entries::dsl::entries
                             .filter(crate::schema::entries::dsl::id.eq(entry_id)),
                     )
-                    .set((
-                        crate::schema::entries::dsl::size.eq(entry_size),
-                        crate::schema::entries::dsl::updated_at.eq(entry_updated_at),
-                        crate::schema::entries::dsl::status.eq(entry_status),
-                    ))
-                    .execute(conn)
+                        .set((
+                            crate::schema::entries::dsl::size.eq(entry_size),
+                            crate::schema::entries::dsl::updated_at.eq(entry_updated_at),
+                            crate::schema::entries::dsl::status.eq(entry_status),
+                        ))
+                        .execute(conn)
                 })
                 .await
             {
@@ -597,7 +658,7 @@ pub async fn insert_entry_into_db(
             },
             "mcap_path": entry.path,
         })
-        .to_string();
+            .to_string();
 
         // Phase 1: prepare (kurz unter Lock) + Namen für detached build holen
         let plans: Vec<(usize, String, PathBuf, u64)> = {
@@ -630,10 +691,10 @@ pub async fn insert_entry_into_db(
                 instance_id,
                 plugin_data.clone(),
             )
-            .await
-            .map_err(|e| {
-                StorageError::CustomError(format!("build_started_instance failed: {e:?}"))
-            })?;
+                .await
+                .map_err(|e| {
+                    StorageError::CustomError(format!("build_started_instance failed: {e:?}"))
+                })?;
 
             built.push((instance_id, handle));
         }

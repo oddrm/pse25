@@ -157,7 +157,7 @@ pub async fn update_metadata(
             "metadata": serde_json::to_value(&m).unwrap_or(serde_json::Value::Null),
             "mcap_path": path,
         })
-        .to_string();
+            .to_string();
 
         // Phase 2: build (langsam, ohne "langen" globalen Lock)
         let mut built: Vec<(u64, crate::plugin_manager::manager::PluginHandle)> = Vec::new();
@@ -168,13 +168,13 @@ pub async fn update_metadata(
                 pm.build_started_instance_with_data(plugin_index, &plugin_path, instance_id, data)
                     .await
             })
-            .await
-            .map_err(|_| {
-                Error::CustomError(format!(
-                    "event start timed out after {:?}",
-                    ROUTE_OP_TIMEOUT
-                ))
-            })??;
+                .await
+                .map_err(|_| {
+                    Error::CustomError(format!(
+                        "event start timed out after {:?}",
+                        ROUTE_OP_TIMEOUT
+                    ))
+                })??;
 
             built.push((instance_id, handle));
         }

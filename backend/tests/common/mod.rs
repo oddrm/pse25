@@ -76,9 +76,9 @@ pub async fn remove_all_data(storage_manager: &StorageManager) -> Result<(), Sto
         diesel::sql_query(
             "TRUNCATE TABLE sequences, sensors, entries, files CASCADE",
         )
-        .execute(conn)
+            .execute(conn)
     })
-    .await??;
+        .await??;
     debug!("Removed all data from database");
     Ok(())
 }

@@ -63,7 +63,7 @@ async fn fire_plugin_event(
                     instance_id,
                     d.clone(),
                 )
-                .await
+                    .await
             }
             None => {
                 build_started_instance_core(plugin_index, plugin_name, &plugin_path, instance_id)
@@ -129,7 +129,7 @@ async fn sync_file_added_or_modified(
                             &p,
                             plugin_manager.clone(),
                         )
-                        .await
+                            .await
                         {
                             error!("Failed to insert/update entry from metadata scan: {:?}", e);
                         }
@@ -203,7 +203,7 @@ async fn sync_file_removed(
                         crate::schema::entries::dsl::entries
                             .filter(crate::schema::entries::dsl::id.eq(entry_id)),
                     )
-                    .execute(conn)
+                        .execute(conn)
                 })
                 .await;
 
@@ -249,7 +249,7 @@ async fn sync_file_removed(
                 "mcap_path": removed_path.clone(),
                 "event": "deleted",
             })
-            .to_string();
+                .to_string();
 
             fire_plugin_event(
                 plugin_manager.clone(),
@@ -258,7 +258,7 @@ async fn sync_file_removed(
                 },
                 Some(plugin_data),
             )
-            .await;
+                .await;
         }
     }
 }
@@ -356,7 +356,7 @@ pub async fn scan_once(
         }
         Ok::<(), diesel::result::Error>(())
     })
-    .await??;
+        .await??;
 
     stream::iter(mcap_paths.into_iter().map(|p| {
         let sm = storage_manager.clone();
@@ -367,9 +367,9 @@ pub async fn scan_once(
             }
         }
     }))
-    .buffer_unordered(10)
-    .collect::<Vec<()>>()
-    .await;
+        .buffer_unordered(10)
+        .collect::<Vec<()>>()
+        .await;
 
     stream::iter(to_remove.into_iter().map(|p| {
         let sm = storage_manager.clone();
@@ -383,9 +383,9 @@ pub async fn scan_once(
             sync_file_removed(&sm, pm.clone(), &pathbuf).await;
         }
     }))
-    .buffer_unordered(10)
-    .collect::<Vec<()>>()
-    .await;
+        .buffer_unordered(10)
+        .collect::<Vec<()>>()
+        .await;
 
     // Re-check potentially modified MCAP files that exist both in DB and on disk.
     // Compare filesystem modification time to the entry's `updated_at` and
@@ -437,9 +437,9 @@ pub async fn scan_once(
             }
         }
     }))
-    .buffer_unordered(10)
-    .collect::<Vec<()>>()
-    .await;
+        .buffer_unordered(10)
+        .collect::<Vec<()>>()
+        .await;
 
     Ok(())
 }

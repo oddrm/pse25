@@ -177,3 +177,94 @@ fn parse_log_line(line: &str) -> Option<LogEntry> {
         location,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_log_line_extracts_timestamp_level_message_and_location() {
+        let parsed =
+            parse_log_line("2026-03-16T19:00:00Z INFO src/main.rs:42: service started").unwrap();
+
+        assert_eq!(parsed.timestamp, "2026-03-16T19:00:00Z");
+        assert_eq!(parsed.level, "INFO");
+        assert_eq!(parsed.location.as_deref(), Some("src/main.rs:42"));
+        assert_eq!(parsed.message, "service started");
+    }
+
+    #[test]
+    fn parse_log_line_strips_thread_id_prefix() {
+        let parsed =
+            parse_log_line("2026-03-16T19:00:00Z DEBUG ThreadId(7) worker loop started").unwrap();
+
+        assert_eq!(parsed.level, "DEBUG");
+        assert_eq!(parsed.location, None);
+        assert_eq!(parsed.message, "worker loop started");
+    }
+
+    #[test]
+    fn parse_log_line_rejects_short_or_invalid_lines() {
+        assert!(parse_log_line("short").is_none());
+        assert!(parse_log_line("not-a-date INFO message").is_none());
+        assert!(parse_log_line("2026-03-16T19:00:00Z OTHER unknown").is_none());
+    }
+
+    #[test]
+    fn level_to_val_orders_known_levels_and_unknowns() {
+        assert_eq!(level_to_val("ERROR"), 1);
+        assert_eq!(level_to_val("WARN"), 2);
+        assert_eq!(level_to_val("INFO"), 3);
+        assert_eq!(level_to_val("DEBUG"), 4);
+        assert_eq!(level_to_val("TRACE"), 5);
+        assert_eq!(level_to_val("unknown"), 0);
+    }
+
+    #[test]
+    fn level_matches_obeys_filter_threshold() {
+        let entry = LogEntry {
+            timestamp: "2026-03-16T19:00:00Z".to_string(),
+            level: "INFO".to_string(),
+            message: "message".to_string(),
+            location: None,
+        };
+
+        assert!(level_matches(&entry, &None));
+        assert!(level_matches(&entry, &Some("INFO".to_string())));
+        assert!(level_matches(&entry, &Some("DEBUG".to_string())));
+        assert!(!level_matches(&entry, &Some("WARN".to_string())));
+    }
+
+    #[test]
+    fn is_noise_filters_known_log_fetch_noise() {
+        let hyper = LogEntry {
+            timestamp: "t".to_string(),
+            level: "INFO".to_string(),
+            message: "hyper request".to_string(),
+            location: None,
+        };
+        let rocket_debug = LogEntry {
+            timestamp: "t".to_string(),
+            level: "DEBUG".to_string(),
+            message: "rocket internal".to_string(),
+            location: None,
+        };
+        let route_noise = LogEntry {
+            timestamp: "t".to_string(),
+            level: "INFO".to_string(),
+            message: "GET /logs Response succeeded".to_string(),
+            location: None,
+        };
+        let normal = LogEntry {
+            timestamp: "t".to_string(),
+            level: "INFO".to_string(),
+            message: "application message".to_string(),
+            location: None,
+        };
+
+        assert!(is_noise(&hyper));
+        assert!(is_noise(&rocket_debug));
+        assert!(is_noise(&route_noise));
+        assert!(!is_noise(&normal));
+    }
+}

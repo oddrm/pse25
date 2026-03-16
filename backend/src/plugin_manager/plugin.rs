@@ -184,3 +184,103 @@ impl Trigger {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::str::FromStr;
+
+    #[test]
+    fn plugin_new_sets_defaults_and_exposes_fields() {
+        let path = PathBuf::from("plugins/example.py");
+        let plugin = Plugin::new(
+            "example".to_string(),
+            "Example plugin".to_string(),
+            Trigger::Manual,
+            path.clone(),
+        );
+
+        assert_eq!(plugin.name(), "example");
+        assert_eq!(plugin.description(), "Example plugin");
+        assert!(matches!(plugin.trigger(), Trigger::Manual));
+        assert_eq!(plugin.path(), &path);
+        assert!(!plugin.enabled());
+        assert!(plugin.valid());
+        assert!(plugin.validation_warnings().is_empty());
+    }
+
+    #[test]
+    fn plugin_setters_update_mutable_state() {
+        let mut plugin = Plugin::new(
+            "example".to_string(),
+            "Example plugin".to_string(),
+            Trigger::OnEntryCreate,
+            PathBuf::from("plugins/example.py"),
+        );
+
+        plugin.set_enabled(true);
+        plugin.set_valid(false);
+        plugin.set_validation_warnings(vec!["warn-1".to_string(), "warn-2".to_string()]);
+
+        assert!(plugin.enabled());
+        assert!(!plugin.valid());
+        assert_eq!(
+            plugin.validation_warnings(),
+            &vec!["warn-1".to_string(), "warn-2".to_string()]
+        );
+    }
+
+    #[test]
+    fn backend_event_trigger_kind_maps_non_manual_variants() {
+        assert_eq!(
+            BackendEvent::EntryCreated {
+                path: "/data/file".to_string()
+            }
+                .trigger_kind(),
+            Some(TriggerKind::OnEntryCreate)
+        );
+        assert_eq!(
+            BackendEvent::EntryUpdated {
+                path: "/data/file".to_string()
+            }
+                .trigger_kind(),
+            Some(TriggerKind::OnEntryUpdate)
+        );
+        assert_eq!(
+            BackendEvent::EntryDeleted {
+                path: "/data/file".to_string()
+            }
+                .trigger_kind(),
+            Some(TriggerKind::OnEntryDelete)
+        );
+        assert_eq!(
+            BackendEvent::OnSchedule {
+                schedule: Schedule::from_str("0 * * * * *").unwrap(),
+                path: "/data/file".to_string()
+            }
+                .trigger_kind(),
+            Some(TriggerKind::OnSchedule)
+        );
+        assert_eq!(
+            BackendEvent::Manual {
+                plugin_name: "example".to_string()
+            }
+                .trigger_kind(),
+            None
+        );
+    }
+
+    #[test]
+    fn trigger_to_string_returns_human_readable_variants() {
+        assert_eq!(Trigger::OnEntryCreate.to_string(), "OnEntryCreate");
+        assert_eq!(Trigger::OnEntryUpdate.to_string(), "OnEntryUpdate");
+        assert_eq!(Trigger::OnEntryDelete.to_string(), "OnEntryDelete");
+        assert_eq!(Trigger::Manual.to_string(), "Manual");
+        assert!(
+            Trigger::OnSchedule(Schedule::from_str("0 * * * * *").unwrap())
+                .to_string()
+                .starts_with("OnSchedule(")
+        );
+    }
+}

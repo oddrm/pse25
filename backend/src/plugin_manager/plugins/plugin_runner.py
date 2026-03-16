@@ -55,7 +55,7 @@ MIN_LIFETIME_SECONDS = 3.0
 
 # Rückgabe Status
 def build_status(
-    worker_thread: threading.Thread | None, run_done: threading.Event
+        worker_thread: threading.Thread | None, run_done: threading.Event
 ) -> dict:
     """
     Baut eine Status-Antwort für das `status`-Kommando.
@@ -129,12 +129,12 @@ def write_msg(obj: dict) -> None:
 
 
 def write_ack(
-    instance_id: int,
-    request_id: str | None,
-    ok: bool,
-    result=None,
-    error: str | None = None,
-    trace: str | None = None,
+        instance_id: int,
+        request_id: str | None,
+        ok: bool,
+        result=None,
+        error: str | None = None,
+        trace: str | None = None,
 ) -> None:
     """
     Sendet eine standardisierte Antwort auf ein Kommando.

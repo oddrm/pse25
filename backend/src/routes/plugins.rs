@@ -83,8 +83,8 @@ pub async fn start_plugin_instance(
         pm.build_started_instance_with_data(plugin_index, &plugin_path, instance_id, data_str)
             .await
     })
-    .await
-    .map_err(|_| Error::CustomError(format!("start timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+        .await
+        .map_err(|_| Error::CustomError(format!("start timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
 
     {
         let mut pm = lock_plugin_manager(state).await?;
@@ -112,7 +112,7 @@ pub async fn register_plugins(state: &State<AppState>) -> Result<status::NoConte
                 instance_id,
             ),
         )
-        .await;
+            .await;
 
         if let Err(_) = stop_res {
             tracing::warn!(
@@ -168,8 +168,8 @@ pub async fn stop_plugin_instance(
         ROUTE_OP_TIMEOUT,
         crate::plugin_manager::manager::PluginManager::stop_instance_handle(handle, instance_id),
     )
-    .await
-    .map_err(|_| Error::CustomError(format!("stop timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+        .await
+        .map_err(|_| Error::CustomError(format!("stop timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
 
     // Nach erfolgreichem Stop die Instanz aus `running` entfernen
     // und in die History übernehmen.
@@ -201,8 +201,8 @@ pub async fn pause_plugin_instance(
         ROUTE_OP_TIMEOUT,
         crate::plugin_manager::manager::PluginManager::pause_instance_handle(handle, instance_id),
     )
-    .await
-    .map_err(|_| Error::CustomError(format!("pause timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+        .await
+        .map_err(|_| Error::CustomError(format!("pause timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
 
     Ok(status::NoContent)
 }
@@ -221,8 +221,8 @@ pub async fn resume_plugin_instance(
         ROUTE_OP_TIMEOUT,
         crate::plugin_manager::manager::PluginManager::resume_instance_handle(handle, instance_id),
     )
-    .await
-    .map_err(|_| Error::CustomError(format!("resume timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
+        .await
+        .map_err(|_| Error::CustomError(format!("resume timed out after {:?}", ROUTE_OP_TIMEOUT)))??;
 
     Ok(status::NoContent)
 }

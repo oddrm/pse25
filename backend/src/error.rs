@@ -178,3 +178,109 @@ impl From<mcap::McapError> for StorageError {
         StorageError::McapError(err)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rocket::http::Status;
+
+    #[test]
+    fn parsing_errors_map_to_bad_request() {
+        let err = Error::ParsingError("bad input".to_string());
+        let (status, message) = err.to_status_and_message();
+
+        assert_eq!(status, Status::BadRequest);
+        assert_eq!(message, "bad input");
+    }
+
+    #[test]
+    fn busy_custom_errors_map_to_service_unavailable() {
+        let err = Error::CustomError("database busy".to_string());
+        let (status, message) = err.to_status_and_message();
+
+        assert_eq!(status, Status::ServiceUnavailable);
+        assert_eq!(message, "database busy");
+    }
+
+    #[test]
+    fn regular_custom_errors_map_to_bad_request() {
+        let err = Error::CustomError("plain validation error".to_string());
+        let (status, message) = err.to_status_and_message();
+
+        assert_eq!(status, Status::BadRequest);
+        assert_eq!(message, "plain validation error");
+    }
+
+    #[test]
+    fn storage_error_variants_map_to_expected_statuses() {
+        let not_found = Error::StorageError(StorageError::NotFound("missing".to_string()));
+        let already_exists =
+            Error::StorageError(StorageError::AlreadyExists("duplicate".to_string()));
+        let decoding = Error::StorageError(StorageError::DecodingError("decode".to_string()));
+        let io = Error::StorageError(StorageError::IoError(std::io::Error::other("disk")));
+        let event = Error::StorageError(StorageError::EventProcessingError("event".to_string()));
+        let custom = Error::StorageError(StorageError::CustomError("custom".to_string()));
+
+        assert_eq!(not_found.to_status_and_message(), (Status::NotFound, "missing".to_string()));
+        assert_eq!(
+            already_exists.to_status_and_message(),
+            (Status::Conflict, "duplicate".to_string())
+        );
+        assert_eq!(
+            decoding.to_status_and_message(),
+            (Status::BadRequest, "decode".to_string())
+        );
+        assert_eq!(
+            io.to_status_and_message(),
+            (Status::InternalServerError, "I/O error".to_string())
+        );
+        assert_eq!(
+            event.to_status_and_message(),
+            (Status::InternalServerError, "event".to_string())
+        );
+        assert_eq!(
+            custom.to_status_and_message(),
+            (Status::InternalServerError, "custom".to_string())
+        );
+    }
+
+    #[test]
+    fn connection_errors_map_to_service_unavailable() {
+        let err = Error::StorageError(StorageError::ConnectionError(
+            ConnectionError::BadConnection("db unavailable".to_string()),
+        ));
+
+        assert_eq!(
+            err.to_status_and_message(),
+            (
+                Status::ServiceUnavailable,
+                "Database temporarily unavailable".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn polling_and_io_errors_map_to_internal_server_error() {
+        let polling = Error::PollingError(notify::Error::generic("watch failed"));
+        let io = Error::IoError(std::io::Error::other("io failed"));
+
+        assert_eq!(
+            polling.to_status_and_message(),
+            (Status::InternalServerError, "Watcher/polling error".to_string())
+        );
+        assert_eq!(
+            io.to_status_and_message(),
+            (Status::InternalServerError, "I/O error".to_string())
+        );
+    }
+
+    #[test]
+    fn from_impls_wrap_source_errors() {
+        let storage = StorageError::IoError(std::io::Error::other("io"));
+        let err: Error = storage.into();
+        assert!(matches!(err, Error::StorageError(StorageError::IoError(_))));
+
+        let polling: Error = notify::Error::generic("watch failed").into();
+        assert!(matches!(polling, Error::PollingError(_)));
+    }
+}

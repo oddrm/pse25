@@ -229,7 +229,7 @@ impl PluginManager {
             instance_id,
             data,
         )
-        .await
+            .await
     }
 
     /// Phase 1 (kurz, unter Lock): finde alle Plugins, die zu diesem Event passen
@@ -793,7 +793,7 @@ impl PluginManager {
                 BackendEvent::OnSchedule { .. } => "schedule",
                 BackendEvent::Manual { .. } => "manual",
             }
-            .to_string();
+                .to_string();
 
             let event_path = match &event {
                 BackendEvent::EntryCreated { path }
@@ -818,7 +818,7 @@ impl PluginManager {
                         "path": event_path,
                         "plugin_path": plugin_path.to_string_lossy(),
                     })
-                    .to_string();
+                        .to_string();
 
                     (plugin_index, plugin_name, plugin_path, instance_id, data)
                 })
@@ -837,7 +837,7 @@ impl PluginManager {
                 instance_id,
                 data,
             )
-            .await?;
+                .await?;
             built.push((instance_id, handle));
         }
 
@@ -890,7 +890,7 @@ impl PluginManager {
                     "watch_dir": "/data",
                     "plugin_path": plugin_path.to_string_lossy(),
                 })
-                .to_string()
+                    .to_string()
             } else {
                 String::new()
             };
@@ -908,6 +908,380 @@ impl PluginManager {
         }
 
         Ok(started)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugin_manager::plugin::Plugin;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tokio::sync::{mpsc, watch};
+
+    fn test_plugin(name: &str, trigger: Trigger, enabled: bool, valid: bool) -> Plugin {
+        let mut plugin = Plugin::new(
+            name.to_string(),
+            format!("{name} description"),
+            trigger,
+            PathBuf::from(format!("plugins/{name}.py")),
+        );
+        plugin.set_enabled(enabled);
+        plugin.set_valid(valid);
+        plugin
+    }
+
+    fn test_handle(plugin_index: usize, state: InstanceState) -> PluginHandle {
+        let (command_tx, _command_rx) = mpsc::channel(8);
+        let (_status_tx, status_rx) = watch::channel(state);
+        let (_progress_tx, progress_rx) = watch::channel(0.0_f32);
+
+        PluginHandle {
+            plugin_index,
+            command_tx,
+            status_rx,
+            progress_rx,
+        }
+    }
+
+    fn unique_temp_path(filename: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("pse25-plugin-manager-{nanos}-{filename}"))
+    }
+
+    #[test]
+    fn parse_trigger_supports_manual_and_entry_triggers() {
+        assert!(matches!(parse_trigger(None).unwrap(), Trigger::Manual));
+        assert!(matches!(
+            parse_trigger(Some(TRIGGER_MANUAL)).unwrap(),
+            Trigger::Manual
+        ));
+        assert!(matches!(
+            parse_trigger(Some(TRIGGER_ON_ENTRY_CREATE)).unwrap(),
+            Trigger::OnEntryCreate
+        ));
+        assert!(matches!(
+            parse_trigger(Some(TRIGGER_ON_ENTRY_UPDATE)).unwrap(),
+            Trigger::OnEntryUpdate
+        ));
+        assert!(matches!(
+            parse_trigger(Some(TRIGGER_ON_ENTRY_DELETE)).unwrap(),
+            Trigger::OnEntryDelete
+        ));
+    }
+
+    #[test]
+    fn parse_trigger_supports_schedule_with_five_or_six_fields() {
+        assert!(matches!(
+            parse_trigger(Some("on_schedule:* * * * *")).unwrap(),
+            Trigger::OnSchedule(_)
+        ));
+        assert!(matches!(
+            parse_trigger(Some("on_schedule:0 * * * * *")).unwrap(),
+            Trigger::OnSchedule(_)
+        ));
+    }
+
+    #[test]
+    fn parse_trigger_returns_manual_for_unknown_values() {
+        assert!(matches!(
+            parse_trigger(Some("something_else")).unwrap(),
+            Trigger::Manual
+        ));
+    }
+
+    #[test]
+    fn parse_trigger_returns_descriptive_error_for_invalid_schedule() {
+        let err = parse_trigger(Some("on_schedule:not a cron")).unwrap_err();
+
+        match err {
+            Error::CustomError(msg) => {
+                assert!(msg.contains("Invalid cron expression"));
+                assert!(msg.contains("not a cron"));
+            }
+            other => panic!("unexpected error: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_manager_new_starts_empty() {
+        let manager = PluginManager::new();
+
+        assert!(manager.registered.is_empty());
+        assert!(manager.running.is_empty());
+        assert!(manager.history.is_empty());
+    }
+
+    #[test]
+    fn prepare_fire_event_selects_only_enabled_and_valid_matching_plugins() {
+        let mut manager = PluginManager::new();
+        manager.registered = vec![
+            test_plugin("create_ok", Trigger::OnEntryCreate, true, true),
+            test_plugin("create_disabled", Trigger::OnEntryCreate, false, true),
+            test_plugin("create_invalid", Trigger::OnEntryCreate, true, false),
+            test_plugin("update_ok", Trigger::OnEntryUpdate, true, true),
+        ];
+
+        let plans = manager
+            .prepare_fire_event(&BackendEvent::EntryCreated {
+                path: "/data/file".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].0, 0);
+        assert_eq!(plans[0].1, PathBuf::from("plugins/create_ok.py"));
+    }
+
+    #[test]
+    fn prepare_fire_event_returns_empty_for_manual_events() {
+        let mut manager = PluginManager::new();
+        manager.registered = vec![test_plugin("manual", Trigger::Manual, true, true)];
+
+        let plans = manager
+            .prepare_fire_event(&BackendEvent::Manual {
+                plugin_name: "manual".to_string(),
+            })
+            .unwrap();
+
+        assert!(plans.is_empty());
+    }
+
+    #[test]
+    fn prepare_start_requires_registered_enabled_and_valid_plugin() {
+        let mut manager = PluginManager::new();
+        manager.registered = vec![
+            test_plugin("ready", Trigger::Manual, true, true),
+            test_plugin("disabled", Trigger::Manual, false, true),
+            test_plugin("invalid", Trigger::Manual, true, false),
+        ];
+
+        let ready = manager.prepare_start("ready").unwrap();
+        assert_eq!(ready.0, 0);
+        assert_eq!(ready.1, PathBuf::from("plugins/ready.py"));
+
+        let disabled = manager.prepare_start("disabled").unwrap_err();
+        let invalid = manager.prepare_start("invalid").unwrap_err();
+        let missing = manager.prepare_start("missing").unwrap_err();
+
+        match disabled {
+            Error::CustomError(msg) => assert!(msg.contains("disabled")),
+            other => panic!("unexpected error: {:?}", other),
+        }
+        match invalid {
+            Error::CustomError(msg) => assert!(msg.contains("invalid")),
+            other => panic!("unexpected error: {:?}", other),
+        }
+        match missing {
+            Error::CustomError(msg) => assert!(msg.contains("not registered")),
+            other => panic!("unexpected error: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn get_scheduled_plugins_snapshot_includes_only_enabled_valid_schedule_plugins() {
+        let mut manager = PluginManager::new();
+        manager.registered = vec![
+            test_plugin(
+                "scheduled",
+                Trigger::OnSchedule(Schedule::from_str("0 * * * * *").unwrap()),
+                true,
+                true,
+            ),
+            test_plugin(
+                "scheduled_disabled",
+                Trigger::OnSchedule(Schedule::from_str("0 * * * * *").unwrap()),
+                false,
+                true,
+            ),
+            test_plugin("manual", Trigger::Manual, true, true),
+        ];
+
+        let snapshot = manager.get_scheduled_plugins_snapshot();
+
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0].0, 0);
+        assert_eq!(snapshot[0].1, "scheduled");
+        assert_eq!(snapshot[0].2, PathBuf::from("plugins/scheduled.py"));
+    }
+
+    #[test]
+    fn enable_and_disable_plugin_update_matching_plugin() {
+        let mut manager = PluginManager::new();
+        manager.registered = vec![test_plugin("toggle", Trigger::Manual, false, true)];
+
+        manager.enable_plugin("toggle").unwrap();
+        assert!(manager.registered[0].enabled());
+
+        manager.disable_plugin("toggle").unwrap();
+        assert!(!manager.registered[0].enabled());
+    }
+
+    #[test]
+    fn enable_and_disable_plugin_error_for_missing_plugin() {
+        let mut manager = PluginManager::new();
+
+        let enable = manager.enable_plugin("missing").unwrap_err();
+        let disable = manager.disable_plugin("missing").unwrap_err();
+
+        match enable {
+            Error::CustomError(msg) => assert!(msg.contains("missing")),
+            other => panic!("unexpected error: {:?}", other),
+        }
+        match disable {
+            Error::CustomError(msg) => assert!(msg.contains("missing")),
+            other => panic!("unexpected error: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn load_config_and_apply_updates_registered_plugins_and_ignores_unknown_ones() {
+        let mut manager = PluginManager::new();
+        manager.registered = vec![
+            test_plugin("one", Trigger::Manual, false, true),
+            test_plugin("two", Trigger::Manual, false, true),
+        ];
+
+        let config_path = unique_temp_path("plugins.yaml");
+        std::fs::write(
+            &config_path,
+            "plugins:\n  - name: one\n    enabled: true\n  - name: missing\n    enabled: true\n",
+        )
+            .unwrap();
+
+        manager
+            .load_config_and_apply(config_path.to_str().unwrap())
+            .unwrap();
+
+        let _ = std::fs::remove_file(&config_path);
+
+        assert!(manager.registered[0].enabled());
+        assert!(!manager.registered[1].enabled());
+    }
+
+    #[test]
+    fn load_config_and_apply_errors_for_missing_or_invalid_yaml() {
+        let mut manager = PluginManager::new();
+
+        let missing = manager.load_config_and_apply("C:/definitely/missing/plugins.yaml");
+        assert!(matches!(missing, Err(Error::CustomError(msg)) if msg.contains("Failed to read config")));
+
+        let invalid_path = unique_temp_path("invalid.yaml");
+        std::fs::write(&invalid_path, "plugins: [").unwrap();
+
+        let invalid = manager.load_config_and_apply(invalid_path.to_str().unwrap());
+        let _ = std::fs::remove_file(&invalid_path);
+
+        assert!(matches!(invalid, Err(Error::CustomError(msg)) if msg.contains("Failed to parse config")));
+    }
+
+    #[test]
+    fn commit_get_and_take_instance_handle_manage_running_map() {
+        let mut manager = PluginManager::new();
+        let handle = test_handle(0, InstanceState::Running);
+
+        manager.commit_started_instance(42, handle.clone()).unwrap();
+        let retrieved = manager.get_instance_handle(42).unwrap();
+        let taken = manager.take_instance_handle(42).unwrap();
+
+        assert_eq!(retrieved.plugin_index, 0);
+        assert_eq!(taken.plugin_index, 0);
+        assert!(manager.get_instance_handle(42).is_err());
+    }
+
+    #[test]
+    fn commit_started_instance_rejects_duplicate_ids() {
+        let mut manager = PluginManager::new();
+        manager
+            .commit_started_instance(7, test_handle(0, InstanceState::Running))
+            .unwrap();
+
+        let duplicate = manager.commit_started_instance(7, test_handle(0, InstanceState::Running));
+
+        assert!(matches!(duplicate, Err(Error::CustomError(msg)) if msg.contains("already running")));
+    }
+
+    #[test]
+    fn running_and_history_snapshots_reflect_registered_plugins() {
+        let mut manager = PluginManager::new();
+        manager.registered = vec![
+            test_plugin("one", Trigger::Manual, true, true),
+            test_plugin("two", Trigger::Manual, true, true),
+        ];
+        manager.running.insert(10, test_handle(0, InstanceState::Paused));
+        manager.record_history(11, 1, InstanceState::Stopped);
+        manager.record_history(12, 99, InstanceState::Failed);
+
+        let running = manager.get_running_instances();
+        let history = manager.get_history_instances();
+        let registered = manager.get_registered_plugins();
+
+        assert_eq!(running.len(), 1);
+        assert_eq!(running[0].0.name(), "one");
+        assert_eq!(running[0].1, 10);
+        assert_eq!(running[0].2, InstanceState::Paused);
+
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].0.name(), "two");
+        assert_eq!(history[0].1, 11);
+        assert_eq!(history[0].2, InstanceState::Stopped);
+
+        assert_eq!(registered.len(), 2);
+        assert_eq!(registered[0].name(), "one");
+        assert_eq!(registered[1].name(), "two");
+    }
+
+    #[tokio::test]
+    async fn is_instance_responsive_returns_true_when_actor_reports_running() {
+        let mut manager = PluginManager::new();
+        let (command_tx, mut command_rx) = mpsc::channel(8);
+        let (_status_tx, status_rx) = watch::channel(InstanceState::Running);
+        let (_progress_tx, progress_rx) = watch::channel(0.0_f32);
+
+        manager.running.insert(
+            1,
+            PluginHandle {
+                plugin_index: 0,
+                command_tx,
+                status_rx,
+                progress_rx,
+            },
+        );
+
+        tokio::spawn(async move {
+            if let Some(PluginCommand::CheckLiveness(reply)) = command_rx.recv().await {
+                let _ = reply.send(Ok(serde_json::json!({ "running": true })));
+            }
+        });
+
+        let responsive = manager.is_instance_responsive(1).await.unwrap();
+        assert!(responsive);
+    }
+
+    #[tokio::test]
+    async fn is_instance_responsive_returns_false_when_actor_channel_is_dead() {
+        let mut manager = PluginManager::new();
+        let (command_tx, command_rx) = mpsc::channel(1);
+        drop(command_rx);
+        let (_status_tx, status_rx) = watch::channel(InstanceState::Running);
+        let (_progress_tx, progress_rx) = watch::channel(0.0_f32);
+
+        manager.running.insert(
+            2,
+            PluginHandle {
+                plugin_index: 0,
+                command_tx,
+                status_rx,
+                progress_rx,
+            },
+        );
+
+        let result = manager.is_instance_responsive(2).await;
+
+        assert!(matches!(result, Err(Error::CustomError(msg)) if msg.contains("Actor dead")));
     }
 }
 

@@ -101,8 +101,8 @@ async fn main() {
         plugin_manager_arc.clone(),
         Duration::from_secs(5),
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     // Hintergrundtask:
     // räumt abgeschlossene oder unresponsive Plugin-Instanzen auf.
@@ -229,7 +229,7 @@ async fn main() {
                         Duration::from_secs(10),
                         PluginManager::fire_event_detached(pm.clone(), event),
                     )
-                    .await;
+                        .await;
 
                     match fire_res {
                         Ok(Ok(_instance_ids)) => {
