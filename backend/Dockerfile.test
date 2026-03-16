@@ -20,7 +20,8 @@ RUN mkdir -p src && echo 'fn main() { println!("dummy"); }' > src/main.rs \
         && mkdir -p /usr/local/cargo/bin /usr/local/bin \
         && curl -fsSL -o /usr/local/bin/mcap "https://github.com/foxglove/mcap/releases/download/releases/mcap-cli/v0.0.61/mcap-linux-amd64" \
         && chmod +x /usr/local/bin/mcap \
-        && ln -sf /usr/local/bin/mcap /usr/local/cargo/bin/mcap
+        && ln -sf /usr/local/bin/mcap /usr/local/cargo/bin/mcap \
+        && cargo install cargo-tarpaulin
 
 FROM rust:latest
 WORKDIR /app
