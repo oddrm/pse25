@@ -27,11 +27,8 @@ const open = ref(false)
 const isMounted = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const buttonRef = ref<HTMLElement | null>(null)
-const dropdownStyle = ref({
-  top: '0px',
-  left: '0px',
-  visibility: 'hidden' as 'hidden' | 'visible'
-})
+
+
 
 // Plugins automatisch laden, falls noch nicht geschehen
 onMounted(() => {
@@ -43,35 +40,21 @@ onMounted(() => {
   // Klick außerhalb → Dropdown schließen
   onClickOutside(dropdownRef, () => {
     open.value = false
-  })
+    },
+    {
+        ignore: [buttonRef]
+    }
+  )
 })
 
-// Dropdown Position aktualisieren
-const updatePosition = () => {
-  if (buttonRef.value) {
-    const rect = buttonRef.value.getBoundingClientRect()
-    dropdownStyle.value = {
-      top: `${rect.bottom + window.scrollY + 4}px`,
-      left: `${rect.left + window.scrollX}px`,
-      visibility: 'visible'
-    }
-  }
-}
+
 
 // Dropdown umschalten
 const toggleDropdown = async () => {
-  if (open.value) {
-    open.value = false
-    return
-  }
 
-  open.value = true
+  open.value = !open.value
 
-  // Position berechnen
-  await nextTick()
-  requestAnimationFrame(() => {
-    updatePosition()
-  })
+  
 }
 
 const isPluginRunningForThisEntry = (pluginName: string) => {
@@ -105,12 +88,9 @@ const runPluginOnEntry = async (plugin: PluginItem) => {
       </svg>
     </button>
 
-  </div>
-
-  <Teleport to="body">
     <div v-if="isMounted && open" ref="dropdownRef"
-      class="fixed bg-base-100 border border-base-300 rounded shadow-md z-100 w-64 flex flex-col overflow-hidden text-sm"
-      :style="dropdownStyle">
+      class="absolute top-full left-0 mt-1 bg-base-100 border border-base-300 rounded shadow-md z-50 w-64 flex flex-col overflow-hidden text-sm"
+    >
       <div v-if="pluginsStore.plugins && pluginsStore.plugins.length > 0" class="py-1">
         <button v-for="plugin in pluginsStore.plugins" :key="plugin.id"
           class="w-full text-left px-4 py-2 hover:bg-base-200 disabled:opacity-50 border-b last:border-b-0 border-base-300 flex flex-col"
@@ -124,5 +104,5 @@ const runPluginOnEntry = async (plugin: PluginItem) => {
         No plugins available
       </div>
     </div>
-  </Teleport>
+  </div>
 </template>
