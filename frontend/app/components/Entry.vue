@@ -5,7 +5,7 @@
 
       </span>
     </td>
-    <td class="font-medium whitespace-nowrap">{{ props.name }}</td>
+    <td class="font-medium whitespace-normal break-words max-w-[35ch]">{{ props.name }}</td>
     <td class="text-xs text-gray-500 truncate max-w-40" :title="props.path">{{ props.path }}</td>
     <td>{{ (props.size / 1000 / 1000).toFixed(2) }} MB</td>
     <td>{{ props.platform_name }}</td>

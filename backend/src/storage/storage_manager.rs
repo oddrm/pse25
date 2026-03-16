@@ -609,6 +609,7 @@ impl StorageManager {
                 diesel::insert_into(sequences_dsl::sequences)
                     .values((
                         sequences_dsl::entry_id.eq(s.entry_id),
+                        sequences_dsl::name.eq(s.name),
                         sequences_dsl::description.eq(s.description),
                         sequences_dsl::start_timestamp.eq(s.start_timestamp),
                         sequences_dsl::end_timestamp.eq(s.end_timestamp),
@@ -643,6 +644,7 @@ impl StorageManager {
                     .filter(schema::sequences::dsl::entry_id.eq(entry_id_)),
             )
             .set((
+                schema::sequences::dsl::name.eq(sequence.name),
                 schema::sequences::dsl::description.eq(sequence.description),
                 schema::sequences::dsl::start_timestamp.eq(sequence.start_timestamp),
                 schema::sequences::dsl::end_timestamp.eq(sequence.end_timestamp),

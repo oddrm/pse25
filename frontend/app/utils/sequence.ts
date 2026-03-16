@@ -8,11 +8,12 @@ export interface Sequence {
   updated_at: string;
 
   // Local-only fields (not persisted in backend currently)
-  name?: string;
+  name: string;
   tags: string[];
 }
 
 export interface SequenceWeb {
+  name: string;
   description: string;
   start_timestamp: number;
   end_timestamp: number;

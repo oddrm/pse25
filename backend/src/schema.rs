@@ -42,6 +42,7 @@ diesel::table! {
     sequences (id) {
         id -> BigInt,
         entry_id -> BigInt,
+        name -> Text,
         description -> Text,
         start_timestamp -> BigInt,
         end_timestamp -> BigInt,

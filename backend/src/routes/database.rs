@@ -48,6 +48,7 @@ pub struct SensorWeb {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(crate = "rocket::serde")]
 pub struct SequenceWeb {
+    pub name: String,
     pub description: String,
     pub start_timestamp: i64,
     pub end_timestamp: i64,
@@ -372,6 +373,7 @@ pub async fn add_sequence(
     let storage_sequence = Sequence {
         id: 0,
         entry_id,
+        name: s.name,
         description: s.description,
         start_timestamp: s.start_timestamp,
         end_timestamp: s.end_timestamp,
@@ -402,6 +404,7 @@ pub async fn update_sequence(
     let storage_sequence = Sequence {
         id: sequence_id,
         entry_id,
+        name: s.name,
         description: s.description,
         start_timestamp: s.start_timestamp,
         end_timestamp: s.end_timestamp,

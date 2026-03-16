@@ -64,7 +64,12 @@ export const usePluginsStore = defineStore('plugins', {
             const id = String(p.instance_id ?? '')
             const existing = existingById[id]
             const state = p.state ?? ''
-            const progress = Math.floor((p.progress ?? 0) * 100)
+
+            let progress = Math.floor((p.progress ?? 0) * 100)
+            if (state === 'Completed') {
+              progress = 100
+            }
+
             return {
               runId: id,
               pluginName: p.name,

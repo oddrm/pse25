@@ -42,6 +42,7 @@ CREATE TABLE tags (
 CREATE TABLE sequences (
     id BIGSERIAL PRIMARY KEY,
     entry_id BIGINT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
     description TEXT NOT NULL,
     start_timestamp BIGINT NOT NULL,
     end_timestamp BIGINT NOT NULL,
