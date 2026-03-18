@@ -6,11 +6,11 @@ mod common;
 use std::env;
 
 use backend::routes::database::MetadataWeb;
-use backend::storage::models::{Entry, Sequence, Topic, Sensor};
+use backend::schema;
+use backend::storage::models::{Entry, Sensor, Sequence, Topic};
 use backend::storage::storage_manager::StorageManager;
 use chrono::{SubsecRound, Utc};
 use diesel::prelude::*;
-use backend::schema;
 
 const INTEGRATION_ENTRY_ID_BASE: i64 = 80_000;
 const TXID: u64 = 0;
@@ -142,7 +142,11 @@ async fn test_get_entries_sorting() {
     let db_url = env::var("DATABASE_URL").unwrap();
     let storage = StorageManager::new(&db_url).unwrap();
 
-    let ids = [INTEGRATION_ENTRY_ID_BASE + 10, INTEGRATION_ENTRY_ID_BASE + 11, INTEGRATION_ENTRY_ID_BASE + 12];
+    let ids = [
+        INTEGRATION_ENTRY_ID_BASE + 10,
+        INTEGRATION_ENTRY_ID_BASE + 11,
+        INTEGRATION_ENTRY_ID_BASE + 12,
+    ];
     let names = ["Zebra", "Alpha", "Midi"];
     let paths = [
         "/test/integration/sort_z",
@@ -165,11 +169,22 @@ async fn test_get_entries_sorting() {
         .map(|e| e.name.as_str())
         .collect();
     assert_eq!(our_asc.len(), 3, "our 3 sort entries should be present");
-    assert_eq!(our_asc, ["Alpha", "Midi", "Zebra"], "sort by name ascending");
+    assert_eq!(
+        our_asc,
+        ["Alpha", "Midi", "Zebra"],
+        "sort by name ascending"
+    );
 
     // Sort by name descending
     let (entries_desc, _) = storage
-        .get_entries(None, Some("Name".to_string()), Some(false), None, None, TXID)
+        .get_entries(
+            None,
+            Some("Name".to_string()),
+            Some(false),
+            None,
+            None,
+            TXID,
+        )
         .await
         .unwrap();
     let our_desc: Vec<&str> = entries_desc
@@ -178,7 +193,11 @@ async fn test_get_entries_sorting() {
         .map(|e| e.name.as_str())
         .collect();
     assert_eq!(our_desc.len(), 3);
-    assert_eq!(our_desc, ["Zebra", "Midi", "Alpha"], "sort by name descending");
+    assert_eq!(
+        our_desc,
+        ["Zebra", "Midi", "Alpha"],
+        "sort by name descending"
+    );
 }
 
 #[tokio::test]
@@ -202,6 +221,7 @@ async fn test_sequences_add_get_remove() {
 
     let now = Utc::now().trunc_subsecs(3);
     let seq = Sequence {
+        name: "seq1".to_string(),
         id: 0,
         entry_id,
         description: "drive_1".to_string(),
@@ -212,7 +232,10 @@ async fn test_sequences_add_get_remove() {
         tags: vec!["seq_tag".to_string()],
     };
 
-    let seq_id = storage.add_sequence(entry_id, seq.clone(), txid).await.unwrap();
+    let seq_id = storage
+        .add_sequence(entry_id, seq.clone(), txid)
+        .await
+        .unwrap();
     assert!(seq_id > 0);
 
     let sequences = storage.get_sequences(entry_id, TXID).await.unwrap();
@@ -221,7 +244,10 @@ async fn test_sequences_add_get_remove() {
     assert_eq!(s.description, "drive_1");
     assert_eq!(s.start_timestamp, 1000);
 
-    storage.remove_sequence(entry_id, seq_id, txid).await.unwrap();
+    storage
+        .remove_sequence(entry_id, seq_id, txid)
+        .await
+        .unwrap();
     let sequences_after = storage.get_sequences(entry_id, TXID).await.unwrap();
     assert!(sequences_after.is_empty());
 }
@@ -246,13 +272,19 @@ async fn test_tags_add_remove() {
     let entry_id = inserted.id;
     let txid = storage.start_transaction();
 
-    storage.add_tag(entry_id, "new_tag".to_string(), txid).await.unwrap();
+    storage
+        .add_tag(entry_id, "new_tag".to_string(), txid)
+        .await
+        .unwrap();
 
     let updated = storage.get_entry(entry_id, TXID).await.unwrap().unwrap();
     assert!(updated.tags.contains(&"existing".to_string()));
     assert!(updated.tags.contains(&"new_tag".to_string()));
 
-    storage.remove_tag(entry_id, "new_tag".to_string(), txid).await.unwrap();
+    storage
+        .remove_tag(entry_id, "new_tag".to_string(), txid)
+        .await
+        .unwrap();
 
     let after_remove = storage.get_entry(entry_id, TXID).await.unwrap().unwrap();
     assert!(after_remove.tags.contains(&"existing".to_string()));
@@ -371,7 +403,10 @@ async fn test_topics_add_get_update_remove() {
         updated_at: Utc::now().trunc_subsecs(3),
     };
 
-    storage.update_topic(updated_topic.clone(), txid).await.unwrap();
+    storage
+        .update_topic(updated_topic.clone(), txid)
+        .await
+        .unwrap();
 
     let topics_after = storage.get_topics(entry_id, TXID).await.unwrap();
     let t2 = topics_after.get(&topic_id).unwrap();
@@ -437,7 +472,10 @@ async fn test_sensors_add_get_all_update_remove() {
         custom_parameters: None,
     };
 
-    storage.update_sensor(updated_sensor.clone(), txid).await.unwrap();
+    storage
+        .update_sensor(updated_sensor.clone(), txid)
+        .await
+        .unwrap();
 
     let sensors_after = storage.get_sensors(entry_id, TXID).await.unwrap();
     let s2 = sensors_after.get(&sensor_id).unwrap();
@@ -621,7 +659,10 @@ async fn test_update_entry_metadata_fields() {
         topics: None,
     };
 
-    storage.update_entry(entry_id, md.clone(), TXID).await.unwrap();
+    storage
+        .update_entry(entry_id, md.clone(), TXID)
+        .await
+        .unwrap();
 
     let updated = storage.get_entry(entry_id, TXID).await.unwrap().unwrap();
     assert_eq!(updated.platform_name.as_deref(), Some("PlatformX"));
